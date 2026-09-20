@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+*.log
+
+# The Pages workflow uploads the repository root verbatim, so anything
+# committed here is also published. Keep working files out of both.
+graphify-out/
+.claude/settings.local.json

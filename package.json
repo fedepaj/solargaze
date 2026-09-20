@@ -1,0 +1,12 @@
+{
+  "name": "solargaze",
+  "version": "1.0.0",
+  "description": "Open-source sun and shadow simulator on Google's photorealistic 3D tiles. No build step.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes serve@14 -l 5173 .",
+    "start": "npm run dev"
+  }
+}
