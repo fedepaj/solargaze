@@ -427,24 +427,117 @@ function openSettings() {
 
 /* ── help ─────────────────────────────────────────────────────────── */
 
+/**
+ * The short clips that carry the guide.
+ *
+ * Video, not animated GIF: the same four seconds costs about 480 KB as WebM
+ * against 4.3 MB as a GIF, and the GIF has to quantise a photorealistic mesh
+ * down to a 180-colour palette to get even that. The one place a GIF is still
+ * the only option is the README, because GitHub strips <video> out of Markdown.
+ *
+ * Sources are attached by the observer below rather than written here, so
+ * opening this sheet fetches the clip you are looking at and nothing else.
+ */
+const CLIPS = [
+  {
+    id: 'guide-time',
+    heading: 'Time of day',
+    body: 'The upper slider is the hour. Drag it and the sun walks its arc while every shadow ' +
+          'in the mesh swings with it — the clock, the compass bearing and the elevation ' +
+          'readout all follow. The ends of the slider are that day\'s sunrise and sunset, ' +
+          'unless you ask for the full 24 hours in Settings.',
+    caption: 'Mid-morning to sunset over the Colosseum.',
+  },
+  {
+    id: 'guide-date',
+    heading: 'Time of year',
+    body: 'The lower slider is the day of the year, and it is the one that answers the ' +
+          'questions worth asking. Hold the hour still and sweep it: the same balcony that ' +
+          'takes full sun in June can sit in shadow all morning in December, because the sun ' +
+          'rises further south and never climbs as high.',
+    caption: 'The same hour of the morning, late January to July.',
+  },
+  {
+    id: 'guide-pin',
+    heading: 'Putting the point somewhere exact',
+    body: 'The studied point follows the middle of the view while the padlock is open, which ' +
+          'is what you want while you are still looking around. Close the padlock and it ' +
+          'stays put — and then you can pick it up and drop it exactly where you mean, on a ' +
+          'doorway, a terrace, a particular window.',
+    caption: 'Lock the padlock, then drag the point.',
+  },
+  {
+    id: 'guide-analyze',
+    heading: 'How many hours of sun',
+    body: 'The ANALYZE tab ray-casts against the buildings actually around the point and ' +
+          'counts the hours of direct sun it gets on the selected day, sampling every ten ' +
+          'minutes. It can only test geometry that is loaded, so zoom in until the ' +
+          'surroundings are sharp before you trust the number.',
+    caption: 'A day\'s worth of direct sun, in about a second.',
+  },
+];
+
+const clipFigure = clip => `
+  <figure class="guide-clip">
+    <video data-clip="${clip.id}" loop muted playsinline preload="none"
+           poster="./docs/${clip.id}-poster.webp" aria-label="${clip.caption}"></video>
+    <figcaption>${clip.caption}</figcaption>
+  </figure>`;
+
+const section = clip => `
+  <h3>${clip.heading.toUpperCase()}</h3>
+  <p>${clip.body}</p>
+  ${clipFigure(clip)}`;
+
+/** The same bindings the corner card prints, in the same order. */
+const MOUSE_KEYS = [
+  ['Orbit around the point', ['drag']],
+  ['Look around from where you are', ['shift', '+', 'drag']],
+  ['Tilt towards the horizon', ['ctrl', '+', 'drag', 'or', 'middle']],
+  ['Zoom in and out', ['wheel', 'or', 'right', '+', 'drag']],
+  ['Move the point, once the padlock is closed', ['drag']],
+];
+
+const BOARD_KEYS = [
+  ['Time, ∓10 minutes', ['←', '→']],
+  ['Time, ∓1 hour', ['shift', '+', '←', '→']],
+  ['Date, ∓1 day', ['↑', '↓']],
+  ['Date, ∓30 days', ['shift', '+', '↑', '↓']],
+  ['Start or stop the playback', ['space']],
+  ['Jump to the current time at the point', ['n']],
+];
+
+/** '+' and 'or' are words between keys, not keys themselves. */
+const keyBits = bits => bits.map(bit =>
+  bit === '+' ? '<i>+</i>'
+    : bit === 'or' ? '<i class="alt">or</i>'
+      : `<kbd>${bit}</kbd>`).join('');
+
+const keyTable = rows => `
+  <dl class="keys">
+    ${rows.map(([what, bits]) => `<div><dt>${what}</dt><dd>${keyBits(bits)}</dd></div>`).join('')}
+  </dl>`;
+
 function openHelp() {
   openSheet(`
-    <h2>SolarGaze</h2>
-    <p>An open sun-and-shadow simulator. Pick a place, drag the two sliders — time of day and day of year — and watch real shadows fall across Google's photorealistic 3D mesh. Sun positions come from the NOAA solar equations; the shadows are cast by CesiumJS's shadow map against the actual building geometry.</p>
+    <h2>Guide &amp; shortcuts</h2>
+    <p>An open sun-and-shadow simulator. Pick a place, drag the two sliders — time of day and
+       day of year — and watch real shadows fall across Google's photorealistic 3D mesh. Sun
+       positions come from the NOAA solar equations; the shadows are cast by CesiumJS's shadow
+       map against the actual building geometry.</p>
 
     <button class="cta" id="open-guide" style="margin:4px 0 6px">How do I get the 3D buildings?</button>
 
-    <h3>CONTROLS</h3>
-    <ul>
-      <li><b>Drag the view</b> — with the padlock open, the point follows the centre of the screen.</li>
-      <li><b>Padlock</b> (left rail) — lock the point, then <b>drag it</b> on the map to place it exactly.</li>
-      <li><b>± metres</b> — raise the point off the ground to study a balcony or a roof.</li>
-      <li><b>← →</b> — step time by 10 minutes (hold <b>Shift</b> for an hour).</li>
-      <li><b>↑ ↓</b> — step the date by a day (<b>Shift</b> for a month).</li>
-      <li><b>Space</b> — play the day through.</li>
-      <li><b>N</b> — jump to the current time where the pin is.</li>
-      <li><b>Drag</b> to orbit, <b>right-drag</b> or <b>scroll</b> to zoom, <b>middle-drag</b> to tilt.</li>
-    </ul>
+    ${CLIPS.map(section).join('')}
+
+    <h3>MOUSE</h3>
+    <p>These are CesiumJS's own camera bindings. The card in the bottom-right corner of the map
+       carries the short version; close it once and it stays closed.</p>
+    ${keyTable(MOUSE_KEYS)}
+
+    <h3>KEYBOARD</h3>
+    <p>The map has focus by default, and keys are ignored while you are typing in a field.</p>
+    ${keyTable(BOARD_KEYS)}
 
     <h3>READING THE OVERLAY</h3>
     <p>The ring on the ground is a compass card graduated in degrees. The glowing arc is the sun's track for the selected day; the dot on it is where the sun is right now, labelled with its <b>△ elevation</b> above the horizon and its <b>azimuth</b> on the ring. The pale line points along the shadow.</p>
@@ -460,4 +553,46 @@ function openHelp() {
 function wireHelp(root) {
   root.querySelector('#open-guide')?.addEventListener('click', () =>
     openGuide({ back: openHelp }));
+  wireClips(root);
+}
+
+/**
+ * Load and play a clip when it is scrolled to, and pause it when it is not.
+ *
+ * Four autoplaying videos would fetch two megabytes the moment this sheet
+ * opens, most of it for sections nobody has reached yet — and four decoders
+ * running at once on a page that is already streaming a 3D mesh is a visible
+ * stutter on a modest machine. So each one is attached on its first approach
+ * and only ever one or two are actually running.
+ */
+function wireClips(root) {
+  const clips = [...root.querySelectorAll('video[data-clip]')];
+  if (!clips.length) return;
+
+  const attach = video => {
+    if (video.dataset.attached) return;
+    video.dataset.attached = '1';
+    for (const [file, type] of [['webm', 'video/webm'], ['mp4', 'video/mp4']]) {
+      const source = document.createElement('source');
+      source.src = `./docs/${video.dataset.clip}.${file}`;
+      source.type = type;
+      video.appendChild(source);
+    }
+    video.load();
+  };
+
+  // No IntersectionObserver is not worth a fallback path: attach the lot.
+  if (!('IntersectionObserver' in window)) return clips.forEach(attach);
+
+  const io = new IntersectionObserver(entries => {
+    for (const { target, isIntersecting } of entries) {
+      if (!isIntersecting) { target.pause(); continue; }
+      attach(target);
+      // A play() on a video the user has scrolled straight past rejects; that
+      // is the browser doing its job, not an error worth surfacing.
+      target.play().catch(() => {});
+    }
+  }, { root: root.closest('.sheet'), rootMargin: '200px 0px' });
+
+  clips.forEach(clip => io.observe(clip));
 }

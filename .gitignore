@@ -10,3 +10,7 @@ graphify-out/
 # Maintenance scripts, not part of the site. redact.py burns the redactions
 # into the guide screenshots; the results are committed, the tool is not.
 tools/
+
+# Source material for docs/ — full-res screenshots and the frames the GIF
+# was built from. Working files: not part of the site, so not published.
+solargaze-assets/

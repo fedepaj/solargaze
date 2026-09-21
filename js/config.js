@@ -101,6 +101,8 @@ export const PREFS = {
   fullDayRange: false,
   weather: true,
   pinLocked: false,
+  /** The bottom-right mouse cheat sheet. Open until it is dismissed. */
+  mouseCard: true,
 };
 
 /* localStorage can throw in private windows or with site data blocked, so every

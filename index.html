@@ -208,6 +208,43 @@
 
 <!-- ═══════════════ bottom right: where you look ═══════════════ -->
 <div id="tools" class="tools">
+
+  <!-- Cesium's camera bindings are its defaults, and they are not guessable:
+       shift and ctrl each turn a left-drag into something else. Printing them
+       next to the view controls is cheaper than a visit to the help sheet.
+       Rows are kept in the order you reach for them, not the order Cesium
+       declares them in. -->
+  <section class="mousecard" id="mousecard" aria-label="Mouse controls">
+    <h2 class="mousecard-head">
+      <button id="mousecard-toggle" aria-expanded="true" aria-controls="mousecard-body">
+        <svg class="mousecard-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5.6" y="2.4" width="12.8" height="19.2" rx="6.4"/>
+          <path d="M5.6 10.4h12.8"/>
+          <path d="M12 5.6v2.6"/>
+        </svg>
+        <span>Mouse</span>
+        <svg class="mousecard-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg>
+      </button>
+    </h2>
+
+    <div class="mousecard-clip" id="mousecard-body">
+      <!-- The padding lives on the list, not on this wrapper. The wrapper is
+           the grid item that collapses, and a border-box element cannot be
+           shorter than its own padding — 11px of it would stay on screen. -->
+      <div>
+        <!-- Grouped by what you want to do, not by binding: tilt and zoom each
+             answer to two, and listing those as separate rows read as a repeat. -->
+        <dl class="mousecard-list">
+          <div><dt>Orbit</dt><dd><kbd>drag</kbd></dd></div>
+          <div><dt>Look around</dt><dd><kbd>shift</kbd><i>+</i><kbd>drag</kbd></dd></div>
+          <div><dt>Tilt</dt><dd><kbd>ctrl</kbd><i>+</i><kbd>drag</kbd><i class="alt">or</i><kbd>middle</kbd></dd></div>
+          <div><dt>Zoom</dt><dd><kbd>wheel</kbd><i class="alt">or</i><kbd>right</kbd><i>+</i><kbd>drag</kbd></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <div class="toolrow">
   <button class="round" id="btn-locate" data-tip="Use my location">
     <svg viewBox="0 0 24 24"><path d="m21 3-9 18-2-7-7-2Z"/></svg>
   </button>
@@ -227,6 +264,7 @@
   <div class="zoom">
     <button id="btn-zoom-out" data-tip="Zoom out" aria-label="Zoom out">−</button>
     <button id="btn-zoom-in" data-tip="Zoom in" aria-label="Zoom in">+</button>
+  </div>
   </div>
 </div>
 

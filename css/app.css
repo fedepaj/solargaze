@@ -319,10 +319,13 @@ svg{display:block}
 .meter.is-hot i{background:var(--danger)}
 
 /* ══════════════════ bottom right: where you look ══════════════════ */
+/* A column now: the mouse card sits over the row of view controls, both
+   flushed right so their edges line up against the gutter. */
 .tools{
   position:fixed;right:var(--gutter);bottom:var(--gutter);z-index:10;
-  display:flex;align-items:center;gap:10px;
+  display:flex;flex-direction:column;align-items:flex-end;gap:10px;
 }
+.toolrow{display:flex;align-items:center;gap:10px}
 .compass{width:52px;height:52px;border-radius:50%;display:grid;place-items:center}
 .compass svg{width:40px;height:40px;overflow:visible}
 .compass .c-bg{fill:none;stroke:rgba(255,255,255,.18);stroke-width:1}
@@ -336,6 +339,52 @@ svg{display:block}
 .zoom button{width:50px;font-size:23px;font-weight:300;color:#fff;transition:background .15s}
 .zoom button:hover{background:var(--panel-hi)}
 .zoom button:first-child{border-right:1px solid var(--stroke)}
+
+
+/* ── mouse cheat sheet ─────────────────────────────────────────────
+   Collapsing animates grid-template-rows 1fr→0fr rather than height, which
+   needs no measured pixel value and so survives a text-size change or a
+   translated label. The clip child owns `overflow:hidden`; putting it on the
+   grid parent instead would clip the card's own rounded corners. */
+.mousecard{
+  border-radius:var(--r-md);overflow:hidden;
+  background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  box-shadow:var(--shadow);
+  min-width:186px;
+}
+.mousecard-head{margin:0;font-size:inherit;font-weight:inherit}
+.mousecard-head button{
+  display:flex;align-items:center;gap:7px;width:100%;
+  padding:9px 12px 9px 11px;color:var(--muted);
+  font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  transition:color .15s;
+}
+.mousecard-head button:hover{color:#fff}
+.mousecard-ico{width:15px;height:15px;flex:none}
+.mousecard-chev{width:14px;height:14px;flex:none;margin-left:auto;transition:transform .22s ease}
+.mousecard[data-open="false"] .mousecard-chev{transform:rotate(-90deg)}
+
+.mousecard-clip{display:grid;grid-template-rows:1fr;transition:grid-template-rows .22s ease}
+.mousecard[data-open="false"] .mousecard-clip{grid-template-rows:0fr}
+.mousecard-clip > *{overflow:hidden;min-height:0}
+
+.mousecard-list{margin:0;padding:0 12px 11px}
+.mousecard-list > div{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:4px 0;
+}
+.mousecard-list dt{font-size:11.5px;color:rgba(255,255,255,.86);white-space:nowrap}
+.mousecard-list dd{margin:0;display:flex;align-items:center;gap:3px}
+.mousecard-list dd i{font-style:normal;font-size:9.5px;color:var(--muted-2);padding:0 1px}
+.mousecard-list dd i.alt{
+  font-size:8.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:0 3px;
+}
+.mousecard kbd{
+  font-family:inherit;font-size:9.5px;font-weight:600;letter-spacing:.02em;
+  padding:2.5px 5px;border-radius:5px;line-height:1;
+  background:rgba(255,255,255,.09);border:1px solid var(--stroke);
+  color:rgba(255,255,255,.72);white-space:nowrap;
+}
 
 /* ══════════════════ tooltip ══════════════════ */
 .tooltip{
@@ -372,6 +421,8 @@ svg{display:block}
 .sheet code{
   background:rgba(255,255,255,.09);padding:1px 6px;border-radius:5px;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+  /* A hyphenated identifier broken over two lines reads as two words. */
+  white-space:nowrap;
 }
 .field{display:flex;gap:10px;margin:10px 0 4px}
 .field input{
@@ -470,13 +521,46 @@ svg{display:block}
   .zoom{height:42px}.zoom button{width:40px}
   .stepper{margin:0}
   .bottomleft{display:none}
+  .mousecard{display:none}
   .clock{font-size:25px}
 }
 @media (max-height:640px){
   .bottomleft{display:none}
+  .mousecard{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+
+/* ══════════════════ guide: clips and shortcut tables ══════════════════ */
+/* The clip sits flush to the sheet's text column, with the caption tucked
+   under it — a border would box in a still that is already a framed rectangle. */
+.guide-clip{margin:0 0 20px}
+.guide-clip video{
+  display:block;width:100%;aspect-ratio:1000/600;object-fit:cover;
+  border-radius:var(--r-md);background:#12151a;border:1px solid var(--stroke);
+}
+.guide-clip figcaption{
+  margin-top:7px;font-size:11.5px;line-height:1.45;color:var(--muted-2);
+}
+
+/* Shortcut tables. The keys are right-aligned so their edge makes a column,
+   which is what lets you find a binding without reading the labels. */
+.keys{margin:0 0 14px;padding:0}
+.keys > div{
+  display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  padding:6px 0;border-bottom:1px solid rgba(255,255,255,.055);
+}
+.keys > div:last-child{border-bottom:0}
+.keys dt{font-size:13px;color:rgba(255,255,255,.78);line-height:1.4}
+.keys dd{margin:0;display:flex;align-items:center;gap:4px;flex:none}
+.keys dd i{font-style:normal;font-size:10px;color:var(--muted-2);padding:0 1px}
+.keys dd i.alt{font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:0 3px}
+.keys kbd{
+  font-family:inherit;font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  padding:3px 6px;border-radius:5px;line-height:1;white-space:nowrap;
+  background:rgba(255,255,255,.09);border:1px solid var(--stroke);
+  color:rgba(255,255,255,.75);
 }
 
 /* guide screenshots: annotations ride on top as percentage-positioned boxes,

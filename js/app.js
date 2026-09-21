@@ -32,6 +32,7 @@ import { initModals, openGate, closeGate, isGated } from './ui/modals.js';
 import { initAnalyzePane } from './ui/analyzepane.js';
 import { initTooltips, hide as hideTooltip } from './ui/tooltip.js';
 import { initUsage } from './ui/usage.js';
+import { initMouseCard } from './ui/mousecard.js';
 import { toast } from './ui/toast.js';
 import { mountLoader } from './ui/sunloader.js';
 import { startOfflineDemo, stopOfflineDemo, seedDemoTime } from './ui/offlinedemo.js';
@@ -77,6 +78,7 @@ async function boot() {
   initModals({ onCredentialSaved: () => startTiles(), onRetry: () => startTiles() });
   initTooltips();
   initUsage();
+  initMouseCard();
   mountLoader($('meshload-sun'));
 
   wireDock();
