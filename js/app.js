@@ -682,8 +682,20 @@ function pushUrl() {
   } catch { /* some embedding contexts forbid this */ }
 }
 
-const isLatLon = (lat, lon) =>
-  Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+/*
+ * A function declaration, not a `const` arrow, and that is load-bearing.
+ *
+ * boot() is called from the top of this module, long before the lines down
+ * here have been evaluated, and it calls restoreFromUrl() synchronously. As a
+ * `const` this sat in the temporal dead zone at that moment, so every link
+ * carrying an `ll=` or `cam=` — which is every link the share button has ever
+ * produced — threw before the viewer was built and left a blank page. A
+ * declaration hoists, so where it sits in the file stops mattering.
+ */
+function isLatLon(lat, lon) {
+  return Number.isFinite(lat) && Number.isFinite(lon)
+    && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+}
 
 function restoreFromUrl() {
   const hash = location.hash.replace(/^#/, '');
