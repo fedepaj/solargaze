@@ -50,7 +50,7 @@ export const state = {
   y: now.getFullYear(),
   m: now.getMonth() + 1,
   d: now.getDate(),
-  minutes: now.getHours() * 60 + now.getMinutes(),
+  minutes: DEFAULTS.minutes,
 
   /* derived, refreshed by recompute() */
   utc: new Date(),

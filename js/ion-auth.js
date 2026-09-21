@@ -206,6 +206,11 @@ export async function refreshSession(clientId) {
       accessToken: data.access_token,
       refreshToken: data.refresh_token || session.refreshToken,
       expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : null,
+      // Carry the scopes forward. A refresh that dropped them would leave
+      // sessionCanGeocode() answering false for a session that can in fact
+      // geocode, which silently downgrades search to Nominatim — and with
+      // Google's tiles on screen their terms ask for Google's geocoder.
+      scopes: data.scope || session.scopes || SCOPES,
     }));
     return data.access_token;
   } catch {

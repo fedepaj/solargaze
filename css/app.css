@@ -109,6 +109,14 @@ svg{display:block}
 .icon-btn.is-on:hover{background:var(--accent);filter:brightness(1.06)}
 
 /* the pin-and-padlock: the shackle lifts and tilts when unlocked */
+/* Seat the lock lower in the head. Centring it on the circle leaves the glyph
+   looking high, because the eye reads the teardrop's tail as part of the shape
+   and puts the optical centre below the geometric one. In viewBox units, so
+   about 1 px at the rendered 22 px — nudge this alone to re-balance. */
+.pinlock .lock{
+  transform:translateY(1.2px);
+  transform-box:view-box;transform-origin:12px 12px;
+}
 .pinlock .pin-body{fill:none}
 .pinlock .lock-body{fill:currentColor;stroke:none}
 .pinlock .lock-shackle{
@@ -478,13 +486,8 @@ svg{display:block}
 .shot-wrap .shot-missing{display:none}
 .shot-wrap.is-missing .shot{display:none}
 .shot-wrap.is-missing .shot-missing{display:grid}
-.shot-wrap.is-missing .mask,.shot-wrap.is-missing .point{display:none}
+.shot-wrap.is-missing .point{display:none}
 
-.mask{
-  position:absolute;border-radius:5px;
-  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
-  background:rgba(38,43,52,.4);
-}
 .point{
   position:absolute;transform:translate(-50%,-100%);
   display:flex;flex-direction:column;align-items:center;gap:2px;
@@ -498,7 +501,10 @@ svg{display:block}
 }
 /* Kept small: the screenshot is shown at about half size, so a label sized for
    the page would blot out the very control it is pointing at. */
+/* `--dx` slides the label sideways without moving the arrow, for the cases
+   where a centred label would land on the very text it is pointing past. */
 .point b{
+  transform:translateX(var(--dx,0));
   font-size:9.5px;font-weight:700;letter-spacing:.01em;
   padding:2px 7px;border-radius:8px;white-space:nowrap;
   background:var(--accent);color:var(--accent-ink);
@@ -532,3 +538,184 @@ svg{display:block}
   stroke-linecap:round;stroke-linejoin:round;
 }
 .sheet-back + #modal-body h2{margin-top:26px}
+
+/* ══════════════════ the credential gate ══════════════════
+   Not a modal you dismiss: without Cesium ion there is no mesh, and without a
+   mesh nothing casts a shadow. So the close button goes, the chrome behind it
+   goes with it, and the backdrop is opaque enough that the bare globe reads as
+   "nothing loaded yet" rather than as a map you were nearly allowed to use. */
+.modal.is-gate{
+  /* The Colosseum, already blurred in the file so the GPU is not asked to blur
+     a full-screen layer every frame. 4.5 KB, and it doubles as the backdrop
+     when ion is unreachable and there is no live mesh to show. */
+  background:
+    linear-gradient(rgba(8,10,13,.48),rgba(8,10,13,.74)),
+    url('../docs/colosseum-blur.webp') center/cover no-repeat,
+    #0b0d11;
+}
+.modal.is-gate .sheet-x{display:none}
+
+/* The wordmark outranks the gate: whatever else is missing, the visitor should
+   always be able to see whose page this is and get to the source. */
+.wordmark{z-index:41}
+
+/* Hide the cockpit while there is no world under it. */
+body.is-gated .leftrail,
+body.is-gated .topright,
+body.is-gated .tools,
+body.is-gated .bottomleft{display:none}
+
+.gate-hero{
+  margin:-8px -8px 20px;border-radius:var(--r-md);overflow:hidden;
+  background:rgba(0,0,0,.35);border:1px solid var(--stroke);
+  aspect-ratio:640/370;   /* reserved so the sheet does not jump when the video lands */
+}
+.gate-hero video,.gate-hero img{display:block;width:100%;height:100%;object-fit:cover}
+
+.gate-fine{margin-top:12px;font-size:12.5px;color:rgba(255,255,255,.5)}
+
+.gate-alert{
+  padding:12px 15px;border-radius:var(--r-md);
+  background:rgba(246,208,47,.09);border:1px solid rgba(246,208,47,.32);
+  color:rgba(255,255,255,.88);
+}
+
+.gate-signin-alt{justify-content:center;margin-top:10px}
+
+.gate-alt{margin-top:18px;border-top:1px solid var(--stroke);padding-top:14px}
+.gate-alt summary{
+  cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:var(--muted);
+  display:flex;align-items:center;gap:7px;
+}
+.gate-alt summary::-webkit-details-marker{display:none}
+.gate-alt summary::before{
+  content:'';width:7px;height:7px;flex:none;
+  border-right:2px solid currentColor;border-bottom:2px solid currentColor;
+  transform:rotate(-45deg);transition:transform .15s;
+}
+.gate-alt[open] summary::before{transform:rotate(45deg)}
+.gate-alt summary:hover{color:#fff}
+.gate-alt p{margin-top:10px}
+
+/* ══════════════════ the sun loader ══════════════════
+   A waiting state that belongs to this app rather than a generic ring: the
+   disc holds still, the rays breathe in and out of it, and the whole card
+   turns slowly. Sized by `font-size` on the host so one rule serves a 16px
+   slot in the search bar and a 34px one in the middle of a panel. */
+.sunload{
+  display:inline-block;width:1em;height:1em;flex:none;
+  color:var(--accent);vertical-align:-.15em;
+}
+.sunload svg{display:block;width:100%;height:100%;overflow:visible}
+.sunload .sl-core{
+  fill:currentColor;
+  transform-box:view-box;transform-origin:12px 12px;
+  animation:sl-breathe 1.5s ease-in-out infinite;
+}
+.sunload .sl-rays{
+  fill:none;stroke:currentColor;stroke-width:2.1;stroke-linecap:round;
+  transform-box:view-box;transform-origin:12px 12px;
+  animation:sl-turn 3.6s linear infinite;
+}
+/* Each ray is 3.4 units long; walking the dash offset out to its full length
+   retracts it into the disc and back. Staggering the eight makes the light
+   look like it is travelling round rather than pulsing all at once. */
+.sunload .sl-rays path{
+  stroke-dasharray:3.4;
+  animation:sl-ray 1.5s ease-in-out infinite;
+}
+.sunload .sl-rays path:nth-child(1){animation-delay:0s}
+.sunload .sl-rays path:nth-child(2){animation-delay:.09s}
+.sunload .sl-rays path:nth-child(3){animation-delay:.18s}
+.sunload .sl-rays path:nth-child(4){animation-delay:.27s}
+.sunload .sl-rays path:nth-child(5){animation-delay:.36s}
+.sunload .sl-rays path:nth-child(6){animation-delay:.45s}
+.sunload .sl-rays path:nth-child(7){animation-delay:.54s}
+.sunload .sl-rays path:nth-child(8){animation-delay:.63s}
+@keyframes sl-turn{to{transform:rotate(360deg)}}
+@keyframes sl-ray{0%,100%{stroke-dashoffset:3.1}50%{stroke-dashoffset:0}}
+@keyframes sl-breathe{0%,100%{transform:scale(.86)}50%{transform:scale(1)}}
+
+/* Inside a button, standing in for the label while the work runs. */
+.is-working{display:inline-flex;align-items:center;justify-content:center;gap:9px}
+.is-working .sunload{font-size:17px}
+
+/* ══════════════════ mesh loading ══════════════════
+   Sits above the scene and below the gate: the gate has its own busy state, and
+   the two must never stack. Pointer events pass through — the camera stays
+   usable while tiles stream, which is half the reason to show this at all. */
+.meshload{
+  position:fixed;inset:0;z-index:30;display:grid;place-items:center;
+  /* Blur what is behind it: during the wait the canvas is either empty or half
+     a mesh, and neither is worth reading. Lighter than the gate's backdrop,
+     because this is a pause, not a door. */
+  background:rgba(8,10,13,.42);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  pointer-events:none;
+}
+.meshload-card{
+  display:flex;flex-direction:column;align-items:center;gap:11px;
+  padding:30px 38px 28px;border-radius:var(--r-lg);
+  background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--stroke);box-shadow:var(--shadow);
+  animation:meshload-in .25s ease both;
+}
+.meshload-card b{font-size:14.5px;font-weight:600}
+/* Wide enough to hold the longer note on two lines: three lines made the card
+   bottom-heavy, which is what read as "off centre" even though it is not. */
+.meshload-card small{font-size:12px;color:var(--muted);max-width:38ch;text-align:center}
+.meshload-card #meshload-sun{font-size:54px;display:block}
+@keyframes meshload-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ══════════════════ offline demo ══════════════════
+   A recorded day standing in for the live mesh. The plate covers the canvas and
+   the real chrome stays on top, because the point is to show what the controls
+   would do — with every control that needs geometry visibly switched off. */
+.demo{position:fixed;inset:0;z-index:5}
+.demo-video{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  background:#0b0d11;
+}
+.demo-bar{
+  position:fixed;left:50%;bottom:calc(var(--gutter) + 6px);transform:translateX(-50%);
+  z-index:31;width:min(430px,calc(100vw - 2*var(--gutter)));
+  padding:15px 19px 17px;border-radius:var(--r-lg);
+  background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid rgba(246,208,47,.34);box-shadow:var(--shadow);
+}
+.demo-bar b{display:block;font-size:13.5px;color:var(--accent);margin-bottom:5px}
+.demo-bar p{margin:0 0 7px;font-size:12.5px;line-height:1.55;color:rgba(255,255,255,.8)}
+.demo-bar small{display:block;font-size:11.5px;line-height:1.5;color:var(--muted)}
+.demo-bar small b{display:inline;color:#fff;font-size:11.5px}
+.demo-bar .cta{height:38px;margin-top:11px;font-size:13px}
+
+/* Only the time slider survives. Everything else would be lying. */
+body.is-demo #search-input,
+body.is-demo #btn-share,
+body.is-demo #btn-help,
+body.is-demo #clock-btn,
+body.is-demo #date-pill,
+body.is-demo #btn-now,
+body.is-demo #btn-play,
+body.is-demo #tab-analyze,
+body.is-demo .sliderrow:last-child,
+body.is-demo .leftrail,
+body.is-demo .tools,
+body.is-demo .bottomleft{
+  pointer-events:none;opacity:.32;filter:grayscale(1);
+}
+/* The clock is a readout here, not a control: it must stay legible as the
+   slider moves, or dragging tells you nothing. */
+body.is-demo #clock-btn{opacity:.75;filter:none}
+body.is-demo .demo-bar,body.is-demo #time-slider{pointer-events:auto}
+body.is-demo #meshload,
+body.is-gated #meshload{display:none}
+
+/* A box round a whole group in a guide screenshot. Used where an arrow would
+   single out one of several equally good choices. */
+.markbox{
+  position:absolute;border-radius:7px;pointer-events:none;
+  border:2px solid var(--accent);
+  box-shadow:0 0 0 3px rgba(246,208,47,.16),0 2px 10px rgba(0,0,0,.35);
+}
+.shot-wrap.is-missing .markbox{display:none}

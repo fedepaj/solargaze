@@ -62,13 +62,29 @@ const ALL_STORES = [
  * the camera on it — `height` is the slant distance from the pin, not an
  * altitude, with `heading`/`pitch` in degrees. These frame the Colosseum from
  * the south, which is the view in the README's animation.
+ *
+ * `minutes` is a time of day, not a date. Opening at mid-morning guarantees a
+ * long, legible shadow whatever day someone arrives, where "now" would show a
+ * flat overhead sun at noon in June and pitch darkness at 23:00 — a poor first
+ * impression for an app that is entirely about shadows. NOW is one click away.
  */
 export const DEFAULTS = {
-  lat: 41.890468,
-  lon: 12.492376,
-  height: 520,
+  lat: 41.890498,
+  lon: 12.492392,
+  height: 400,
   heading: 0,
   pitch: -40,
+  minutes: 10 * 60 + 3,
+  /**
+   * Metres of ground under the pin, stated rather than measured.
+   *
+   * The camera has to be composed before anything can be sampled, and
+   * sampleHeightMostDetailed does not answer reliably over photogrammetry this
+   * fresh. A known viewpoint has a known floor, so this is simply part of the
+   * description: 335 m of camera minus 257 m of slant rise, the numbers in the
+   * shared link. Move lat/lon and this moves with them.
+   */
+  groundHeight: 78,
 };
 
 export const PREFS = {

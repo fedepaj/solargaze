@@ -16,7 +16,9 @@ export function initCompass() {
     // Turning the camera clockwise swings the card the other way, as on a real
     // compass rose held in the hand.
     rose.setAttribute('transform', `rotate(${(-headingDeg).toFixed(2)} 22 22)`);
-    button.title = `Bearing ${headingDeg.toFixed(0)}° — click to face north`;
+    // `data-tip`, not `title`: the button already carries one and the browser
+    // would draw its own box alongside ours.
+    button.dataset.tip = `Bearing ${headingDeg.toFixed(0)}°<em>Click to face north</em>`;
   };
 
   on('camera', paint);

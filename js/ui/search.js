@@ -14,6 +14,7 @@ import {
 } from '../scene.js';
 import { toast } from './toast.js';
 import * as ionAuth from '../ion-auth.js';
+import { mountLoader } from './sunloader.js';
 
 const C = window.Cesium;
 const $ = id => document.getElementById(id);
@@ -27,6 +28,7 @@ let current = [];
 export function initSearch() {
   const input = $('search-input');
   const list = $('search-results');
+  mountLoader($('search-spin'));
 
   input.addEventListener('input', () => {
     clearTimeout(debounce);

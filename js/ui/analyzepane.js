@@ -3,6 +3,7 @@
 import { state, on } from '../state.js';
 import { computeSunHours, canAnalyze } from '../analyze.js';
 import { toast } from './toast.js';
+import { working } from './sunloader.js';
 
 const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2, '0');
@@ -28,22 +29,24 @@ async function run() {
   }
 
   const btn = $('btn-run-analyze');
-  btn.disabled = true;
-  btn.textContent = 'Sampling…';
+  const done = working(btn, 'Sampling…');
 
   try {
     // The run yields between chunks, so this count actually animates.
     const result = await computeSunHours(f => {
-      btn.textContent = `Sampling… ${Math.round(f * 100)}%`;
+      done.setLabel(`Sampling… ${Math.round(f * 100)}%`);
     });
     paint(result);
+  } catch (err) {
+    // Every other failure in this app says so; a silent one here just looks
+    // like a button that does nothing.
+    toast(`The sun-hours run failed: ${err.message || err}`, { error: true, ms: 6000 });
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Compute sun hours';
+    done();
   }
 }
 
-function paint({ hours, samples, step }) {
+function paint({ hours, daylightHours, samples, step }) {
   const out = $('analyze-out');
   out.hidden = false;
 
@@ -56,7 +59,7 @@ function paint({ hours, samples, step }) {
   for (const s of samples) {
     const i = document.createElement('i');
     i.className = s.sun ? 'sun' : 'shade';
-    i.title = `${fmt(s.minutes)} — ${s.sun ? 'direct sun' : 'in shade'}`;
+    i.dataset.tip = `${fmt(s.minutes)} — ${s.sun ? 'direct sun' : 'in shade'}`;
     frag.appendChild(i);
   }
   strip.appendChild(frag);
@@ -66,8 +69,7 @@ function paint({ hours, samples, step }) {
     $('an-to').textContent = fmt(samples[samples.length - 1].minutes);
   }
 
-  const daylight = (samples.length * step) / 60;
   $('an-note').textContent =
-    `Sampled every ${step} min across ${daylight.toFixed(1)} h of daylight at 1.5 m above the pin, ` +
+    `Sampled every ${step} min across ${daylightHours.toFixed(1)} h of daylight at 1.5 m above the pin, ` +
     'against the tiles loaded right now. Zoom in and re-run for a stricter answer.';
 }

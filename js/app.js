@@ -8,36 +8,46 @@
  */
 
 import {
-  REPO_URL, DEMO_ION_TOKEN, ION_CLIENT_ID, consumeResetRequest,
+  REPO_URL, DEMO_ION_TOKEN, ION_CLIENT_ID, DEFAULTS, consumeResetRequest,
 } from './config.js';
 import {
   state, on, emit, setLocation, setPref, setIonToken, setAltitude, pointHeight,
   recompute, refreshZone,
 } from './state.js';
 import {
-  createViewer, viewer, loadIonTiles, useFlatBasemap, usePhotorealisticBasemap,
+  createViewer, viewer, loadIonTiles, useFlatBasemap, usePhotorealisticBasemap, lookAtPin,
   applyShadowSettings, applyMeshDetail, syncClock, zoomBy, pickAt, pickCentre, cartographicOf,
   resolveGroundAtPin,
-  hasTileset, tilesetVisible, markTilesetFailed,
+  hasTileset, tilesetVisible,
 } from './scene.js';
 import { loadTzDatabase } from './timezone.js';
+import { escapeHtml } from './util.js';
 import * as ionAuth from './ion-auth.js';
 import { initSunPath, refreshSunPath } from './sunpath.js';
 import { initTimePanel, stopPlayback } from './ui/timepanel.js';
 import { initCompass } from './ui/compass.js';
 import { initSearch } from './ui/search.js';
 import { initWeather } from './ui/weather.js';
-import { initModals, openKeyPrompt } from './ui/modals.js';
+import { initModals, openGate, closeGate, isGated } from './ui/modals.js';
 import { initAnalyzePane } from './ui/analyzepane.js';
 import { initTooltips, hide as hideTooltip } from './ui/tooltip.js';
 import { initUsage } from './ui/usage.js';
 import { toast } from './ui/toast.js';
+import { mountLoader } from './ui/sunloader.js';
+import { startOfflineDemo, stopOfflineDemo, seedDemoTime } from './ui/offlinedemo.js';
 
 const C = window.Cesium;
 const $ = id => document.getElementById(id);
 
 /** Camera pose recovered from the URL, applied once the viewer exists. */
 let pendingView = null;
+/** True when the URL asked for a specific place or camera — then leave it alone. */
+let urlPlacedView = false;
+let initialViewSettled = false;
+let meshReady = false;
+/** Held while the opening view is being composed, so the pin cannot drift. */
+let suppressFollow = false;
+let settleSkipped = null;
 let followQueued = false;
 let followRetries = 0;
 let followRetryTimer = null;
@@ -64,9 +74,10 @@ async function boot() {
   initSearch();
   initWeather();
   initAnalyzePane();
-  initModals({ onCredentialSaved: () => startTiles(), onSkip: () => goFlat() });
+  initModals({ onCredentialSaved: () => startTiles(), onRetry: () => startTiles() });
   initTooltips();
   initUsage();
+  mountLoader($('meshload-sun'));
 
   wireDock();
   wireAltitude();
@@ -81,7 +92,15 @@ async function boot() {
   on('camera', schedulePushUrl);
   // Belt and braces: whatever the polling did, settle again the moment the
   // mesh reports it has finished its first pass.
-  on('mesh-ready', () => seatOverlayOnMesh({ tries: 6, gap: 300 }));
+  on('mesh-ready', async () => {
+    meshReady = true;
+    // Strictly in order: seatOverlayOnMesh polls followViewCentre, which writes
+    // the very groundHeight the framing is computed from. Run them together and
+    // they race, which is how the opening shot ended up 78 m low.
+    settleInitialView();
+    hideMeshLoader();
+    seatOverlayOnMesh({ tries: 6, gap: 300 });
+  });
   on('pref', ({ key }) => {
     if (key === 'shadows' || key === 'softShadows' || key === 'shadowQuality') applyShadowSettings();
     if (key === 'meshDetail') applyMeshDetail();
@@ -146,6 +165,10 @@ function exposeDebugHandle() {
     get viewer() { return viewer; },
     setLocation,
     setPref,
+    /** Boot milestones, for the automated checks this handle exists for. */
+    get diag() {
+      return { meshReady, initialViewSettled, urlPlacedView, settleSkipped };
+    },
     version: '1.0.0',
   };
 }
@@ -168,12 +191,11 @@ async function startTiles() {
   }
 
   if (!attempts.length) {
-    goFlat();
-    openKeyPrompt();
+    openGate();
     return;
   }
 
-  toast('Loading the 3D mesh…', { ms: 2200 });
+  showMeshLoader();
   let lastError = null;
 
   for (const attempt of attempts) {
@@ -182,7 +204,15 @@ async function startTiles() {
       // Set the source before announcing the basemap: the usage meter listens
       // for that event and used to read a source that was still null.
       state.tileSource = 'ion';
+      stopOfflineDemo();
       usePhotorealisticBasemap();
+      // Before seatOverlayOnMesh starts polling the centre pick: the opening
+      // composition is a stated one and nothing should have moved yet.
+      settleInitialView();
+      // Only now is there an app behind the gate. Lifting it any earlier —
+      // when a token is pasted, say — would hand over a cockpit with no world
+      // under it if ion then turned that token down.
+      closeGate();
       paintDock();
 
       await seatOverlayOnMesh();
@@ -195,9 +225,21 @@ async function startTiles() {
     }
   }
 
-  markTilesetFailed();
-  goFlat();
-  openKeyPrompt({ reason: explainTileFailure(lastError) });
+  hideMeshLoader();
+
+  const failure = explainTileFailure(lastError);
+  // A credential ion rejected is the visitor's to fix, so it gets the gate and
+  // the sign-in. Everything else is ion's end being unreachable, and there the
+  // recorded day is better company than a wall — if it can be fetched at all.
+  if (failure.kind !== 'credential') {
+    seedDemoTime();
+    const shown = await startOfflineDemo({
+      reason: failure.reason,
+      onRetry: () => startTiles(),
+    });
+    if (shown) return;
+  }
+  openGate(failure);
 }
 
 /**
@@ -224,23 +266,128 @@ async function seatOverlayOnMesh({ tries = 30, gap = 500 } = {}) {
   refreshSunPath();
 }
 
-function explainTileFailure(err) {
-  const message = String(err?.message || err);
-  // Quota exhaustion on ion surfaces as 429; a rejected credential as 400/401/403.
-  if (/\b429\b|quota|rate limit/i.test(message)) {
-    return 'The 3D tile quota for that token is spent for now. Add your own Cesium ion token or Google Maps key to carry on.';
-  }
-  if (/\b4(00|01|03)\b|denied|unauthor|forbidden|invalid/i.test(message)) {
-    return 'Cesium ion turned that token down. Sign in again, or check a pasted token carries the <code>assets:read</code> scope.';
-  }
-  return `The 3D tiles could not be loaded (<code>${escapeHtml(message.slice(0, 160))}</code>). The flat basemap is active in the meantime.`;
+/**
+ * Turn a tile failure into something the gate can act on.
+ *
+ * `kind` decides which button the gate leads with, and the distinction is the
+ * whole point: retrying a credential ion has just rejected will fail again in
+ * exactly the same way, so offering it first wastes the one move the visitor
+ * has. A spent quota or a dropped connection is the opposite — retrying is the
+ * right thing and fixing the account is not.
+ */
+/* ── mesh loading overlay ─────────────────────────────────────────── */
+
+let meshLoadTimer = null;
+
+/**
+ * Say that something is happening, for as long as it is happening.
+ *
+ * Photogrammetry over a slow line can take twenty seconds to look like
+ * anything, and an empty dark canvas is indistinguishable from a broken page.
+ * The old toast vanished after two seconds and left exactly that impression,
+ * so this stays until the tileset reports its first full pass.
+ */
+function showMeshLoader() {
+  const el = $('meshload');
+  if (!el) return;
+  el.hidden = false;
+  $('meshload-note').textContent = 'Streaming Google\u2019s photorealistic tiles…';
+  clearTimeout(meshLoadTimer);
+  // Past a certain wait, silence reads as failure. Name the cause instead.
+  meshLoadTimer = setTimeout(() => {
+    $('meshload-note').textContent =
+      'Still going — the mesh arrives over your connection, so this is slower on a poor one.';
+    // `initialTilesLoaded` never fires if the camera ends up over nothing that
+    // needs tiles, and a loader that cannot end is worse than none at all.
+    meshLoadTimer = setTimeout(hideMeshLoader, 30_000);
+  }, 9000);
 }
 
-function goFlat() {
-  useFlatBasemap();
-  paintDock();
+function hideMeshLoader() {
+  clearTimeout(meshLoadTimer);
+  const el = $('meshload');
+  if (el) el.hidden = true;
+}
+
+/**
+ * Re-frame the opening shot once the mesh has a real surface to measure.
+ *
+ * createViewer has to seat the camera before a single tile exists, so it aims
+ * at the pin at ellipsoid height — about 79 m below the floor of the Colosseum.
+ * The camera therefore ends up 79 m too low, and the follow-the-centre pick
+ * then drags the pin some 90 m south onto whatever that mis-aimed ray really
+ * hit. Both drift away from the composition DEFAULTS describes, which is why
+ * the opening view came out smaller and higher than the shared link. There is
+ * nothing to fix until a surface exists, so fix it the moment one does.
+ *
+ * A URL carrying `ll` or `cam` is someone else's composition; leave it alone.
+ */
+function settleInitialView() {
+  if (initialViewSettled || urlPlacedView || !tilesetVisible()) {
+    settleSkipped = initialViewSettled ? 'already' : urlPlacedView ? 'url' : 'no-tileset';
+    return;
+  }
+  initialViewSettled = true;
+
+  // The pin must hold still while this runs. It normally tracks the middle of
+  // the screen, which over an oblique view of a 48 m wall means the near rim
+  // rather than the arena — so left free it slides ~100 m south mid-measurement
+  // and the camera gets composed around the wrong point.
+  suppressFollow = true;
+  try {
+    state.lat = DEFAULTS.lat;
+    state.lon = DEFAULTS.lon;
+    // Stated, not sampled: sampleHeightMostDetailed does not answer reliably
+    // over this mesh, and the camera has to be composed before anything can be
+    // measured anyway. A known viewpoint has a known floor — see DEFAULTS.
+    state.groundHeight = DEFAULTS.groundHeight;
+    lookAtPin(DEFAULTS.height);
+  } finally {
+    suppressFollow = false;
+  }
   refreshSunPath();
 }
+
+function explainTileFailure(err) {
+  const message = String(err?.message || err);
+
+  // A dead connection is worth separating from anything ion did: there is
+  // nothing to fix on the account, and nothing the visitor can usefully do but
+  // wait — so say so plainly rather than making them doubt their token.
+  if (!navigator.onLine) {
+    return {
+      kind: 'offline',
+      reason: 'This browser is offline, so Cesium ion cannot be reached and there is no mesh to draw. The Colosseum behind this panel is a still image, not the live map — nothing can be panned, searched or measured until the connection is back. SolarGaze will try again by itself the moment it is.',
+    };
+  }
+  // Quota exhaustion on ion surfaces as 429; a rejected credential as 400/401/403.
+  if (/\b429\b|quota|rate limit/i.test(message)) {
+    return {
+      kind: 'quota',
+      reason: 'The 3D tile quota for this Cesium ion account is spent for now. It resets at the start of the month — or sign in with another account to carry on.',
+    };
+  }
+  if (/\b4(00|01|03)\b|denied|unauthor|forbidden|invalid/i.test(message)) {
+    return {
+      kind: 'credential',
+      reason: 'Cesium ion turned that credential down. Sign in again, or check that a pasted token carries the <code>assets:read</code> scope.',
+    };
+  }
+  return {
+    kind: 'network',
+    reason: `The 3D tiles could not be loaded (<code>${escapeHtml(message.slice(0, 160))}</code>). This is usually Cesium ion being unreachable rather than anything wrong with your account. The Colosseum behind this panel is a still image, not the live map.`,
+  };
+}
+
+/**
+ * A gate raised by a dropped connection should lift itself.
+ *
+ * Nothing about the visitor's account changed while the wifi was out, so making
+ * them find the retry button is asking them to do the browser's job.
+ */
+window.addEventListener('online', () => {
+  if (isGated()) startTiles();
+});
 
 /* ── left dock ────────────────────────────────────────────────────── */
 
@@ -262,7 +409,7 @@ function wireDock() {
 
   $('btn-basemap').addEventListener('click', () => {
     if (!hasTileset()) {
-      openKeyPrompt();
+      openGate();
       return;
     }
     if (tilesetVisible()) useFlatBasemap();
@@ -453,7 +600,7 @@ function wireMapClick() {
  * point is following, the pick is the only authority on its height.
  */
 function followViewCentre() {
-  if (state.prefs.pinLocked || !viewer) return false;
+  if (suppressFollow || state.prefs.pinLocked || !viewer) return false;
   // With the mesh up, only a real surface hit will do — see pickAt.
   const cartesian = pickCentre({ requireGeometry: tilesetVisible() });
   if (!cartesian) return false;
@@ -535,15 +682,22 @@ function pushUrl() {
   } catch { /* some embedding contexts forbid this */ }
 }
 
+const isLatLon = (lat, lon) =>
+  Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+
 function restoreFromUrl() {
   const hash = location.hash.replace(/^#/, '');
   if (!hash) return;
   const q = new URLSearchParams(hash);
 
+  // Links get truncated in chat windows and hand-edited in address bars, so
+  // every field is checked on its own. A NaN reaching camera.setView costs the
+  // whole canvas, with nothing on screen to say why.
   const ll = q.get('ll');
   if (ll) {
+    urlPlacedView = true;
     const [lat, lon] = ll.split(',').map(Number);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    if (isLatLon(lat, lon)) {
       state.lat = lat;
       state.lon = lon;
     }
@@ -553,28 +707,33 @@ function restoreFromUrl() {
   if (t) {
     const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(t);
     if (m) {
-      state.y = Number(m[1]);
-      state.m = Number(m[2]);
-      state.d = Number(m[3]);
-      state.minutes = Number(m[4]) * 60 + Number(m[5]);
+      const [, y, mo, d, hh, mi] = m.map(Number);
+      if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && hh <= 23 && mi <= 59) {
+        state.y = y;
+        state.m = mo;
+        state.d = d;
+        state.minutes = hh * 60 + mi;
+      }
     }
   }
 
   const cam = q.get('cam');
   const hp = q.get('hp');
   if (cam) {
+    urlPlacedView = true;
     const [lat, lon, height] = cam.split(',').map(Number);
-    const [heading = 0, pitch = -35] = (hp || '').split(',').map(Number);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      pendingView = { lat, lon, height, heading, pitch };
+    const [heading, pitch] = (hp || '').split(',').map(Number);
+    if (isLatLon(lat, lon)) {
+      pendingView = {
+        lat,
+        lon,
+        height: Number.isFinite(height) ? height : DEFAULTS.height,
+        heading: Number.isFinite(heading) ? heading : 0,
+        pitch: Number.isFinite(pitch) ? pitch : DEFAULTS.pitch,
+      };
     }
   }
 
   refreshZone();
   recompute();
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }

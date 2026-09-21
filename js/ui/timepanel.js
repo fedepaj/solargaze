@@ -155,7 +155,9 @@ function onKey(e) {
     case 'ArrowUp':    shiftDay(e.shiftKey ? 30 : 1); e.preventDefault(); break;
     case 'ArrowDown':  shiftDay(e.shiftKey ? -30 : -1); e.preventDefault(); break;
     case ' ':          togglePlayback(); e.preventDefault(); break;
-    case 'n': case 'N': jumpToNow(); break;
+    // As the NOW button does: jumping to now while the sun is sweeping would
+    // be overwritten on the very next frame.
+    case 'n': case 'N': stopPlayback(); jumpToNow(); break;
     default: break;
   }
 }
@@ -179,16 +181,19 @@ function togglePlayback() {
 }
 
 function startPlayback() {
-  const { from, to } = sliderRange();
-  const span = Math.max(to - from, 1);
   let last = performance.now();
-  let cursor = state.minutes < from || state.minutes > to ? from : state.minutes;
+  let cursor = Math.min(Math.max(state.minutes, range.from), range.to);
 
   const tick = now => {
     const dt = now - last;
     last = now;
-    cursor += (dt / SWEEP_MS) * span;
-    if (cursor > to) cursor = from;
+    // Read the span each frame rather than capturing it at the start: the
+    // arrow keys and the year slider move the date without stopping playback,
+    // and with it sunrise and sunset. A captured span would then run the sun
+    // off the end of a shorter day, or stop it short of a longer one.
+    const { from, to } = range;
+    cursor += (dt / SWEEP_MS) * Math.max(to - from, 1);
+    if (cursor > to || cursor < from) cursor = from;
     setTime(cursor);
     play.id = requestAnimationFrame(tick);
   };
@@ -220,7 +225,9 @@ function paintPlayButton() {
 
 /** Everything that only moves when the date, the place or a preference does. */
 export function render() {
-  els.clockTz.title = state.zone || 'Offset estimated from longitude';
+  els.clockTz.dataset.tip = state.zone
+    ? `Wall clock at the pin<em>${state.zone}</em>`
+    : 'Wall clock at the pin<em>Offset estimated from longitude</em>';
   els.datePill.textContent = fmtDate(state);
 
   const { sunrise, sunset, polar } = state.events;

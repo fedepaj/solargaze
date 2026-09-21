@@ -14,7 +14,14 @@ const deg = r => r * R2D;
 const mod360 = x => ((x % 360) + 360) % 360;
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
-/** Zenith angle of the sun's upper limb at rise/set, incl. mean refraction. */
+/**
+ * Zenith angle the sun crosses at each named moment, passed to `dayEvents`.
+ *
+ * 90.833° is the standard sunrise figure: 90° plus the sun's semidiameter and
+ * 34' of mean refraction at the horizon. So rise and set times *do* allow for
+ * refraction, while `sunPosition` returns the geometric elevation — which is
+ * the one the shadows agree with, and therefore the one the readouts print.
+ */
 export const ZENITH = {
   sunrise: 90.833,
   civil: 96,
@@ -163,17 +170,6 @@ export function daySampler(y, m, d, lat, lon) {
   };
 }
 
-/** Atmospheric refraction correction (deg) for an apparent-horizon readout. */
-export function refraction(elevation) {
-  if (elevation > 85) return 0;
-  const te = Math.tan(rad(elevation));
-  let r;
-  if (elevation > 5) r = 58.1 / te - 0.07 / te ** 3 + 0.000086 / te ** 5;
-  else if (elevation > -0.575) r = 1735 + elevation * (-518.2 + elevation * (103.4 + elevation * (-12.79 + elevation * 0.711)));
-  else r = -20.772 / te;
-  return r / 3600;
-}
-
 const utcAt = (y, m, d, minutes) => new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + minutes * 60000);
 
 /**
@@ -218,12 +214,6 @@ export function dayEvents(y, m, d, lat, lon, zenith = ZENITH.sunrise) {
   if (typeof Hs === 'number' && !Number.isNaN(Hs)) sunset = noon + 4 * Hs;
 
   return { noon, sunrise, sunset, polar: null };
-}
-
-/** Maximum solar elevation reached on a day (deg). */
-export function maxElevation(y, m, d, lat, lon) {
-  const { noon } = dayEvents(y, m, d, lat, lon);
-  return sunPosition(utcAt(y, m, d, noon), lat, lon).elevation;
 }
 
 /* ── small date helpers shared by the UI ───────────────────────────── */

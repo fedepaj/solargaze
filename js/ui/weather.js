@@ -49,8 +49,13 @@ async function fetchWeather() {
     return;
   }
 
+  // Unhide before the cache check, or switching the badge back on at a place
+  // already fetched would keep it hidden until the pin next moved.
   const key = `${state.lat.toFixed(2)},${state.lon.toFixed(2)}`;
-  if (key === lastKey) return;
+  if (key === lastKey) {
+    el.hidden = false;
+    return;
+  }
 
   const url =
     'https://api.open-meteo.com/v1/forecast' +

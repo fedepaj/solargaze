@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx --yes serve@14 -l 5173 .",
-    "start": "npm run dev"
+    "start": "npm run dev",
+    "test": "node --test 'test/*.test.mjs'"
   }
 }

@@ -46,7 +46,7 @@ export async function computeSunHours(onProgress) {
   const from = polar === 'day' ? 0 : sunrise;
   const to = polar === 'day' ? 1440 : sunset;
   if (polar === 'night' || from === null || to === null || to <= from) {
-    return { hours: 0, samples, step: STEP_MINUTES };
+    return { hours: 0, daylightHours: 0, samples, step: STEP_MINUTES };
   }
 
   const origin = C.Cartesian3.fromDegrees(state.lon, state.lat, pointHeight() + SENSOR_HEIGHT);
@@ -100,6 +100,17 @@ export async function computeSunHours(onProgress) {
     }
   }
 
+  // Weight by the window, not by the sample count. n samples ten minutes apart
+  // span n-1 intervals, so charging each one a full step bills ten minutes that
+  // are not in the day: a clear day in Turin came out 12.5 h against 12.34 h of
+  // actual daylight. The sunny *fraction* is what the samples measure honestly;
+  // the window length is known exactly.
   const sunny = samples.filter(s => s.sun).length;
-  return { hours: (sunny * STEP_MINUTES) / 60, samples, step: STEP_MINUTES };
+  const daylightHours = (to - from) / 60;
+  return {
+    hours: samples.length ? daylightHours * (sunny / samples.length) : 0,
+    daylightHours,
+    samples,
+    step: STEP_MINUTES,
+  };
 }

@@ -15,7 +15,6 @@ const C = window.Cesium;
 export let viewer = null;
 export let tileset = null;
 let osmLayer = null;
-let tilesetFailed = false;
 
 /** Build the viewer. Returns as soon as the canvas is live; tiles stream in after. */
 export function createViewer(container) {
@@ -165,15 +164,19 @@ export async function loadIonTiles(token) {
   if (tileset) return tileset;
 
   C.Ion.defaultAccessToken = token;
-  tileset = await C.Cesium3DTileset.fromIonAssetId(ION_GOOGLE_3D_ASSET, {
+  // Built into a local first, and only published to the module binding once it
+  // is actually in the scene. `hasTileset()` is then never true for a tileset
+  // that failed on the way up, so a rejected credential falls cleanly through
+  // to the next rung of startTiles().
+  const loaded = await C.Cesium3DTileset.fromIonAssetId(ION_GOOGLE_3D_ASSET, {
     maximumScreenSpaceError: state.prefs.meshDetail,
     shadows: state.prefs.shadows ? C.ShadowMode.ENABLED : C.ShadowMode.DISABLED,
     showCreditsOnScreen: true,
   });
 
-  viewer.scene.primitives.add(tileset);
+  viewer.scene.primitives.add(loaded);
   if (viewer.scene.globe) viewer.scene.globe.show = false;
-  tilesetFailed = false;
+  tileset = loaded;
 
   // The tileset resolving and there being geometry under the cursor are two
   // different moments; this is the second one.
@@ -212,12 +215,8 @@ export function usePhotorealisticBasemap() {
   return true;
 }
 
-export const hasTileset = () => !!tileset && !tilesetFailed;
+export const hasTileset = () => !!tileset;
 export const tilesetVisible = () => !!tileset && tileset.show;
-
-export function markTilesetFailed() {
-  tilesetFailed = true;
-}
 
 /* ── camera helpers ────────────────────────────────────────────────── */
 
@@ -341,27 +340,17 @@ export function resetBearing() {
 }
 
 /**
- * Height of the loaded 3D geometry under the pin, so the overlay sits on the
- * ground instead of floating at ellipsoid zero. Silently does nothing until
- * tiles around the pin have streamed in.
- */
-/**
- * Probe the mesh height under the pin.
+ * Authoritative height of the mesh under the pin.
  *
- * This used to run on every camera move, and as tiles refined their LOD the
- * answer kept changing by a few centimetres — which made the whole ground
- * overlay twitch. It is now called deliberately: once when the pin is placed
- * without a known height, and once after the tileset first loads.
- */
-/**
- * Authoritative height under the pin: unlike `sampleGroundAtPin` this loads the
- * tiles it needs before answering, so it is right even where the mesh has not
- * streamed in yet.
+ * Unlike `sampleGroundAtPin` below, this streams the tiles it needs before
+ * answering, so it is right even where the mesh has not arrived yet. That
+ * costs frames, so it is called deliberately rather than on every camera move:
+ * when the pin is locked, when a drag ends, and after a search flight.
  *
- * Getting this wrong is not cosmetic. The compass card is drawn on a plane at
- * this height with the depth test off, so a height that is out by h metres
- * slides the whole card sideways by about h/tan(pitch) in an oblique view —
- * which looks exactly like the cardinal points pointing the wrong way.
+ * Getting it wrong is not cosmetic. The compass card is drawn on a plane at
+ * this height with the depth test off, so a height out by h metres slides the
+ * whole card sideways by about h/tan(pitch) in an oblique view — which looks
+ * exactly like the cardinal points pointing the wrong way.
  */
 export async function resolveGroundAtPin() {
   if (!viewer || !viewer.scene.sampleHeightSupported || !tilesetVisible()) return;
@@ -378,6 +367,10 @@ export async function resolveGroundAtPin() {
   }
 }
 
+/**
+ * The cheap probe: whatever is already resident under the pin, this frame.
+ * Answers nothing rather than something wrong when the tiles are not there.
+ */
 export function sampleGroundAtPin() {
   if (!viewer || !viewer.scene.sampleHeightSupported || !tilesetVisible()) return;
   const carto = C.Cartographic.fromDegrees(state.lon, state.lat);

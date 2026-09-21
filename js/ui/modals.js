@@ -5,14 +5,26 @@ import { applyShadowSettings } from '../scene.js';
 import { ION_CLIENT_ID, resetAll } from '../config.js';
 import * as ionAuth from '../ion-auth.js';
 import { toast } from './toast.js';
+import { working } from './sunloader.js';
+import { escapeHtml } from '../util.js';
 
 const $ = id => document.getElementById(id);
 let onSaved = null;
-let onSkipped = null;
+let onRetried = null;
 
-export function initModals({ onCredentialSaved, onSkip } = {}) {
+/**
+ * True while the credential gate owns the screen.
+ *
+ * The gate is deliberately inescapable: without Cesium ion there is no mesh,
+ * without a mesh there is nothing to cast a shadow, and an app that cannot do
+ * the one thing it exists for is worse than an honest closed door. So the X,
+ * the backdrop and Escape are all inert until a credential actually works.
+ */
+let gated = false;
+
+export function initModals({ onCredentialSaved, onRetry } = {}) {
   onSaved = onCredentialSaved;
-  onSkipped = onSkip;
+  onRetried = onRetry;
   $('modal-x').addEventListener('click', closeModal);
   $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -22,6 +34,7 @@ export function initModals({ onCredentialSaved, onSkip } = {}) {
 }
 
 export function closeModal() {
+  if (gated) return;
   $('modal').hidden = true;
   $('sheet-back')?.remove();
 }
@@ -52,86 +65,136 @@ function openSheet(html, wire, back = null) {
   wire?.(body);
 }
 
-/* ── first run: pick a way in ──────────────────────────────────────── */
+/* ── the credential gate ─────────────────────────────────────────── */
 
-export function openKeyPrompt({ reason = '' } = {}) {
+/**
+ * The way in, and the only one.
+ *
+ * Two shapes, chosen by whether we are here because nothing has been tried yet
+ * or because something failed. A first visit gets the hero and the pitch: the
+ * visitor is being asked to make an account before they have seen a single
+ * shadow move, so show them the shadows first. A failure gets the reason and a
+ * retry instead — they know what the app does, they want it back.
+ */
+export function openGate({ reason = '', kind = '' } = {}) {
+  gated = true;
+  document.body.classList.add('is-gated');
+  $('modal').classList.add('is-gate');
+
   const canSignIn = ionAuth.isConfigured(ION_CLIENT_ID);
-  const intro = reason || (
-    'SolarGaze casts shadows onto the photorealistic 3D mesh that Google Earth renders. ' +
-    'That data is Google\'s, and Cesium ion brokers it — so all you need is a free ion ' +
-    'account. No Google Cloud project, no billing details, nothing to pay.'
-  );
+  const failed = !!reason;
+  // A rejected credential is the one failure retrying cannot mend, so there the
+  // sign-in leads and the retry steps back.
+  const retryFirst = failed && kind !== 'credential';
+
+  // Whichever action actually helps is the yellow one, and it goes first: a
+  // demoted button sitting above the primary reads as the thing to press.
+  const retryBtn = failed
+    ? `<button class="${retryFirst ? 'cta' : 'ghost-cta gate-signin-alt'}" id="gate-retry">Try again</button>`
+    : '';
+  const signInBtn = canSignIn
+    ? `<button class="${retryFirst ? 'ghost-cta gate-signin-alt' : 'cta'}" id="ion-signin">${
+        failed ? 'Sign in with a different account' : 'Sign in with Cesium ion'}</button>`
+    : '';
 
   openSheet(
     `
-    <h2>Connect the 3D mesh</h2>
-    <p>${intro}</p>
+    ${failed ? '' : `
+    <figure class="gate-hero">
+      <video autoplay loop muted playsinline width="640" height="370"
+             poster="./docs/colosseum-poster.webp"
+             aria-label="A day of sun and shadow moving across the Colosseum">
+        <source src="./docs/colosseum-day.webm" type="video/webm">
+        <source src="./docs/colosseum-day.mp4" type="video/mp4">
+      </video>
+    </figure>`}
 
-    ${canSignIn ? `
-    <button class="cta" id="ion-signin">Sign in with Cesium ion</button>
-    <p style="margin-top:12px"><small style="color:rgba(255,255,255,.5)">You approve once on
-       Cesium's own page and come back signed in. The tiles then draw on your own free quota,
-       and the sign-in stays only in this browser.</small></p>
+    <h2>${failed ? 'The 3D mesh did not load' : 'Connect the 3D mesh to begin'}</h2>
 
-    <h3 style="margin-top:26px">OR PASTE A TOKEN</h3>
-    <p>If you would rather not sign in, copy an access token from the
-       <i>Access Tokens</i> tab of your
-       <a href="https://ion.cesium.com/signup" target="_blank" rel="noopener">ion account</a>.</p>` : `
-    <h3>CESIUM ION TOKEN</h3>
-    <p>Sign up free at <a href="https://ion.cesium.com/signup" target="_blank" rel="noopener">Cesium ion</a>,
-       copy the access token from the <i>Access Tokens</i> tab, and paste it here.</p>`}
-    <div class="field">
-      <input id="ion-input" type="text" placeholder="eyJhbGciOi…" autocomplete="off" spellcheck="false" value="${escapeHtml(state.ionToken)}">
-      <button id="ion-save">Save</button>
-    </div>
+    ${failed
+      ? `<p class="gate-alert">${reason}</p>`
+      : `<p>SolarGaze casts real shadows across the photorealistic 3D mesh that Google Earth
+           renders. That mesh is Google's, and Cesium ion is what hands it to this page — so
+           the one thing it needs from you is a free ion account. No Google Cloud project,
+           no billing details, nothing to pay.</p>`}
 
+    ${retryFirst ? retryBtn + signInBtn : signInBtn + retryBtn}
+    ${failed || !canSignIn ? '' : `
+    <p class="gate-fine">You approve once on Cesium's own page and come back signed in. The
+       tiles then draw on your own free quota, and the sign-in never leaves this browser.</p>`}
+
+    ${failed ? '' : `
     <button class="ghost-cta" id="open-guide2">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.4"/><path d="M12 16.8h.01"/></svg>
-      First time here? Three steps, about a minute
-    </button>
-    <p style="margin-top:8px">Or <a href="#" id="key-skip">carry on without</a> — you keep the
-       full sun model and every control, drawn over a plain 2D map instead of the 3D mesh.</p>
+      First time here? Four steps, about a minute
+    </button>`}
+
+    <details class="gate-alt" ${!canSignIn || failed ? 'open' : ''}>
+      <summary>${canSignIn ? 'Already have a token? Paste it instead' : 'Paste a Cesium ion token'}</summary>
+      <p>Copy an access token from the <i>Access Tokens</i> tab of your
+         <a href="https://ion.cesium.com/signup" target="_blank" rel="noopener">ion account</a>.
+         It needs the <code>assets:read</code> scope.</p>
+      <div class="field">
+        <input id="ion-input" type="text" placeholder="eyJhbGciOi…" autocomplete="off"
+               spellcheck="false" value="${escapeHtml(state.ionToken)}">
+        <button id="ion-save">Save</button>
+      </div>
+    </details>
     `,
     root => {
+      const busy = (btn, label) => working(btn, label);
+
       const ion = root.querySelector('#ion-input');
+      const save = root.querySelector('#ion-save');
       const commit = () => {
         const value = ion.value.trim();
         if (!value) return toast('Paste a token first.', { error: true });
         setIonToken(value);
-        closeModal();
+        // The gate stays up until tiles actually draw: a token that ion turns
+        // down must not buy even a second of the app.
+        busy(save, 'Checking…');
         onSaved?.();
       };
+      save.addEventListener('click', commit);
+      ion.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
+
+      root.querySelector('#gate-retry')?.addEventListener('click', e => {
+        busy(e.currentTarget, 'Retrying…');
+        onRetried?.();
+      });
 
       const signIn = root.querySelector('#ion-signin');
-      if (signIn) {
-        signIn.addEventListener('click', async () => {
-          signIn.disabled = true;
-          signIn.textContent = 'Redirecting to Cesium ion…';
-          try {
-            await ionAuth.beginSignIn(ION_CLIENT_ID);
-          } catch (err) {
-            signIn.disabled = false;
-            signIn.textContent = 'Sign in with Cesium ion';
-            toast(String(err.message || err), { error: true, ms: 6000 });
-          }
-        });
-      }
+      signIn?.addEventListener('click', async () => {
+        const restore = busy(signIn, 'Redirecting to Cesium ion…');
+        try {
+          await ionAuth.beginSignIn(ION_CLIENT_ID);
+        } catch (err) {
+          restore();
+          toast(String(err.message || err), { error: true, ms: 6000 });
+        }
+      });
 
       root.querySelector('#open-guide2')?.addEventListener('click', e => {
         e.preventDefault();
-        openGuide({ back: () => openKeyPrompt({ reason }) });
+        openGuide({ back: () => openGate({ reason, kind }) });
       });
-      root.querySelector('#ion-save').addEventListener('click', commit);
-      ion.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
 
-      root.querySelector('#key-skip').addEventListener('click', e => {
-        e.preventDefault();
-        closeModal();
-        onSkipped?.();
-      });
-      setTimeout(() => ion.focus(), 60);
+      if (!canSignIn || failed) setTimeout(() => ion.focus(), 60);
     },
   );
+}
+
+/** Is the gate currently holding the screen? */
+export const isGated = () => gated;
+
+/** Tiles are up: hand the app over. The only way the gate ever lifts. */
+export function closeGate() {
+  if (!gated) return;
+  gated = false;
+  document.body.classList.remove('is-gated');
+  $('modal').classList.remove('is-gate');
+  $('modal').hidden = true;
+  $('sheet-back')?.remove();
 }
 
 /* ── the three-step guide ─────────────────────────────────────────── */
@@ -143,33 +206,42 @@ export function openKeyPrompt({ reason = '' } = {}) {
  *
  * Drop the screenshots into docs/ with these names and they appear; until then
  * each step shows a dashed placeholder saying which shot is missing.
+ *
+ * Replacing one? Redact it before it lands in docs/. The account names in
+ * these shots are burned into the pixels, not covered by the page — a
+ * browser-side blur would still ship the original bytes to every visitor.
  */
 const STEPS = [
   {
     title: 'Open Cesium ion and start a sign-up',
     body: 'Cesium ion is what hands Google\'s 3D buildings to this page. The account is free, ' +
-          'and there is no Google Cloud project and no card involved. Use one of the ' +
-          'third-party buttons, or the sign-up link at the bottom.',
+          'with no Google Cloud project and no card involved. The quickest way in is one of ' +
+          'the buttons under <i>Third-party authentication</i> — Google, GitHub, Bentley, ' +
+          'Epic or Sketchfab — which is the route these screenshots follow. The sign-up link ' +
+          'at the bottom does the same with an email and a password instead.',
     link: ['ion.cesium.com/signup', 'https://ion.cesium.com/signup'],
     shot: 'ion-login-signup.jpg',
-    arrow: [{ x: 46, y: 64.8, label: 'Sign up' }],
+    box: [{ x: 30.6, y: 26.2, w: 38.6, h: 15.8 }],
+    arrow: [
+      { x: 49.6, y: 25.9, label: 'Any of these' },
+      { x: 46, y: 66.6, label: 'Or email' },
+    ],
   },
   {
     title: 'Pick a username and accept the terms',
-    body: 'The data centre can stay on its default — it only decides where Cesium stores ' +
-          'assets you upload yourself, and this app uploads nothing.',
+    body: 'Google hands you straight back here. Choose any free username and tick the terms ' +
+          'box — it is required, and a missing tick is the usual reason the button appears ' +
+          'to do nothing. The data centre can stay on its default: it only decides where ' +
+          'Cesium stores assets you upload yourself, and this app uploads nothing.',
     shot: 'ion-signup-google-username.jpg',
     arrow: [{ x: 34.5, y: 57.8, label: 'Sign up' }],
   },
   {
     title: 'Verify your email',
-    body: 'Cesium mails you a six-digit code. Type it in and confirm; the account is live ' +
-          'straight away, with nothing left to configure.',
+    body: 'This happens even when you came in through Google: ion confirms the address on ' +
+          'the account whichever way you signed up. A six-digit code arrives by mail — type ' +
+          'it in, press Verify, and the account is live with nothing left to configure.',
     shot: 'ion-email-verification.jpg',
-    blur: [
-      { x: 87.6, y: 1.4, w: 7.0, h: 4.6 },   // account name in the header bar
-      { x: 53.4, y: 42.2, w: 10.8, h: 3.2 }, // the address the code went to
-    ],
     arrow: [{ x: 34.7, y: 55.2, label: 'Code from the email' }],
   },
   {
@@ -178,23 +250,34 @@ const STEPS = [
           'buildings, and geocoding, which is the search box. Nothing else, and no write ' +
           'access to your account.',
     shot: 'ion-authorize.jpg',
-    blur: [
-      { x: 34, y: 20.4, w: 5.8, h: 3.4 },    // "Hello <name>,"
-      { x: 55, y: 46.6, w: 5.8, h: 3.4 },    // "Not <name>? Switch accounts"
-    ],
-    arrow: [{ x: 34.1, y: 46.8, label: 'Allow' }],
+    // dx slides the label clear of the heading it would otherwise sit on; the
+    // arrow itself stays on the button.
+    arrow: [{ x: 34.1, y: 43.0, label: 'Allow', dx: -9 }],
   },
 ];
 
+/**
+ * Annotations laid over a guide screenshot.
+ *
+ * Redactions are NOT here. A blurred box drawn by the browser hides nothing:
+ * the file in the repo would still carry the account name in plain pixels for
+ * anyone who opened it directly. Those are burned into the images themselves,
+ * before they are committed.
+ */
 const overlay = step => [
-  ...(step.blur || []).map(r =>
-    `<span class="mask" style="left:${r.x}%;top:${r.y}%;width:${r.w}%;height:${r.h}%"></span>`),
+  // A box marks a whole group. An arrow would pick one button out of five and
+  // read as a recommendation, which is not ours to make.
+  ...(step.box || []).map(r =>
+    `<span class="markbox" style="left:${r.x}%;top:${r.y}%;width:${r.w}%;height:${r.h}%"></span>`),
   // Label above, arrowhead below: the whole marker is pulled up by its own
   // height, so whatever sits last is what actually lands on the coordinate.
+  // The arrowhead therefore has to reach the bottom of its own viewBox — an
+  // arrow that stops at 75% of it points a quarter of its height too high,
+  // which on a shot this size is a whole row of the table.
   ...(step.arrow || []).map(a =>
-    `<span class="point" style="left:${a.x}%;top:${a.y}%">
+    `<span class="point" style="left:${a.x}%;top:${a.y}%${a.dx ? `;--dx:${a.dx}%` : ''}">
        ${a.label ? `<b>${a.label}</b>` : ''}
-       <svg viewBox="0 0 24 24"><path d="M12 3v15M6.5 12.5 12 18l5.5-5.5"/></svg>
+       <svg viewBox="0 0 24 24"><path d="M12 2v13.4M5.8 15.4 12 21.6l6.2-6.2"/></svg>
      </span>`),
 ].join('');
 
@@ -213,12 +296,12 @@ export function openGuide({ back = null } = {}) {
 
   openSheet(`
     <h2>Getting the 3D buildings</h2>
-    <p>Three steps, about a minute. Everything stays in this browser — the sign-in is
+    <p>Four steps, about a minute. Everything stays in this browser — the sign-in is
        between you and Cesium, and this page never sees a password.</p>
     <ol class="steps">${steps}</ol>
-    <p><small style="color:rgba(255,255,255,.5)">Prefer not to sign in? The app works without
-       it over a plain 2D map: you keep the whole sun model, just not the buildings that
-       cast the shadows.</small></p>
+    <p><small style="color:rgba(255,255,255,.5)">There is no way round this one: the shadows
+       are cast by Google's building geometry, and ion is the only route to it. Without an
+       account there is nothing for the sun to fall on.</small></p>
   `, null, back);
 }
 
@@ -278,9 +361,9 @@ function openSettings() {
       <button class="seg-btn" id="ion-signout">Sign out</button>
     </div>` : ionAuth.isConfigured(ION_CLIENT_ID) ? `
     <button class="cta" id="ion-signin2" style="margin-bottom:14px">Sign in with Cesium ion</button>` : ''}
-    <p><small style="color:rgba(255,255,255,.55)">Mesh source:
-      <b>${state.tileSource === 'ion' ? 'Cesium ion' : 'none — flat basemap'}</b>.
-      A pasted token overrides a sign-in; saving reloads the page.</small></p>
+    <p><small style="color:rgba(255,255,255,.55)">A pasted token overrides a sign-in; saving
+      reloads the page. Signing out leaves SolarGaze with no way to reach the mesh, so it
+      returns you to the connect screen.</small></p>
     <div class="field">
       <input id="ion-input2" type="text" placeholder="Paste an ion token instead" autocomplete="off" spellcheck="false" value="${escapeHtml(state.ionToken)}">
       <button id="ion-save2">Save</button>
@@ -377,9 +460,4 @@ function openHelp() {
 function wireHelp(root) {
   root.querySelector('#open-guide')?.addEventListener('click', () =>
     openGuide({ back: openHelp }));
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }

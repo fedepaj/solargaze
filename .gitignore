@@ -6,3 +6,7 @@ node_modules/
 # committed here is also published. Keep working files out of both.
 graphify-out/
 .claude/settings.local.json
+
+# Maintenance scripts, not part of the site. redact.py burns the redactions
+# into the guide screenshots; the results are committed, the tool is not.
+tools/

@@ -443,10 +443,12 @@ let riseAz = null;
 let setAz = null;
 
 function computeArcSamples() {
-  // Three decimals of latitude is about 110 m, which moves the sun by well
-  // under a thousandth of a degree — invisible at any ring radius we draw.
+  // Four decimals, matching the key recompute() uses for sunrise and sunset in
+  // state.js. Coarser here and a pin nudged fifty metres would take new event
+  // times while riseAz/setAz still described the old spot, putting the markers
+  // off the ends of the arc they label.
   const key = `${state.y},${state.m},${state.d},`
-    + `${state.lat.toFixed(3)},${state.lon.toFixed(3)},${state.offsetMinutes}`;
+    + `${state.lat.toFixed(4)},${state.lon.toFixed(4)},${state.offsetMinutes}`;
   if (key === arcSamplesKey) return;
   arcSamplesKey = key;
 
