@@ -131,7 +131,17 @@ async function loadRaster(tileId, info) {
   // would otherwise stall on each new month it reaches.
   await Promise.all(Object.entries(info.files).map(async ([name, file]) => {
     const m = Number(name.slice(1)) - 1;
-    const img = await loadImage(productUrl(tileId, file, info, 'heat'));
+    const url = productUrl(tileId, file, info, 'heat');
+    let img = await loadImage(url);
+    // The cache key is the product's stamp; a file rewritten without a new
+    // stamp would come back at the old size and be read with the wrong
+    // stride. A size that disagrees with the meta is refetched, not trusted.
+    if (img.width !== info.cols || img.height !== info.rows) {
+      img = await loadImage(url, { reload: true });
+      if (img.width !== info.cols || img.height !== info.rows) {
+        throw new Error(`${file} is ${img.width}×${img.height}, meta says ${info.cols}×${info.rows}`);
+      }
+    }
     const cv = document.createElement('canvas');
     cv.width = img.width;
     cv.height = img.height;
@@ -182,8 +192,8 @@ const productUrl = (tileId, file, info, product = '') =>
   `${BASE}/${tileId}/${file.includes('/') ? file : `${product}/${file}`}?v=${encodeURIComponent(info.generated || '')}`;
 
 /** An image through the cache: fetch the blob, then decode it. */
-const loadImage = async src => {
-  const res = await cachedFetch(src);
+const loadImage = async (src, { reload = false } = {}) => {
+  const res = await cachedFetch(src, { reload });
   if (!res.ok) throw new Error(`could not load ${src}`);
   const blob = await res.blob();
   if (typeof createImageBitmap === 'function') return createImageBitmap(blob);

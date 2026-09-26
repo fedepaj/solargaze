@@ -36,6 +36,9 @@ def reencode(tile: Tile) -> bool:
         encode(downsample(t)).save(path, optimize=True)
         after += path.stat().st_size
     rows, cols = info["rows"] // DOWNSAMPLE, info["cols"] // DOWNSAMPLE
+    # A new stamp: the app keys its cache on it, and these are new files.
+    from datetime import datetime, timezone
+    info["generated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     info.update({
         "rows": rows, "cols": cols,
         "degrees_per_pixel": info["degrees_per_pixel"] * DOWNSAMPLE,

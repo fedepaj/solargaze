@@ -40,12 +40,12 @@ function writeLedger() {
  * Fetch through the cache. `key` defaults to the url; pass one when the
  * url carries something transient (a signed token, say).
  */
-export async function cachedFetch(url, { key = url } = {}) {
-  if (!supported) return fetch(url);
+export async function cachedFetch(url, { key = url, reload = false } = {}) {
+  if (!supported) return fetch(url, reload ? { cache: 'reload' } : undefined);
   const cache = await caches.open(CACHE_NAME);
   readLedger();
   const entry = ledger[key];
-  if (entry && Date.now() - entry.at < MAX_AGE_MS) {
+  if (!reload && entry && Date.now() - entry.at < MAX_AGE_MS) {
     const hit = await cache.match(key);
     if (hit) {
       entry.used = Date.now();
@@ -53,7 +53,7 @@ export async function cachedFetch(url, { key = url } = {}) {
       return hit;
     }
   }
-  const res = await fetch(url);
+  const res = await fetch(url, reload ? { cache: 'reload' } : undefined);
   if (!res.ok) return res;
   // Clone before the body is read; the ledger wants the size, so read it here.
   const blob = await res.clone().blob();
