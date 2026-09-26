@@ -135,6 +135,13 @@ export function setDate({ y, m, d }) {
   emit('time', state);
 }
 
+/** Move to the same calendar day of another year; 29 February becomes the 28th. */
+export function setYear(y) {
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const d = state.m === 2 && state.d === 29 && !leap ? 28 : state.d;
+  setDate({ y, m: state.m, d });
+}
+
 export function setDayOfYear(doy) {
   const max = daysInYear(state.y);
   setDate(fromDayOfYear(state.y, Math.min(Math.max(1, Math.round(doy)), max)));

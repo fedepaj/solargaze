@@ -9,6 +9,7 @@
 
 import { state, emit, setGroundHeight } from './state.js';
 import { DEFAULTS, ION_GOOGLE_3D_ASSET } from './config.js';
+import { profile } from './device.js';
 
 const C = window.Cesium;
 
@@ -40,7 +41,8 @@ export function createViewer(container) {
     requestRenderMode: true,
     shadows: true,
     terrainShadows: C.ShadowMode.DISABLED,
-    msaaSamples: 4,
+    // Four samples are free on a desktop GPU and a hot phone on mobile.
+    msaaSamples: profile.msaa,
     contextOptions: { webgl: { powerPreference: 'high-performance' } },
   });
 
@@ -172,6 +174,9 @@ export async function loadIonTiles(token) {
     maximumScreenSpaceError: state.prefs.meshDetail,
     shadows: state.prefs.shadows ? C.ShadowMode.ENABLED : C.ShadowMode.DISABLED,
     showCreditsOnScreen: true,
+    // Cesium's 512 MB default is more than mobile Safari lets a tab keep.
+    cacheBytes: profile.cacheBytes,
+    maximumCacheOverflowBytes: profile.cacheBytes / 2,
   });
 
   viewer.scene.primitives.add(loaded);

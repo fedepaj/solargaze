@@ -1,5 +1,7 @@
 /** Static configuration and persisted-settings plumbing. */
 
+import { profile } from './device.js';
+
 /**
  * The CesiumJS build this app is written against, mirrored here for anything
  * that wants to report it. The version that actually loads is pinned in three
@@ -55,6 +57,7 @@ const ALL_STORES = [
   'solargaze.ionSession',
   'solargaze.ionUsage',
   'solargaze.googleKey',   // retired; cleared so old installs do not keep it
+  'solargaze.cacheLedger', // the data cache's ledger; the cache itself is dropped below
 ];
 
 /**
@@ -87,22 +90,36 @@ export const DEFAULTS = {
   groundHeight: 78,
 };
 
+/**
+ * Defaults. The three that cost GPU time or ion quota come from the device
+ * profile — a phone starts on a lighter footing than a desktop — and all of
+ * them stay adjustable in Settings.
+ */
 export const PREFS = {
   shadows: true,
   sunPath: true,
-  softShadows: true,
-  shadowQuality: 2048,
+  softShadows: profile.softShadows,
+  shadowQuality: profile.shadowQuality,
   /**
    * `maximumScreenSpaceError` for the 3D tileset. Cesium's default is 16;
    * raising it asks for coarser tiles, which is the single biggest lever on how
    * fast the ion quota in the usage meter is spent.
    */
-  meshDetail: 16,
+  meshDetail: profile.meshDetail,
   fullDayRange: false,
   weather: true,
   pinLocked: false,
   /** The bottom-right mouse cheat sheet. Open until it is dismissed. */
   mouseCard: true,
+  /** The atmosphere layers by id (js/atmo/layers.js). Off until asked for: each one is a fetch. */
+  layers: {},
+  /** Which pollutant the air layer tints by; a key of AIR_METRICS. */
+  airMetric: 'european_aqi',
+  /** How the temperature and air layers answer: for the date, or typically. */
+  tempMode: 'date',
+  airMode: 'date',
+  /** The one-time hint about touch gestures. */
+  touchHintShown: false,
 };
 
 /* localStorage can throw in private windows or with site data blocked, so every
@@ -131,6 +148,7 @@ function consumeFromUrl(param, store) {
 export function resetAll({ reload = true } = {}) {
   for (const key of ALL_STORES) safeDel(key);
   try { sessionStorage.removeItem('solargaze.pkce'); } catch { /* ignore */ }
+  try { caches?.delete('solargaze-data-v1'); } catch { /* ignore */ }
   if (reload) {
     location.replace(`${location.origin}${location.pathname}`);
   }

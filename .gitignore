@@ -14,3 +14,8 @@ tools/
 # Source material for docs/ — full-res screenshots and the frames the GIF
 # was built from. Working files: not part of the site, so not published.
 solargaze-assets/
+
+# The offline pipeline's own environment and raw downloads. Its outputs go to
+# data/tiles/ and are committed; the inputs are re-fetchable.
+pipeline/.venv/
+pipeline/cache/

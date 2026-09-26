@@ -40,7 +40,16 @@ for that day, and the beam arrives from the sun's direction into the studied poi
 - **Local wall clock** at the place you are looking at, DST included.
 - **Sun-hours probe** (ANALYZE tab): ray-casts against the loaded geometry to
   estimate hours of direct sun at the pin.
+- **Temperature, air quality and wind** (AIR tab), on the same clock as the
+  sun: a temperature or a pollutant tinted onto the ground and the buildings,
+  and the wind as a cloud of particles. Each answers either for the selected
+  date — any year back to 2013, there is a year slider — or *typically*,
+  from products precomputed by [`pipeline/`](pipeline/): Landsat surface
+  temperature at 30 m by month, a five-year air-quality climatology by month
+  and hour, and the buildings the wind has to thread between.
 - **Shareable links** that restore the exact view, date and time.
+- **Works on a phone**: the panel becomes a bottom sheet, the camera answers
+  to fingers, and the shadow and tile budgets start lower.
 
 Out of scope: drawing, placing objects, editing the map.
 
@@ -85,6 +94,42 @@ until the surroundings are sharp before you trust the number.
 
 <img src="https://raw.githubusercontent.com/fedepaj/solargaze/assets/guide-analyze.gif" width="440" alt="The ANALYZE tab computing hours of direct sun">
 
+### Heat, air and wind
+
+The AIR tab adds three layers from Open-Meteo, all reading the hour and the
+day from the same two sliders. **Heat** tints the ground and the buildings
+standing on it by air temperature, on a scale that spans the selected day so
+that playing the day through shows the afternoon warming up. **Air** does the
+same for a pollutant — the European Air Quality Index, PM2.5, PM10, NO₂ or
+O₃ — in the six colours of the EAQI. **Wind** is a cloud of particles drifting
+over the point with the model's 10 m wind, plus a vane at the point with its
+speed and where it blows from. Heat and air are both tints on the same ground,
+so one replaces the other; wind floats above and combines with either.
+
+Each of the first two has a mode strip. **This date** reads Open-Meteo for
+the day on the sliders, and the year slider reaches back to 2013 through the
+archive, so July 2022 and July 2018 are both there. **Surface** (temperature)
+and **Typical** (air) read products precomputed by the offline pipeline for
+the quarter-degree tile under the pin: the Landsat 8/9 surface temperature at
+30 m as a per-pixel median of clear scenes for the month, coloured as an
+anomaly against the rest of the tile; and a five-year CAMS mean for that
+month and hour of day, with the year's mean and the share of days over the
+WHO guideline. Where the tile also carries the building mask, the wind's
+particles drop to street level and thread between the buildings: a
+potential-flow model solved in a worker for the window around the point and
+the wind of the moment — channelling, shelter and corner gusts, no wakes.
+See [`pipeline/README.md`](pipeline/README.md) for what exists and how to
+make more. Tiles and archived days are cached in the browser under a budget;
+Settings shows the size and clears it.
+
+Two honest limits, printed under the numbers. The models sit on grids of seven
+to eleven kilometres, so the gradient across a neighbourhood is interpolation
+between model cells, not measurement, and the wind is the regional wind rather
+than the flow between these particular buildings. And a day beyond the forecast
+horizon — about two weeks for weather, five days for air quality — is shown
+with the same date a year earlier, as a stand-in for the season, never as a
+prediction.
+
 ## Controls
 
 The map has focus by default; keys are ignored while you type in a field.
@@ -107,6 +152,11 @@ short version in a card in the bottom-right corner of the map.
 | `Ctrl`+`drag`, or `middle`+`drag` | Tilt towards the horizon |
 | `wheel`, or `right`+`drag` | Zoom |
 | `drag` the point | Move it — once the padlock is closed |
+
+On a phone or a tablet the same camera answers to fingers: one finger orbits,
+a pinch zooms, two fingers dragged up or down tilt, and twisted turn. The panel
+folds away behind its grab bar when you want the whole screen for the map, and
+the zoom buttons are gone because the pinch does their job.
 
 Everything after `#` is written back to the address bar as you move, so the URL
 is always a link to what you are looking at.
@@ -153,7 +203,7 @@ every preference.
 
 ```bash
 npm run dev     # npx serve on http://localhost:5173
-npm test        # node --test over the solar equations
+npm test        # node --test over the solar equations and the field maths
 ```
 
 Any static server works — `python3 -m http.server` is fine. It must be http(s),
@@ -185,20 +235,40 @@ css/app.css           the whole visual design
 docs/                 logo, the loop the connect screen plays, the four
                       clips the guide explains itself with, and the
                       screenshots the in-app ion walkthrough loads
-test/                 node --test over solar.js
+test/                 node --test over solar.js and atmo/field.js
+pipeline/             the offline scripts that fill data/tiles/ (Python)
+data/tiles/           precomputed products per quarter-degree tile
+manifest.webmanifest  so a phone can keep it on the home screen
 js/
   solar.js            NOAA solar equations — pure, dependency-free, tested
   timezone.js         IANA zone for a lat/lon, DST-correct wall-clock maths
   state.js            single source of truth + a small pub/sub bus
+  device.js           touch or mouse, phone or not; the budgets that follow
   scene.js            Cesium viewer, 3D tiles, shadow map, camera
   sunpath.js          the 3D overlay: compass card, day arc, readouts
   analyze.js          direct-sunlight-hours ray casting
+  atmo.js             the engine: fetches what the enabled layers need and
+                      hands each layer to its renderer
+  atmo/
+    layers.js         the registry — a layer is an entry here: source,
+                      field, scale, reading, renderer
+    sources.js        where the numbers come from: grid spacing, variables,
+                      which endpoint serves which day
+    field.js          the grid and its sampling, live and precomputed —
+                      pure and tested
+    tiles.js          reads data/tiles/ back into series, rasters, masks
+    flow.js           the street-level wind, solved in flow.worker.js
+    cache.js          Cache API with a ledger, a budget and an expiry
+    scales.js         colour ramps and the EAQI bands
+    openmeteo.js      one request per grid, cached
+    drape.js          a scalar field painted onto the mesh (GroundPrimitive)
+    wind.js           a vector field as drifting particles, and the vane
   ion-auth.js         Cesium ion sign-in (OAuth2 + PKCE, no backend)
   util.js             helpers with no home of their own
   app.js              bootstrap and wiring
-  ui/                 timepanel, analyzepane, search, compass, weather,
-                      usage meter, modals, toast, tooltip, sunloader,
-                      offlinedemo
+  ui/                 timepanel, analyzepane, airpane, search, compass,
+                      weather, usage meter, modals, toast, tooltip,
+                      sunloader, offlinedemo, sheet (the phone layout)
 ```
 
 Two sun calculations run side by side. CesiumJS derives the light direction
@@ -255,7 +325,12 @@ yours to relicense:
 - **Cesium ion** — how the tiles and the geocoder are reached; usage follows
   your ion plan and Google's terms above.
 - **OpenStreetMap** (fallback basemap) — ODbL, © OpenStreetMap contributors.
-- **Open-Meteo** (weather badge) — CC-BY 4.0.
+- **Open-Meteo** (weather badge, heat, air quality and wind) — CC-BY 4.0. Air
+  quality is Copernicus Atmosphere Monitoring Service (CAMS) data, served by
+  Open-Meteo.
+- **Landsat 8/9** surface temperature (USGS, public domain), read through
+  Microsoft Planetary Computer's STAC catalogue by the pipeline.
+- **OpenStreetMap** building footprints for the wind product — ODbL.
 - **tz-lookup** — timezone boundary data, CC0.
 
 Not affiliated with, or endorsed by, Google or Shadowmap.

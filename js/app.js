@@ -33,6 +33,10 @@ import { initAnalyzePane } from './ui/analyzepane.js';
 import { initTooltips, hide as hideTooltip } from './ui/tooltip.js';
 import { initUsage } from './ui/usage.js';
 import { initMouseCard } from './ui/mousecard.js';
+import { initSheet } from './ui/sheet.js';
+import { initAirPane } from './ui/airpane.js';
+import { initAtmo, atmo } from './atmo.js';
+import { isTouch } from './device.js';
 import { toast } from './ui/toast.js';
 import { mountLoader } from './ui/sunloader.js';
 import { startOfflineDemo, stopOfflineDemo, seedDemoTime } from './ui/offlinedemo.js';
@@ -70,7 +74,10 @@ async function boot() {
   applyPendingView();
 
   initSunPath();
+  initAtmo();
   initTimePanel();
+  initAirPane();
+  initSheet();
   initCompass();
   initSearch();
   initWeather();
@@ -88,7 +95,11 @@ async function boot() {
   wireLinks();
 
   on('time', syncClock);
-  on('location', () => { pushUrl(); });
+  // Debounced like the camera: in follow mode the pin moves with every
+  // camera nudge, and Safari raises a SecurityError past a hundred
+  // replaceState calls in thirty seconds — after which the address bar
+  // silently stops tracking the view.
+  on('location', schedulePushUrl);
   on('date', pushUrl);
   on('camera', () => { followRetries = 0; scheduleFollow(); });
   on('camera', schedulePushUrl);
@@ -113,6 +124,7 @@ async function boot() {
   syncClock();
   paintDock();
   exposeDebugHandle();
+  touchHint();
 
   // Timezones refine the clock; do it off the critical path.
   loadTzDatabase().then(fn => {
@@ -158,6 +170,16 @@ async function resumeIonSession() {
 }
 
 /**
+ * Fingers get no hover hints and no mouse card, so the camera gestures are
+ * said once, out loud, and then never again.
+ */
+function touchHint() {
+  if (!isTouch || state.prefs.touchHintShown) return;
+  setPref('touchHintShown', true);
+  setTimeout(() => toast('One finger orbits · two fingers zoom, tilt and turn', { ms: 6500 }), 1500);
+}
+
+/**
  * A small handle for embedding, console tinkering and automated checks.
  * Deliberately read-mostly: everything here already has a UI control.
  */
@@ -171,6 +193,8 @@ function exposeDebugHandle() {
     get diag() {
       return { meshReady, initialViewSettled, urlPlacedView, settleSkipped };
     },
+    /** The atmosphere layers' data and status, read-only. */
+    get atmo() { return atmo; },
     version: '1.0.0',
   };
 }
@@ -538,10 +562,12 @@ function wireMapClick() {
     C.Cartesian3.fromDegrees(state.lon, state.lat, pointHeight()),
   );
 
+  // A fingertip covers far more of the screen than a cursor does.
+  const grabRadius = isTouch ? 36 : 22;
   const overPin = position => {
     if (!state.prefs.pinLocked) return false;
     const screen = pinOnScreen();
-    return !!screen && C.Cartesian2.distance(screen, position) < 22;
+    return !!screen && C.Cartesian2.distance(screen, position) < grabRadius;
   };
 
   const placeAt = position => {

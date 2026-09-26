@@ -15,6 +15,7 @@ import {
 import { toast } from './toast.js';
 import * as ionAuth from '../ion-auth.js';
 import { mountLoader } from './sunloader.js';
+import { compactLayout } from '../device.js';
 
 const C = window.Cesium;
 const $ = id => document.getElementById(id);
@@ -29,6 +30,8 @@ export function initSearch() {
   const input = $('search-input');
   const list = $('search-results');
   mountLoader($('search-spin'));
+  // The long placeholder is cut mid-word on a phone-width bar.
+  if (compactLayout()) input.placeholder = 'Place or address';
 
   input.addEventListener('input', () => {
     clearTimeout(debounce);

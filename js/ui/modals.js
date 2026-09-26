@@ -7,6 +7,7 @@ import * as ionAuth from '../ion-auth.js';
 import { toast } from './toast.js';
 import { working } from './sunloader.js';
 import { escapeHtml } from '../util.js';
+import { cacheStats, clearCache, formatBytes, BUDGET_BYTES } from '../atmo/cache.js';
 
 const $ = id => document.getElementById(id);
 let onSaved = null;
@@ -369,6 +370,12 @@ function openSettings() {
       <button id="ion-save2">Save</button>
     </div>
 
+    <h3>STORED DATA</h3>
+    <div class="rowopt">
+      <div>Cached tiles and archive days<small id="cache-note">${cacheLine()}</small></div>
+      <button class="seg-btn" id="btn-cache-clear">Clear</button>
+    </div>
+
     <h3>RESET</h3>
     <div class="rowopt">
       <div>Start over<small>Forgets the sign-in, any pasted token and every preference, then reloads. Same as opening the page with <code>?reset</code>.</small></div>
@@ -413,6 +420,13 @@ function openSettings() {
         setIonToken('');
         location.reload();
       });
+      root.querySelector('#btn-cache-clear')?.addEventListener('click', async e => {
+        const restore = working(e.currentTarget, 'Clearing…');
+        await clearCache();
+        restore();
+        root.querySelector('#cache-note').textContent = cacheLine();
+        toast('Stored data cleared — the next tile will download again');
+      });
       root.querySelector('#btn-reset')?.addEventListener('click', () => {
         ionAuth.signOut();
         resetAll();
@@ -423,6 +437,12 @@ function openSettings() {
       });
     },
   );
+}
+
+function cacheLine() {
+  const { bytes, entries, supported } = cacheStats();
+  if (!supported) return 'This browser cannot keep data between visits.';
+  return `${formatBytes(bytes)} in ${entries} ${entries === 1 ? 'file' : 'files'}, kept for 45 days and under ${formatBytes(BUDGET_BYTES)}; the least used go first.`;
 }
 
 /* ── help ─────────────────────────────────────────────────────────── */
@@ -498,6 +518,14 @@ const MOUSE_KEYS = [
   ['Move the point, once the padlock is closed', ['drag']],
 ];
 
+const TOUCH_KEYS = [
+  ['Orbit around the point', ['one finger', 'drag']],
+  ['Zoom', ['pinch']],
+  ['Tilt towards the horizon', ['two fingers', 'drag up or down']],
+  ['Turn', ['two fingers', 'twist']],
+  ['Move the point, once the padlock is closed', ['drag it']],
+];
+
 const BOARD_KEYS = [
   ['Time, ∓10 minutes', ['←', '→']],
   ['Time, ∓1 hour', ['shift', '+', '←', '→']],
@@ -535,6 +563,29 @@ function openHelp() {
        carries the short version; close it once and it stays closed.</p>
     ${keyTable(MOUSE_KEYS)}
 
+    <h3>TOUCH</h3>
+    <p>On a phone or a tablet the same camera answers to fingers, and the panel at the bottom
+       folds away behind its grab bar when you want the whole screen for the map.</p>
+    ${keyTable(TOUCH_KEYS)}
+
+    <h3>HEAT, AIR AND WIND</h3>
+    <p>The AIR tab adds three layers from <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>,
+       all following the same clock as the sun. <b>Heat</b> tints the ground and the buildings
+       standing on it by air temperature, on a scale that spans the selected day so playback
+       shows the afternoon warming up. <b>Air</b> does the same for a pollutant of your choice,
+       in the six colours of the European Air Quality Index. <b>Wind</b> is a cloud of particles
+       drifting over the point with the model's 10 m wind, and a vane at the point giving its
+       speed and where it blows from.</p>
+    <p>Read the fine print under the numbers: the models sit on grids of seven to eleven
+       kilometres, so the gradient across a neighbourhood is interpolation rather than
+       measurement, and a day beyond the forecast horizon is shown with the same date a year
+       earlier, as a stand-in for the season rather than a prediction.</p>
+    <p>Where the offline pipeline has covered the area, two <b>typical</b> layers join them:
+       <b>Surface</b>, the temperature of roofs and streets from Landsat at 30 m, a median of
+       clear mid-morning passes for the month on the date slider, coloured against the rest of
+       the area; and <b>Typical</b> air, a five-year mean for that month and hour, with the
+       year's mean and how often it exceeds the WHO guideline.</p>
+
     <h3>KEYBOARD</h3>
     <p>The map has focus by default, and keys are ignored while you are typing in a field.</p>
     ${keyTable(BOARD_KEYS)}
@@ -546,7 +597,7 @@ function openHelp() {
     <p>Sun geometry is good to well under a tenth of a degree. What limits the result is the mesh: Google's tiles are photogrammetry, so trees, awnings and thin structures are approximate, and shading baked into the imagery is not removed. Treat it as a very good study, not a survey.</p>
 
     <h3>CREDITS</h3>
-    <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Weather by <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>. Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
+    <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Weather, heat, air quality and wind by <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0; air quality from Copernicus CAMS). Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
   `, wireHelp);
 }
 

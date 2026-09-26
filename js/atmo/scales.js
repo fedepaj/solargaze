@@ -1,0 +1,83 @@
+/**
+ * Colour, and the bands behind it.
+ *
+ * The heat ramp and the European Air Quality Index live here so that the
+ * legend in the pane and the texture on the ground are drawn from the same
+ * stops — they can disagree only by editing one file.
+ */
+
+const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+
+/**
+ * The heat ramp: cold blue through a pale neutral to a deep red. Luminance
+ * rises with temperature so it survives greyscale and most colour blindness.
+ */
+export const HEAT_STOPS = ['#3b4fc2', '#5c9fdd', '#a5d6cb', '#f7ec9c', '#f5a850', '#df4b3b', '#8e1130'];
+
+/**
+ * The European Air Quality Index, as the EEA draws it. The same six bands and
+ * the same colours apply to each pollutant, with per-pollutant edges in µg/m³
+ * — so a PM2.5 map and an NO₂ map read on the same legend.
+ */
+export const EAQI_BANDS = [
+  { name: 'Good', colour: '#50f0e6' },
+  { name: 'Fair', colour: '#50ccaa' },
+  { name: 'Moderate', colour: '#f0e641' },
+  { name: 'Poor', colour: '#ff5050' },
+  { name: 'Very poor', colour: '#960032' },
+  { name: 'Extremely poor', colour: '#7d2181' },
+];
+
+export const AIR_METRICS = {
+  european_aqi: { label: 'EAQI', long: 'European Air Quality Index', unit: '', edges: [20, 40, 60, 80, 100], top: 125 },
+  pm2_5: { label: 'PM2.5', long: 'Fine particles, PM2.5', unit: 'µg/m³', edges: [10, 20, 25, 50, 75], top: 100 },
+  pm10: { label: 'PM10', long: 'Coarse particles, PM10', unit: 'µg/m³', edges: [20, 40, 50, 100, 150], top: 200 },
+  nitrogen_dioxide: { label: 'NO₂', long: 'Nitrogen dioxide', unit: 'µg/m³', edges: [40, 90, 120, 230, 340], top: 400 },
+  ozone: { label: 'O₃', long: 'Ozone', unit: 'µg/m³', edges: [50, 100, 130, 240, 380], top: 450 },
+};
+
+/** Which EAQI band a value of `metric` falls in. */
+export function bandOf(metric, value) {
+  const { edges } = AIR_METRICS[metric];
+  let i = 0;
+  while (i < edges.length && value >= edges[i]) i++;
+  return { index: i, ...EAQI_BANDS[i] };
+}
+
+const hexToRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+
+/**
+ * A 256-entry lookup table from a list of colour stops at positions in [0,1].
+ * Painting 16k pixels through a table beats parsing a hex string per pixel.
+ */
+export function rampLut(stops) {
+  const lut = new Uint8ClampedArray(256 * 3);
+  const rgb = stops.map(([, hex]) => hexToRgb(hex));
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let k = 0;
+    while (k < stops.length - 2 && t > stops[k + 1][0]) k++;
+    const [p0] = stops[k];
+    const [p1] = stops[k + 1];
+    const f = p1 === p0 ? 0 : clamp((t - p0) / (p1 - p0), 0, 1);
+    for (let c = 0; c < 3; c++) lut[i * 3 + c] = rgb[k][c] + (rgb[k + 1][c] - rgb[k][c]) * f;
+  }
+  return lut;
+}
+
+/** Heat: evenly spaced stops across the domain. */
+export const heatStops = () => HEAT_STOPS.map((hex, i) => [i / (HEAT_STOPS.length - 1), hex]);
+
+/**
+ * Air: the band colours pinned at the band edges, so that a smooth field still
+ * turns "Fair" green exactly where the index says it does.
+ */
+export function airStops(metric) {
+  const { edges, top } = AIR_METRICS[metric];
+  const positions = [0, ...edges].map(e => e / top);
+  return EAQI_BANDS.map((band, i) => [Math.min(positions[i], 1), band.colour]);
+}
+
+/** CSS for a legend bar drawn from the same stops the drape uses. */
+export const cssGradient = stops =>
+  `linear-gradient(90deg, ${stops.map(([p, hex]) => `${hex} ${(p * 100).toFixed(1)}%`).join(', ')})`;

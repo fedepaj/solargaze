@@ -4,7 +4,7 @@
  */
 
 import {
-  state, on, emit, setTime, setDate, setDayOfYear, currentDayOfYear,
+  state, on, emit, setTime, setDate, setDayOfYear, setYear, currentDayOfYear,
   jumpToNow, sliderRange, setPref,
 } from '../state.js';
 import { daysInYear, dayOfYear, fromDayOfYear } from '../solar.js';
@@ -34,6 +34,9 @@ export function initTimePanel() {
   els = {
     timeSlider: $('time-slider'),
     dateSlider: $('date-slider'),
+    yearSlider: $('year-slider'),
+    yearFrom: $('label-year-from'),
+    yearTo: $('label-year-to'),
     dateNative: $('date-native'),
     timeNative: $('time-native'),
     clockTime: $('clock-time'),
@@ -56,6 +59,16 @@ export function initTimePanel() {
 
   /* ── time of year ─────────────────────────────────────────────── */
   dateSlider.addEventListener('input', () => setDayOfYear(Number(dateSlider.value)));
+
+  /* ── the year ─────────────────────────────────────────────────── */
+  // From the first year the air-quality archive covers to next year: a
+  // forecast horizon's worth past today, and everything before it history.
+  const thisYear = new Date().getFullYear();
+  els.yearSlider.min = String(YEAR_FROM);
+  els.yearSlider.max = String(thisYear + 1);
+  els.yearFrom.textContent = String(YEAR_FROM);
+  els.yearTo.textContent = String(thisYear + 1);
+  els.yearSlider.addEventListener('input', () => setYear(Number(els.yearSlider.value)));
 
   /* ── exact date ───────────────────────────────────────────────── */
   const openDate = () => {
@@ -105,8 +118,7 @@ export function initTimePanel() {
   $('btn-play').addEventListener('click', togglePlayback);
 
   /* ── tabs ─────────────────────────────────────────────────────── */
-  $('tab-visualize').addEventListener('click', () => setTab('visualize'));
-  $('tab-analyze').addEventListener('click', () => setTab('analyze'));
+  for (const tab of TABS) $(`tab-${tab}`).addEventListener('click', () => setTab(tab));
 
   /* ── keyboard ─────────────────────────────────────────────────── */
   window.addEventListener('keydown', onKey);
@@ -119,14 +131,18 @@ export function initTimePanel() {
   render();
 }
 
+const TABS = ['visualize', 'analyze', 'air'];
+/** Where the year slider starts: the air-quality archive begins in 2013. */
+const YEAR_FROM = 2013;
+
 function setTab(tab) {
   state.tab = tab;
-  $('tab-visualize').classList.toggle('is-active', tab === 'visualize');
-  $('tab-analyze').classList.toggle('is-active', tab === 'analyze');
-  $('tab-visualize').setAttribute('aria-selected', String(tab === 'visualize'));
-  $('tab-analyze').setAttribute('aria-selected', String(tab === 'analyze'));
-  $('pane-visualize').hidden = tab !== 'visualize';
-  $('pane-analyze').hidden = tab !== 'analyze';
+  for (const name of TABS) {
+    const active = name === tab;
+    $(`tab-${name}`).classList.toggle('is-active', active);
+    $(`tab-${name}`).setAttribute('aria-selected', String(active));
+    $(`pane-${name}`).hidden = !active;
+  }
   emit('tab', tab);
 }
 
@@ -243,6 +259,12 @@ export function render() {
   els.dateSlider.max = String(total);
   els.dateSlider.value = String(doy);
   setPct(els.dateSlider, (doy - 1) / (total - 1));
+
+  const yMin = Number(els.yearSlider.min);
+  const yMax = Number(els.yearSlider.max);
+  const y = Math.min(Math.max(state.y, yMin), yMax);
+  els.yearSlider.value = String(y);
+  setPct(els.yearSlider, (y - yMin) / Math.max(yMax - yMin, 1));
 
   renderClock();
 }
