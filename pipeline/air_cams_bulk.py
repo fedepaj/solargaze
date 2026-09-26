@@ -161,6 +161,8 @@ def main():
     ap.add_argument("--bbox", help="west,south,east,north")
     ap.add_argument("--years", default="2020-2024")
     ap.add_argument("--tiles", help="comma list of tile ids to write (default: all in the box)")
+    ap.add_argument("--only-built", type=int, default=2000,
+                    help="write only tiles whose wind product counts at least this many OSM buildings (0 = all)")
     args = ap.parse_args()
     bbox = tuple(map(float, args.bbox.split(","))) if args.bbox else REGIONS[args.region]
     y0, y1 = map(int, args.years.split("-"))
@@ -169,6 +171,14 @@ def main():
     # One 0.1° ring outside the box, for the tiles on its edge.
     fetch_box = (bbox[0] - 0.2, bbox[1] - 0.2, bbox[2] + 0.2, bbox[3] + 0.2)
     wanted, result = fold_region(fetch_box, years, tiles)
+    if args.only_built and not args.tiles:
+        # A 200 KB table for every square of sea and mountain is a repo nobody
+        # wants; the mask run says where the buildings are. Decided now, after
+        # the hours of downloading, so a mask run going on in parallel counts.
+        from tiles import read_meta
+        tiles = [t for t in tiles
+                 if read_meta(t).get("products", {}).get("wind", {}).get("osm_buildings", 0) >= args.only_built]
+        log.info("%d built tiles to write", len(tiles))
     kinds = "validated" if years[-1] <= VALIDATED_UNTIL else "validated to %d, interim after" % VALIDATED_UNTIL
     write_tiles(tiles, years, wanted, result, f"Copernicus Atmosphere Data Store, cams-europe-air-quality-reanalyses ({kinds})")
 

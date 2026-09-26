@@ -149,6 +149,11 @@ def run(tile: Tile) -> None:
         }
         print(f"  month {m:02d}: {len(stack)} scenes, coverage {months[f'{m:02d}']['coverage']:.0%}")
 
+    # The per-scene cache exists to resume an interrupted tile, not to keep
+    # half a gigabyte per tile around: drop it once the months are written.
+    for p in CACHE.glob(f"{tile.id}_*.npy"):
+        p.unlink()
+
     write_meta(tile, "heat", {
         "product": "Landsat 8/9 Collection 2 Level-2 surface temperature (ST_B10), per-pixel median by calendar month",
         "years": YEARS,
