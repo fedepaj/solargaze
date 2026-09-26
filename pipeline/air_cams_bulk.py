@@ -119,6 +119,30 @@ def fold_region(bbox, years, tiles):
     return wanted, result
 
 
+def fold_region_cached(bbox, years, tiles):
+    """The folded tables for a box, kept as one small file so that the
+    NetCDFs — three and a half gigabytes for a region — can be thrown away
+    once they have been read, and tiles built later still get their air."""
+    tag = f"folded_{'_'.join(f'{v:.2f}' for v in bbox)}_{years[0]}-{years[-1]}.npz"
+    path = CACHE / tag
+    wanted = sorted({node for t in tiles for node in nodes_for(t)})
+    if path.exists():
+        z = np.load(path, allow_pickle=True)
+        have = [tuple(x) for x in z["wanted"]]
+        if set(wanted) <= set(have):
+            log.info("folded tables from %s", path.name)
+            result = {v: {"sum": z[f"{v}_sum"], "n": z[f"{v}_n"], "daily": [z[f"{v}_daily"]]} for v in VARS}
+            return have, result
+    wanted, result = fold_region(bbox, years, tiles)
+    np.savez_compressed(path, wanted=np.array(wanted), **{
+        f"{v}_{k}": (np.concatenate(result[v]["daily"]) if k == "daily" else result[v][k])
+        for v in VARS for k in ("sum", "n", "daily")})
+    for nc in CACHE.glob("*.nc"):
+        nc.unlink()
+    log.info("folded tables saved to %s; NetCDFs removed", path.name)
+    return wanted, result
+
+
 def write_tiles(tiles, years, wanted, result, source_note):
     index = {node: k for k, node in enumerate(wanted)}
     for tile in tiles:
@@ -170,7 +194,7 @@ def main():
     tiles = [Tile.parse(t) for t in args.tiles.split(",")] if args.tiles else list(tiles_in_bbox(*bbox))
     # One 0.1° ring outside the box, for the tiles on its edge.
     fetch_box = (bbox[0] - 0.2, bbox[1] - 0.2, bbox[2] + 0.2, bbox[3] + 0.2)
-    wanted, result = fold_region(fetch_box, years, tiles)
+    wanted, result = fold_region_cached(fetch_box, years, tiles)
     if args.only_built and not args.tiles:
         # A 200 KB table for every square of sea and mountain is a repo nobody
         # wants; the mask run says where the buildings are. Decided now, after
