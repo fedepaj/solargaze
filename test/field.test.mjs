@@ -177,22 +177,26 @@ test('a climatology wraps December into January and 23:30 into midnight', () => 
   assert.ok(Math.abs(monthFraction(15.5 + 365 / 12) - 1) < 1e-9);
 });
 
-test('a raster stack is read by nearest pixel, blended between months, transparent where unobserved', () => {
+test('a raster stack is read bilinearly, blended between months, transparent where unobserved', () => {
   const cols = 4; const rows = 2;
-  const month = fill => { const d = new Uint8ClampedArray(cols * rows * 4); for (let i = 0; i < cols * rows; i++) { d[i * 4] = fill(i); d[i * 4 + 3] = fill(i) === 0 ? 0 : 255; } return { data: d, cols, rows }; };
+  const month = fill => ({ values: Uint8Array.from({ length: cols * rows }, (_, i) => fill(i)), cols, rows });
   const raster = {
     bounds: [12, 41, 13, 41.5], rows, cols, decode: b => b / 10,
-    months: { 5: month(i => 100 + i), 6: month(i => i === 0 ? 0 : 200 + i) },
+    months: { 5: month(i => 100 + i), 6: month(i => (i === 0 ? 0 : 200 + i)) },
   };
-  // pixel (x=0, y=0) is the north-west corner
-  assert.equal(sampleRaster(raster, 41.4, 12.1, 5), 10.0);
-  assert.equal(sampleRaster(raster, 41.4, 12.9, 5), 10.3);
-  assert.equal(sampleRaster(raster, 41.1, 12.9, 5), 10.7);
+  // pixel centres: x = 12.125, 12.375, 12.625, 12.875; y = 41.375 (row 0, north), 41.125
+  assert.ok(Math.abs(sampleRaster(raster, 41.375, 12.125, 5) - 10.0) < 1e-9);
+  assert.ok(Math.abs(sampleRaster(raster, 41.375, 12.875, 5) - 10.3) < 1e-9);
+  assert.ok(Math.abs(sampleRaster(raster, 41.125, 12.875, 5) - 10.7) < 1e-9);
+  // half way between two pixel centres reads their mean
+  assert.ok(Math.abs(sampleRaster(raster, 41.375, 12.25, 5) - 10.05) < 1e-9);
   // half way between June and July at pixel 1: (101 + 201) / 2 / 10
-  assert.ok(Math.abs(sampleRaster(raster, 41.4, 12.3, 5.5) - 15.1) < 1e-9);
-  // July has no observation at pixel 0: fall back to June alone
-  assert.equal(sampleRaster(raster, 41.4, 12.1, 5.5), 10.0);
-  // a month with no raster at all
-  assert.ok(Number.isNaN(sampleRaster(raster, 41.4, 12.1, 2)));
+  assert.ok(Math.abs(sampleRaster(raster, 41.375, 12.375, 5.5) - 15.1) < 1e-9);
+  // July has no observation at pixel 0: at that centre, June alone
+  assert.ok(Math.abs(sampleRaster(raster, 41.375, 12.125, 5.5) - 10.0) < 1e-9);
+  // and next to it, the missing pixel leaves the weights rather than poisoning them
+  assert.ok(Math.abs(sampleRaster(raster, 41.375, 12.25, 6) - 20.1) < 1e-9);
+  // a month with no raster at all, and a point off the tile
+  assert.ok(Number.isNaN(sampleRaster(raster, 41.375, 12.125, 2)));
   assert.ok(Number.isNaN(sampleRaster(raster, 40, 12.1, 5)));
 });

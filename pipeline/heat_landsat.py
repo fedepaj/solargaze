@@ -40,16 +40,22 @@ from rasterio.vrt import WarpedVRT
 
 from tiles import Tile, write_meta
 
-# 30 m at the equator is 0.00027°; the same step in latitude everywhere, and
-# a little coarser than 30 m in longitude at Italian latitudes. Close enough.
+# Scenes are read at 30 m — 0.00027°, the product's own pixel — and the
+# monthly median is then averaged 3 × 3 down to 90 m before it is written.
+# Nothing real is lost: Landsat's thermal band is acquired at 100 m and only
+# resampled to 30 m by the USGS, and against a 90 m mean just 2 % of pixels
+# differ by more than half a degree. The file is a ninth of the size, and the
+# app interpolates it back up the way a terrain viewer interpolates a DEM.
 DEG_PER_PX = 0.00027
+DOWNSAMPLE = 3
 YEARS = "2018-01-01/2025-12-31"
 MAX_CLOUD = 40
 CACHE = Path(__file__).resolve().parent / "cache" / "landsat"
 
-# Temperature is stored as a byte: -10 °C → 0, +54 °C → 255, a quarter of a
-# degree per step. Alpha 0 means no cloud-free observation there.
-T_MIN, T_MAX = -10.0, 54.0
+# One 8-bit channel: byte 0 is "no cloud-free observation", and from 1 up
+# the temperature climbs a quarter of a degree a step from T_MIN.
+T_MIN, T_STEP = -10.0, 0.25
+ENCODING = 2
 
 # Windowed reads over HTTP: do not list directories, do not probe sidecars.
 os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
@@ -98,12 +104,18 @@ def cached_scene(item, tile: Tile, shape) -> np.ndarray | None:
     return arr.astype(np.float16)
 
 
+def downsample(t: np.ndarray, k: int = DOWNSAMPLE) -> np.ndarray:
+    """k × k mean ignoring NaN; a block with no valid pixel stays NaN."""
+    rows, cols = (t.shape[0] // k) * k, (t.shape[1] // k) * k
+    blocks = t[:rows, :cols].reshape(rows // k, k, cols // k, k)
+    with np.errstate(invalid="ignore"):
+        return np.nanmean(blocks, axis=(1, 3))
+
+
 def encode(t: np.ndarray) -> Image.Image:
     valid = np.isfinite(t)
-    byte = np.clip(np.round((t - T_MIN) / (T_MAX - T_MIN) * 255), 0, 255)
-    byte = np.where(valid, byte, 0).astype(np.uint8)
-    alpha = np.where(valid, 255, 0).astype(np.uint8)
-    return Image.fromarray(np.dstack([byte, byte, byte, alpha]), "RGBA")
+    byte = np.clip(np.round((t - T_MIN) / T_STEP) + 1, 1, 255)
+    return Image.fromarray(np.where(valid, byte, 0).astype(np.uint8), "L")
 
 
 def run(tile: Tile) -> None:
@@ -140,6 +152,7 @@ def run(tile: Tile) -> None:
         count = np.isfinite(cube).sum(axis=0)
         # One clear look is not a climatology; ask for at least three.
         median[count < 3] = np.nan
+        median = downsample(median)
         encode(median).save(out_dir / f"m{m:02d}.png", optimize=True)
         tile_median = float(np.nanmedian(median)) if np.isfinite(median).any() else None
         months[f"{m:02d}"] = {
@@ -159,8 +172,11 @@ def run(tile: Tile) -> None:
         "years": YEARS,
         "max_cloud_percent": MAX_CLOUD,
         "overpass_local_time": "~10:30",
-        "rows": shape[0], "cols": shape[1], "degrees_per_pixel": DEG_PER_PX,
-        "encoding": {"byte0_c": T_MIN, "byte255_c": T_MAX, "alpha0": "no cloud-free observation (fewer than 3 clear scenes)"},
+        "rows": shape[0] // DOWNSAMPLE, "cols": shape[1] // DOWNSAMPLE,
+        "degrees_per_pixel": DEG_PER_PX * DOWNSAMPLE,
+        "native_degrees_per_pixel": DEG_PER_PX,
+        "encoding": {"version": ENCODING, "channel": "L", "nodata_byte": 0, "byte1_c": T_MIN, "step_c": T_STEP,
+                     "note": "median at 30 m, then a 3 x 3 mean; byte 0 = fewer than 3 clear scenes"},
         "files": {f"m{m:02d}": f"heat/m{m:02d}.png" for m in range(1, 13) if f"{m:02d}" in months},
         "months": months,
         "source": "USGS via Microsoft Planetary Computer STAC (landsat-c2-l2)",

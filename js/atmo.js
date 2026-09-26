@@ -272,22 +272,22 @@ function rasterCanvas(raster, layer, ctx, lut, [lo, hi]) {
   const m0 = Math.floor(mf);
   const m1 = (m0 + 1) % 12;
   const wm = mf - m0;
-  const a = raster.months[m0]?.data;
-  const b = raster.months[m1]?.data;
+  const a = raster.months[m0]?.values;
+  const b = raster.months[m1]?.values;
   const span = hi - lo || 1;
   const alpha = Math.round(layer.alpha * 255);
-  for (let o = 0; o < px.length; o += 4) {
-    const va = a && a[o + 3] ? raster.decode(a[o]) : NaN;
-    const vb = b && b[o + 3] ? raster.decode(b[o]) : NaN;
+  for (let i = 0, o = 0; o < px.length; i++, o += 4) {
+    const va = a && a[i] ? raster.decode(a[i]) : NaN;
+    const vb = b && b[i] ? raster.decode(b[i]) : NaN;
     let v;
     if (Number.isNaN(va)) v = vb;
     else if (Number.isNaN(vb)) v = va;
     else v = va * (1 - wm) + vb * wm;
     if (Number.isNaN(v)) { px[o + 3] = 0; continue; }
-    const i = Math.min(255, Math.max(0, Math.round(((v - lo) / span) * 255))) * 3;
-    px[o] = lut[i];
-    px[o + 1] = lut[i + 1];
-    px[o + 2] = lut[i + 2];
+    const li = Math.min(255, Math.max(0, Math.round(((v - lo) / span) * 255))) * 3;
+    px[o] = lut[li];
+    px[o + 1] = lut[li + 1];
+    px[o + 2] = lut[li + 2];
     px[o + 3] = alpha;
   }
   out.putImageData(img, 0, 0);

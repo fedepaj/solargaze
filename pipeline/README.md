@@ -33,7 +33,7 @@ over Rome, it is just less interesting.
 
 | product | script | what it is | size per tile |
 | --- | --- | --- | --- |
-| `heat` | `heat_landsat.py` | Landsat 8/9 surface temperature, per-pixel median of clear scenes per calendar month, 30 m, 2018 on | ~4 MB (12 PNGs) |
+| `heat` | `heat_landsat.py` | Landsat 8/9 surface temperature, per-pixel median of clear scenes per calendar month, read at 30 m and written at 90 m, 2018 on | ~0.5 MB (12 PNGs) |
 | `air` | `air_cams.py` or `air_cams_bulk.py` | CAMS air quality (PM2.5, PM10, NO₂, O₃) as means by month × hour, local time, 2020–2024, 0.1° nodes | ~200 KB |
 
 `air_cams_bulk.py` produces the same product for a whole region from the
@@ -60,6 +60,12 @@ the app prints the caveats under the numbers.
 
 ## Honesty notes
 
+- Surface temperature is written at 90 m although the scenes are read at
+  30 m: the thermal band is acquired at 100 m and only resampled by the
+  USGS, and against a 90 m mean just 2 % of pixels differ by more than half
+  a degree (`reencode_heat.py` converts older 30 m tiles). Vectorising was
+  measured and rejected — 1 °C isotherms of one month weigh 1.9 MB gzipped,
+  a greedy TIN at 1 °C tolerance 309 KB — against 40 KB for the raster.
 - Surface temperature is what the roofs and streets radiate at ~10:30 on a
   clear day. It is not air temperature and there is no hourly cycle in it;
   the app colours it as an anomaly against the tile's median for the month,

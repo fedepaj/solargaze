@@ -288,6 +288,9 @@ def build(tile: Tile, n: int, out_dir: Path) -> tuple[np.ndarray, dict]:
     heights = rasterize_heights(polys, tile, n)
     out_dir.mkdir(parents=True, exist_ok=True)
     save_heights_png(heights, out_dir / "heights.png")
+    # The raw Overpass answer is only worth keeping while this tile is being
+    # built: at up to 70 MB a tile, a region's worth would fill the disk.
+    _cache_path(tile.bounds).unlink(missing_ok=True)
     info = {
         "osm_buildings": len(polys),
         "height_source_counts": sources,

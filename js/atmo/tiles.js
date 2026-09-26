@@ -101,14 +101,24 @@ async function loadClimatology(tileId, info) {
   return { kind: 'climatology', grid, vars, hours: 288, nodes, lats, lons, meta: info, key: grid.key };
 }
 
+/**
+ * Two encodings exist. The current one is a single channel where byte 0 is
+ * "no observation" and the rest climb `step_c` a step from `byte1_c`; the
+ * first was RGBA with the value in every colour channel and alpha 0 for no
+ * data. Both are normalised here into a `values` byte per pixel, 0 for no
+ * data, and one `decode` — so that nothing downstream knows there were two.
+ */
 async function loadRaster(tileId, info) {
-  const { byte0_c: lo, byte255_c: hi } = info.encoding;
-  const decode = byte => lo + (byte / 255) * (hi - lo);
+  const enc = info.encoding || {};
+  const v2 = enc.version === 2;
+  const decode = v2
+    ? byte => enc.byte1_c + (byte - 1) * enc.step_c
+    : byte => enc.byte0_c + ((byte - 1) / 255) * (enc.byte255_c - enc.byte0_c);
   const raster = {
     kind: 'raster',
     bounds: null,        // filled from the tile meta by the caller
     rows: info.rows, cols: info.cols,
-    months: {},          // m (0..11) → { data, cols, rows }
+    months: {},          // m (0..11) → { values, cols, rows }
     decode,
     tileMedian: m => info.months[String(m + 1).padStart(2, '0')]?.tile_median_c ?? null,
     scenes: m => info.months[String(m + 1).padStart(2, '0')]?.scenes ?? 0,
@@ -127,7 +137,12 @@ async function loadRaster(tileId, info) {
     cv.height = img.height;
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(img, 0, 0);
-    raster.months[m] = { data: ctx.getImageData(0, 0, cv.width, cv.height).data, cols: cv.width, rows: cv.height };
+    const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    const values = new Uint8Array(cv.width * cv.height);
+    for (let i = 0, o = 0; i < values.length; i++, o += 4) {
+      values[i] = v2 ? px[o] : (px[o + 3] ? px[o] + 1 : 0);
+    }
+    raster.months[m] = { values, cols: cv.width, rows: cv.height };
   }));
   return raster;
 }

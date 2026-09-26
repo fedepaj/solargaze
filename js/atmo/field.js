@@ -229,31 +229,50 @@ export function monthFraction(doy, daysInYear = 365) {
 
 /**
  * A raster product: byte images on the tile's grid, one per calendar month,
- * with an alpha of zero where there is no observation. Sampled by nearest
- * pixel and blended between the two months around the date.
+ * byte 0 where there is no observation. Read bilinearly between pixel
+ * centres — the way a terrain viewer reads a DEM, which is what a 90 m
+ * thermal field effectively is — and blended between the two months around
+ * the date. A missing pixel drops out of the weights rather than poisoning
+ * its neighbours; a missing month falls back to the other one.
  *
  * `months[m]` (m = 0..11, missing when the month has no data) is
- * `{ data: Uint8ClampedArray RGBA, cols, rows }`; `decode(byte)` maps a byte
- * to the physical value.
+ * `{ values: Uint8Array, cols, rows }`; `decode(byte)` maps a byte to °C.
  */
 export function sampleRaster(raster, lat, lon, monthFrac) {
   const { bounds, rows, cols, decode } = raster;
   const [west, south, east, north] = bounds;
-  const x = Math.floor(((lon - west) / (east - west)) * cols);
-  const y = Math.floor(((north - lat) / (north - south)) * rows);
-  if (x < 0 || y < 0 || x >= cols || y >= rows) return NaN;
-  const o = (y * cols + x) * 4;
+  const fx = ((lon - west) / (east - west)) * cols - 0.5;
+  const fy = ((north - lat) / (north - south)) * rows - 0.5;
+  if (fx < -0.5 || fy < -0.5 || fx > cols - 0.5 || fy > rows - 0.5) return NaN;
+  const x0 = Math.min(Math.max(Math.floor(fx), 0), cols - 2);
+  const y0 = Math.min(Math.max(Math.floor(fy), 0), rows - 2);
+  const wx = Math.min(Math.max(fx - x0, 0), 1);
+  const wy = Math.min(Math.max(fy - y0, 0), 1);
+
+  const read = img => {
+    if (!img) return NaN;
+    let sum = 0;
+    let weight = 0;
+    const take = (x, y, w) => {
+      if (w <= 0) return;
+      const b = img.values[y * cols + x];
+      if (b === 0) return;
+      sum += decode(b) * w;
+      weight += w;
+    };
+    take(x0, y0, (1 - wx) * (1 - wy));
+    take(x0 + 1, y0, wx * (1 - wy));
+    take(x0, y0 + 1, (1 - wx) * wy);
+    take(x0 + 1, y0 + 1, wx * wy);
+    return weight > 0.25 ? sum / weight : NaN;
+  };
+
   const mf = ((monthFrac % 12) + 12) % 12;
   const m0 = Math.floor(mf);
   const m1 = (m0 + 1) % 12;
   const wm = mf - m0;
-  const read = m => {
-    const img = raster.months[m];
-    if (!img || img.data[o + 3] === 0) return NaN;
-    return decode(img.data[o]);
-  };
-  const a = read(m0);
-  const b = read(m1);
+  const a = read(raster.months[m0]);
+  const b = read(raster.months[m1]);
   if (Number.isNaN(a)) return Number.isNaN(b) ? NaN : b;
   if (Number.isNaN(b)) return a;
   return a * (1 - wm) + b * wm;
