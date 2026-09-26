@@ -309,6 +309,29 @@ What limits the result is the mesh: Google's tiles are photogrammetry, so
 trees, awnings and thin structures are approximate and the lighting baked into
 the imagery is not removed. A very good study, not a survey.
 
+## Roadmap
+
+In the order they earn their keep, with what each needs:
+
+1. **Versioned module paths**, so a deploy never mixes an old `state.js` with
+   a new `timepanel.js` in a visitor's cache (an import map stamped at deploy).
+2. **Air quality at street scale**: monitoring stations (ARPA via OpenAQ,
+   Sensor.Community) folded into the CAMS tables as local corrections.
+3. **Noise**: the END strategic noise maps (Lden, Lnight) for roads, rail and
+   airports, draped like the other layers.
+4. **Green**: Copernicus Tree Cover Density at 10 m, the same tile shape as
+   the surface heat.
+5. **Sun hours per pixel**: what ANALYZE computes for a point and a day,
+   precomputed for a tile and a month.
+6. **Flood hazard**: ISPRA's PGRA bands via WMS.
+7. **Night light** (VIIRS) and the **wind rose** from the archive.
+8. An **index** at the point, combining the layers with weights of your own.
+
+The precomputed products move from Open-Meteo to Copernicus in bulk
+(`pipeline/air_cams_bulk.py` already does air quality from the ADS); the
+*This date* mode and the weather badge stay on Open-Meteo, the only keyless
+source a browser can query directly.
+
 ## Licence and attribution
 
 SolarGaze is MIT — see [LICENSE](LICENSE). The pieces it stands on are not
@@ -327,7 +350,10 @@ yours to relicense:
 - **OpenStreetMap** (fallback basemap) — ODbL, © OpenStreetMap contributors.
 - **Open-Meteo** (weather badge, heat, air quality and wind) — CC-BY 4.0. Air
   quality is Copernicus Atmosphere Monitoring Service (CAMS) data, served by
-  Open-Meteo.
+  Open-Meteo or, for the precomputed tables, fetched in bulk from the
+  Copernicus Atmosphere Data Store under its licence, which asks that the
+  source be credited: "Generated using Copernicus Atmosphere Monitoring
+  Service information".
 - **Landsat 8/9** surface temperature (USGS, public domain), read through
   Microsoft Planetary Computer's STAC catalogue by the pipeline.
 - **OpenStreetMap** building footprints for the wind product — ODbL.

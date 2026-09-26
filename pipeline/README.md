@@ -34,7 +34,11 @@ over Rome, it is just less interesting.
 | product | script | what it is | size per tile |
 | --- | --- | --- | --- |
 | `heat` | `heat_landsat.py` | Landsat 8/9 surface temperature, per-pixel median of clear scenes per calendar month, 30 m, 2018 on | ~4 MB (12 PNGs) |
-| `air` | `air_cams.py` | CAMS air quality (PM2.5, PM10, NO₂, O₃) as means by month × hour, local time, 2020–2024, 0.1° nodes | ~200 KB |
+| `air` | `air_cams.py` or `air_cams_bulk.py` | CAMS air quality (PM2.5, PM10, NO₂, O₃) as means by month × hour, local time, 2020–2024, 0.1° nodes | ~200 KB |
+
+`air_cams_bulk.py` produces the same product for a whole region from the
+Copernicus Atmosphere Data Store (needs `~/.cdsapirc` with your key, never
+in the repo) and is the one to use beyond a handful of tiles.
 | `wind` | `wind/` | the OpenStreetMap building mask the browser solves the street-level flow on | ~0.4 MB |
 
 Many tiles at once, resumable, with a pause between them for Overpass's sake:
