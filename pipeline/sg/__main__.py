@@ -144,6 +144,17 @@ def cmd_run(args) -> int:
                 except Exception as exc:  # noqa: BLE001
                     run.error("index.failed", sig=errors.signature(exc), msg=str(exc)[:300])
                     code = code or 1
+                if remote:
+                    # Done tiles sent their records as they went; failed and
+                    # empty ones are sent here, so the next runner neither
+                    # rebuilds a tile that has nothing nor loses count of the
+                    # attempts on one that keeps failing.
+                    try:
+                        with run.step("state.push"):
+                            run.info("state.pushed", records=remote.push_state())
+                    except Exception as exc:  # noqa: BLE001
+                        run.error("state.push.failed", sig=errors.signature(exc), msg=str(exc)[:300])
+                        code = code or 1
     finally:
         if remote and run is not None:
             try:

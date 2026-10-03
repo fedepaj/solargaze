@@ -148,12 +148,19 @@ def sync_issues(gaps: list[dict]) -> list[dict]:
         body = issue.get("body") or ""
         if "<!-- gap:" in body:
             known[body.split("<!-- gap:", 1)[1].split(" -->", 1)[0]] = issue
+    created = []
     for g in gaps:
         if g["id"] in known:
             continue
-        _gh("issue", "create", "--title", g["title"], "--label", LABEL, "--body", g["body"])
+        url = _gh("issue", "create", "--title", g["title"], "--label", LABEL, "--body", g["body"]).strip()
+        created.append({"number": int(url.rsplit("/", 1)[-1]), "title": g["title"], "labels": [{"name": LABEL}],
+                        "createdAt": "9999"})   # newest: picked after any older open gap
     issues = json.loads(_gh("issue", "list", "--label", LABEL, "--state", "open", "--limit", "500",
                             "--json", "number,title,labels,createdAt"))
+    # GitHub's listing lags behind a creation by seconds: add what was just
+    # opened rather than trust the list to have it already.
+    listed = {i["number"] for i in issues}
+    issues += [c for c in created if c["number"] not in listed]
     prs = json.loads(_gh("pr", "list", "--state", "open", "--limit", "200", "--json", "number,body,title"))
     for i in issues:
         ref = f"#{i['number']}"
