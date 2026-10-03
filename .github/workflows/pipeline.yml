@@ -136,7 +136,7 @@ jobs:
           set +e
           python -m sg report "gha-${{ github.run_id }}" --out ../report.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
-          cat ../report.md >> "$GITHUB_STEP_SUMMARY"
+          cat ../report.md >> "$GITHUB_STEP_SUMMARY" || true
       - name: Post to the run log (GitHub emails the mention)
         id: log
         env:

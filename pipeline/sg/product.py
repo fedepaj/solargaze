@@ -27,6 +27,10 @@ class Context:
     cache_dir: Path
     run: object = None
     shared: dict = field(default_factory=dict)
+    # Called with a tile id before anything reads or writes the tile: on a
+    # runner with an empty data folder, this brings down the tile's meta.json
+    # so that a new product is added to what is published, not put in its place.
+    before_tile: object = None
 
 
 class Product:

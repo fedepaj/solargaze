@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -103,6 +104,11 @@ def body(p: Path) -> bytes:
     return gzip.compress(data, 9, mtime=0) if p.suffix in (".json", ".jsonl") else data
 
 
+def _get(s3, bucket: str, key: str) -> bytes:
+    raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+    return gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
+
+
 def put(s3, bucket: str, key: str, p: Path, data: bytes | None = None) -> int:
     """Store one file the way the app expects it; returns the bytes sent."""
     data = body(p) if data is None else data
@@ -129,12 +135,28 @@ def main() -> None:
         log.info("CORS set on %s: GET and HEAD from any origin", bucket)
         return
 
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "wind"))
+    from sg.remote import merge_index, merge_meta
     remote = remote_etags(s3, bucket)
-    files = local_files()
+    # The index is rebuilt below from the published one and the local metas;
+    # this machine's alone may lack every tile a runner built.
+    files = [p for p in local_files() if p.name != "index.json"]
     sent = sent_bytes = 0
     for p in files:
         key = p.relative_to(DATA_DIR).as_posix()
-        data = body(p)
+        data = None
+        if p.name == "meta.json" and key in remote:
+            # A runner may have added a product since: merge, newest product wins.
+            published = json.loads(_get(s3, bucket, key))
+            mine = json.loads(p.read_text())
+            merged = merge_meta(mine, published)
+            if merged != mine:
+                text = json.dumps(merged, indent=2) + "\n"
+                if args.dry_run:
+                    data = gzip.compress(text.encode(), 9, mtime=0)   # judged, not written
+                else:
+                    p.write_text(text)
+        data = body(p) if data is None else data
         if remote.get(key) == hashlib.md5(data).hexdigest():
             continue
         size = len(data)
@@ -144,7 +166,23 @@ def main() -> None:
         sent += 1
         sent_bytes += size
 
-    gone = sorted(set(remote) - {p.relative_to(DATA_DIR).as_posix() for p in files})
+    index_path = DATA_DIR / "index.json"
+    published_index = json.loads(_get(s3, bucket, "index.json")) if "index.json" in remote else None
+    text = json.dumps(merge_index(published_index, DATA_DIR), indent=2) + "\n"
+    if not args.dry_run:
+        index_path.write_text(text)
+    data = gzip.compress(text.encode(), 9, mtime=0)
+    if remote.get("index.json") != hashlib.md5(data).hexdigest():
+        log.info("%s index.json", "would send" if args.dry_run else "send")
+        if not args.dry_run:
+            put(s3, bucket, "index.json", index_path, data)
+        sent += 1
+
+    # Only inside the tiles this machine holds: a tile built by a runner is
+    # absent here and must not be taken for something to delete.
+    held = {p.name for p in DATA_DIR.glob("N*E*") if p.is_dir()}
+    local_keys = {p.relative_to(DATA_DIR).as_posix() for p in files} | {"index.json"}
+    gone = sorted(k for k in set(remote) - local_keys if k.split("/", 1)[0] in held)
     if gone and args.prune:
         for i in range(0, len(gone), 1000):
             log.info("%s %d objects", "would delete" if args.dry_run else "delete", len(gone[i:i + 1000]))

@@ -104,6 +104,7 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
     git = run.context.get("git", "")
     counts = {DONE: 0, EMPTY: 0, FAILED: 0, "skipped": 0}
     recent: deque = deque(maxlen=breaker)
+    ctx.data_dir.mkdir(parents=True, exist_ok=True)   # a fresh runner has none
     _sweep_stale_stages(ctx.data_dir, run)
 
     by_product: dict[str, list[Job]] = {}
@@ -116,6 +117,14 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
             product = group[0].product
             kept = []
             for job in group:
+                if ctx.before_tile:
+                    try:
+                        ctx.before_tile(job.tile)
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 — without the published meta we must not build
+                        _record_failure(job, exc, 0.0, state, run, git, counts)
+                        continue
                 why_not = product.applies(job.tile, ctx)
                 if why_not:
                     state.record(job.tile, name, EMPTY, version=product.version, run=run.id, git=git,

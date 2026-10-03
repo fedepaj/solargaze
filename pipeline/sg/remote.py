@@ -45,6 +45,10 @@ class Remote:
         data = sorted((p for p in paths if self.data_dir in p.parents), key=lambda p: p.name == "meta.json")
         for p in data:
             key = p.relative_to(self.data_dir).as_posix()
+            if p.name == "meta.json":
+                import json
+                merged = merge_meta(json.loads(p.read_text()), self._get_json(self.bucket, key))
+                p.write_text(json.dumps(merged, indent=2) + "\n")
             n = self._call(lambda: pt.put(self.s3, self.bucket, key, p))
             if self.log:
                 self.log.count("bytes_published", n)
@@ -53,8 +57,37 @@ class Remote:
                 key = "state/" + p.relative_to(self.state_dir).as_posix()
                 self._call(lambda: pt.put(self.s3, self.ops, key, p))
 
+    def _get_json(self, bucket: str, key: str):
+        from botocore.exceptions import ClientError
+        import json
+        try:
+            raw = self._call(lambda: self.s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                return None
+            raise
+        return json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+
+    def pull_meta(self, tile: str) -> None:
+        """The tile's published meta.json, unless this machine has one: a
+        product built here is then added to the published ones, not put in
+        their place."""
+        import json
+        local = self.data_dir / tile / "meta.json"
+        if local.exists():
+            return
+        meta = self._get_json(self.bucket, f"{tile}/meta.json")
+        if meta is not None:
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_text(json.dumps(meta, indent=2) + "\n")
+
     def publish_index(self) -> None:
+        """The published index merged with the tiles this machine holds —
+        never this machine's alone, which may be a handful of tiles."""
         p = self.data_dir / "index.json"
+        merged = merge_index(self._get_json(self.bucket, "index.json"), self.data_dir)
+        import json
+        p.write_text(json.dumps(merged, indent=2) + "\n")
         self._call(lambda: pt.put(self.s3, self.bucket, "index.json", p))
 
     def pull_state(self) -> int:
@@ -90,3 +123,31 @@ class Remote:
         for p in (log_dir / f"{run_id}.jsonl", log_dir / f"{run_id}.summary.json"):
             if p.exists():
                 self._call(lambda: pt.put(self.s3, self.ops, f"logs/{p.name}", p))
+
+
+def merge_index(remote: dict | None, data_dir: Path) -> dict:
+    """Every tile in the published index, with the entries of the tiles held
+    locally taken from their meta.json (which is newer or the same)."""
+    import json
+    from tiles import STEP
+    tiles = {t["id"]: t for t in (remote or {}).get("tiles", [])}
+    for mp in sorted(data_dir.glob("N*E*/meta.json")):
+        m = json.loads(mp.read_text())
+        tiles[m["id"]] = {"id": m["id"], "bounds": m["bounds"], "products": sorted(m.get("products", {}))}
+    return {"step": STEP, "tiles": [tiles[k] for k in sorted(tiles)]}
+
+
+def merge_meta(local: dict, remote: dict | None) -> dict:
+    """A tile's meta from two machines: each product from whichever built it
+    last (its ``generated`` stamp), so a laptop's older copy never undoes a
+    runner's newer product, nor the other way round."""
+    if not remote:
+        return local
+    out = {**remote, **{k: v for k, v in local.items() if k != "products"}}
+    products = dict(remote.get("products", {}))
+    for name, info in local.get("products", {}).items():
+        theirs = products.get(name)
+        if theirs is None or str(info.get("generated", "")) >= str(theirs.get("generated", "")):
+            products[name] = info
+    out["products"] = products
+    return out

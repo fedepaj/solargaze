@@ -116,53 +116,77 @@ def cmd_plan(args) -> int:
 
 
 def cmd_run(args) -> int:
+    """Build what the plan says. Whatever happens — a tile failing, the run
+    stopping as systemic, a crash in the run's own code — the summary is
+    written, the index is published merged, and the logs go to the bucket."""
     from .remote import Remote
     state = State(STATE)
     name = args.name or ("-".join(args.what) or "bbox" if not args.tiles else "tiles")
     remote = None
     code = 0
-    with start_run(name, LOGS, level="debug" if args.verbose else "info") as run:
-        if not args.no_publish:
-            remote = Remote.maybe(DATA_DIR, STATE, run)
-        if remote and not args.no_pull:
-            with run.step("state.pull"):
-                run.info("state.pulled", records=remote.pull_state())
-        if args.region:
-            from . import regions
-            import osm_extract
-            with run.step("extract", region=args.region):
-                pbf, poly = regions.fetch(args.region, CACHE / "geofabrik", run)
-                if osm_extract.MANIFEST.exists() and json.loads(osm_extract.MANIFEST.read_text()).get("extracts", [{}])[0].get("pbf") == pbf.name \
-                        and not args.reindex:
-                    run.info("extract.indexed", msg="index already holds this extract")
-                else:
-                    osm_extract.index_extracts([str(pbf)])
-        tiles = select_tiles(args)
-        jobs = plan(products_of(args), tiles, state, run.context["git"])
-        if args.limit:
-            jobs = jobs[:args.limit]
-        run.info("selected", tiles=len(tiles), jobs=len(jobs), shard=args.shard or "all")
-        ctx = Context(DATA_DIR, CACHE, run=run)
-        try:
-            counts = execute(jobs, ctx, state, run, budget=Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb),
-                             publish=remote.publish if remote else None)
-            run.info("counts", **counts)
-        except Systemic as exc:
-            run.error("systemic", msg=str(exc))
-            run.systemic = str(exc)
-            code = 2
-        finally:
-            with run.step("index"):
-                refresh_index()
-                if remote:
-                    remote.publish_index()
-    if remote:
-        try:
-            remote.push_logs(run.id, LOGS)
-        except Exception as exc:  # noqa: BLE001 — the logs are on disk regardless
-            print(f"could not upload the logs: {exc}", file=sys.stderr)
-    print(f"\nlog: {run.path}\nsummary: {LOGS / (run.id + '.summary.json')}")
+    run = None
+    try:
+        with start_run(name, LOGS, level="debug" if args.verbose else "info") as run:
+            try:
+                code = _run_body(args, run, state, remote_box := {})
+            except Exception as exc:  # noqa: BLE001 — the run's own failure, recorded as such
+                run.error("crash", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:500],
+                          traceback=__import__("traceback").format_exc(limit=12))
+                run.systemic = f"crash: {errors.signature(exc)}"
+                code = 1
+            finally:
+                remote = remote_box.get("remote")
+                try:
+                    with run.step("index"):
+                        refresh_index()
+                        if remote:
+                            remote.publish_index()
+                except Exception as exc:  # noqa: BLE001
+                    run.error("index.failed", sig=errors.signature(exc), msg=str(exc)[:300])
+                    code = code or 1
+    finally:
+        if remote and run is not None:
+            try:
+                remote.push_logs(run.id, LOGS)
+            except Exception as exc:  # noqa: BLE001 — the logs are on disk regardless
+                print(f"could not upload the logs: {exc}", file=sys.stderr)
+    if run is not None:
+        print(f"\nlog: {run.path}\nsummary: {LOGS / (run.id + '.summary.json')}")
     return code
+
+
+def _run_body(args, run, state, box) -> int:
+    from .remote import Remote
+    remote = None if args.no_publish else Remote.maybe(DATA_DIR, STATE, run)
+    box["remote"] = remote
+    if remote and not args.no_pull:
+        with run.step("state.pull"):
+            run.info("state.pulled", records=remote.pull_state())
+    if args.region:
+        from . import regions
+        import osm_extract
+        with run.step("extract", region=args.region):
+            pbf, poly = regions.fetch(args.region, CACHE / "geofabrik", run)
+            manifest = json.loads(osm_extract.MANIFEST.read_text()) if osm_extract.MANIFEST.exists() else {}
+            if [e.get("pbf") for e in manifest.get("extracts", [])] == [pbf.name] and not args.reindex:
+                run.info("extract.indexed", msg="index already holds this extract")
+            else:
+                osm_extract.index_extracts([str(pbf)])
+    tiles = select_tiles(args)
+    jobs = plan(products_of(args), tiles, state, run.context["git"])
+    if args.limit:
+        jobs = jobs[:args.limit]
+    run.info("selected", tiles=len(tiles), jobs=len(jobs), shard=args.shard or "all")
+    ctx = Context(DATA_DIR, CACHE, run=run, before_tile=remote.pull_meta if remote else None)
+    try:
+        counts = execute(jobs, ctx, state, run, budget=Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb),
+                         publish=remote.publish if remote else None)
+        run.info("counts", **counts)
+        return 0
+    except Systemic as exc:
+        run.error("systemic", msg=str(exc))
+        run.systemic = str(exc)
+        return 2
 
 
 def cmd_status(args) -> int:
@@ -264,7 +288,11 @@ def cmd_report(args) -> int:
                     raw = r.s3.get_object(Bucket=r.ops, Key=k)["Body"].read()
                     summaries.append(json.loads(_gz.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw))
     if not summaries:
-        print(f"no summary found for runs named {args.prefix}*")
+        text = (f"## Pipeline run `{args.prefix}`\n\nNo job left a summary: they stopped before writing one "
+                f"(a crash before the run started, a runner lost, or no credentials). The job logs on GitHub say which.\n")
+        print(text)
+        if args.out:
+            Path(args.out).write_text(text)
         return 3
     from .log import Run
     total, failed, systemic = Counter(), Counter(), []
