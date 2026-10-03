@@ -339,6 +339,31 @@ def _check_scope(r, row) -> None:
         row("R2 token limited to its buckets", True, f"refused on {canary} ({exc.response['Error']['Code']}); {listing}")
 
 
+def cmd_gaps(args) -> int:
+    """What the pipeline cannot do yet: station networks no importer reads in
+    the scope's countries, and upstream failures that repeat. With --sync,
+    each becomes a GitHub issue labelled gap (once), and the oldest open one
+    with no pull request is picked for the agent."""
+    from . import gaps
+    countries = gaps.SCOPES.get(args.scope) or [c.strip().upper() for c in args.scope.split(",")]
+    found = gaps.station_gaps(countries) + gaps.failure_gaps(STATE)
+    for g in found:
+        print(f"  {g['id']:28} {g['title']}")
+    result = {"found": [g["id"] for g in found]}
+    if args.sync:
+        issues = gaps.sync_issues(found)
+        result["open"] = [{"number": i["number"], "title": i["title"], "pr": i["pr"], "blocked": i["blocked"]} for i in issues]
+        result["pick"] = gaps.pick(issues)
+        print(f"open gap issues: {len(issues)}; for the agent: {result['pick'] or 'none'}")
+        gh = os.environ.get("GITHUB_OUTPUT")
+        if gh:
+            with open(gh, "a") as f:
+                f.write(f"pick={result['pick'] or ''}\n")
+    if args.out:
+        Path(args.out).write_text(json.dumps(result, indent=2) + "\n")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     """Everything a run needs, checked before it is needed. With --scope-only,
     just the R2 token's reach — the check a runner must pass before it holds
@@ -448,6 +473,10 @@ def main(argv=None) -> int:
     p.add_argument("--scope", default="europe")
     p.add_argument("--max", type=int, default=8)
     p.add_argument("--products")
+    p = sub.add_parser("gaps", help="what the pipeline cannot do yet; --sync makes them GitHub issues")
+    p.add_argument("--scope", default="test", help="a gap scope (test, americas, next) or ISO codes, comma-separated")
+    p.add_argument("--sync", action="store_true", help="open issues for new gaps and pick one for the agent")
+    p.add_argument("--out", help="write the result as JSON here")
     p = sub.add_parser("report", help="merge the summaries of one workflow run; exit 3 if a human should look")
     p.add_argument("prefix", help="the shared start of the runs' names, e.g. gha-123456")
     p.add_argument("--out", help="also write the Markdown here")
@@ -455,7 +484,7 @@ def main(argv=None) -> int:
     p.add_argument("--scope-only", action="store_true", help="only check that the R2 token reaches its buckets and no other")
     args = ap.parse_args(argv)
     return {"plan": cmd_plan, "run": cmd_run, "status": cmd_status, "adopt": cmd_adopt, "sync": cmd_sync,
-            "matrix": cmd_matrix, "report": cmd_report, "doctor": cmd_doctor}[args.cmd](args)
+            "matrix": cmd_matrix, "report": cmd_report, "gaps": cmd_gaps, "doctor": cmd_doctor}[args.cmd](args)
 
 
 if __name__ == "__main__":

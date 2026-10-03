@@ -116,7 +116,19 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
         for name, group in by_product.items():
             product = group[0].product
             kept = []
+            if budget.left() < 60:
+                # Out of time before this product even starts: nothing to
+                # prepare, nothing to fetch, every tile waits for the next run.
+                for job in group:
+                    counts["skipped"] += 1
+                    run.outcome(job.tile, name, "skipped", reason="time budget")
+                run.warn("budget.time", product=name, msg="out of time; this product waits for the next run", left=len(group))
+                continue
             for job in group:
+                if budget.left() < 60:
+                    counts["skipped"] += 1
+                    run.outcome(job.tile, name, "skipped", reason="time budget")
+                    continue
                 if ctx.before_tile:
                     try:
                         ctx.before_tile(job.tile)

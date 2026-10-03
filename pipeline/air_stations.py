@@ -176,23 +176,16 @@ def one(url: str, years: list[int], var: str) -> dict | None:
     return out
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--country", default="IT")
-    ap.add_argument("--years", default="2020-2024")
-    ap.add_argument("--vars", default=",".join(VARS))
-    ap.add_argument("--workers", type=int, default=6)
-    args = ap.parse_args()
-    y0, y1 = map(int, args.years.split("-"))
-    years = list(range(y0, y1 + 1))
-    meta = station_meta(args.country)
-
+def build_table(country: str, years: list[int], variables: list[str], workers: int = 6) -> pd.DataFrame:
+    """Every sampling point of the country with data in the years, folded,
+    joined to its metadata; one row per point and pollutant."""
+    meta = station_meta(country)
     rows = []
-    for var in args.vars.split(","):
-        urls = series_urls(args.country, CODES[var], years)
+    for var in variables:
+        urls = series_urls(country, CODES[var], years)
         log.info("%s: %d sampling points to look at", var, len(urls))
         t0 = time.time()
-        with ThreadPoolExecutor(args.workers) as pool:
+        with ThreadPoolExecutor(workers) as pool:
             futures = {pool.submit(one, u, years, var): u for u in urls}
             for i, f in enumerate(as_completed(futures), 1):
                 try:
@@ -204,13 +197,23 @@ def main() -> None:
                     rows.append(r)
                 if i % 100 == 0:
                     log.info("  %s %d/%d in %.0f s", var, i, len(urls), time.time() - t0)
-        log.info("%s: %d points with data in %s", var, sum(r["var"] == var for r in rows), args.years)
-
+        log.info("%s: %d points with data in %d–%d", var, sum(r["var"] == var for r in rows), years[0], years[-1])
     table = pd.DataFrame(rows).merge(meta, left_on="point", right_on="SamplingPoint", how="left")
     lost = table.Latitude.isna().sum()
     if lost:
         log.warning("%d points have no metadata (no coordinates) and are dropped", lost)
-    table = table.dropna(subset=["Latitude", "Longitude"]).drop(columns=["SamplingPoint", "code"])
+    return table.dropna(subset=["Latitude", "Longitude"]).drop(columns=["SamplingPoint", "code"])
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--country", default="IT")
+    ap.add_argument("--years", default="2020-2024")
+    ap.add_argument("--vars", default=",".join(VARS))
+    ap.add_argument("--workers", type=int, default=6)
+    args = ap.parse_args()
+    y0, y1 = map(int, args.years.split("-"))
+    table = build_table(args.country, list(range(y0, y1 + 1)), args.vars.split(","), args.workers)
     out = CACHE / f"{args.country}_{y0}-{y1}.parquet"
     table.to_parquet(out, index=False)
     log.info("wrote %s: %d rows; %s", out.name, len(table), table.groupby("var").size().to_dict())
