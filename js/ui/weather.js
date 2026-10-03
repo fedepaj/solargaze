@@ -1,9 +1,11 @@
 /**
- * Current conditions badge, from Open-Meteo: free, keyless, CC-BY.
- * Purely decorative — nothing in the sun model depends on it.
+ * The weather chip: the selected day at the pin, from Open-Meteo (free,
+ * keyless, CC-BY) — the temperature at the hour on the clock, the day's
+ * sky as a glyph, its high and low. Nothing in the sun model depends on it.
  */
 
 import { state, on } from '../state.js';
+import { SOURCES, isoDate } from '../atmo/sources.js';
 
 const ICONS = {
   clear: '<circle cx="12" cy="12" r="4.5"/><path d="M12 2.6v2.4M12 19v2.4M2.6 12H5M19 12h2.4M5.3 5.3 7 7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/>',
@@ -26,58 +28,88 @@ function glyphFor(code) {
   return 'cloud';
 }
 
-let lastKey = '';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad = n => String(n).padStart(2, '0');
+
+/** One day at one place: { key, hourly temps, day code, max, min, uv, resolved date, proxy }. */
+let day = null;
+let pending = '';
 let timer = null;
 
 export function initWeather() {
   on('location', () => schedule());
+  on('date', () => schedule());
+  on('time', paint);
   on('pref', ({ key }) => { if (key === 'weather') schedule(true); });
   schedule(true);
 }
 
 function schedule(immediate = false) {
   clearTimeout(timer);
-  timer = setTimeout(fetchWeather, immediate ? 0 : 600);
+  timer = setTimeout(fetchDay, immediate ? 0 : 600);
 }
 
-async function fetchWeather() {
+/**
+ * The selected day's weather at the pin. Inside the forecast horizon and in
+ * the past it is that day; beyond the horizon, the same date a year earlier,
+ * said so — the same policy the layers use (SOURCES.weather.resolve).
+ */
+async function fetchDay() {
   const el = document.getElementById('weather');
   if (!el) return;
+  if (!state.prefs.weather) { el.hidden = true; return; }
 
-  if (!state.prefs.weather) {
-    el.hidden = true;
-    return;
-  }
+  const now = new Date();
+  const picked = { y: state.y, m: state.m, d: state.d };
+  const resolved = SOURCES.weather.resolve(picked, { y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() });
+  const iso = isoDate(resolved.date);
+  const key = `${state.lat.toFixed(2)},${state.lon.toFixed(2)},${iso}`;
+  if (day?.key === key) { el.hidden = false; paint(); return; }
+  if (pending === key) return;
+  pending = key;
 
-  // Unhide before the cache check, or switching the badge back on at a place
-  // already fetched would keep it hidden until the pin next moved.
-  const key = `${state.lat.toFixed(2)},${state.lon.toFixed(2)}`;
-  if (key === lastKey) {
-    el.hidden = false;
-    return;
-  }
-
-  const url =
-    'https://api.open-meteo.com/v1/forecast' +
+  const archive = resolved.endpoint === 'archive';
+  const url = (archive ? 'https://archive-api.open-meteo.com/v1/archive' : 'https://api.open-meteo.com/v1/forecast') +
     `?latitude=${state.lat.toFixed(4)}&longitude=${state.lon.toFixed(4)}` +
-    '&current=temperature_2m,weather_code&daily=uv_index_max&forecast_days=1&timezone=auto';
-
+    `&hourly=temperature_2m&daily=weather_code,temperature_2m_max,temperature_2m_min${archive ? '' : ',uv_index_max'}` +
+    `&timezone=auto&start_date=${iso}&end_date=${iso}`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
-
-    const temp = Math.round(data.current?.temperature_2m ?? NaN);
-    const uv = data.daily?.uv_index_max?.[0];
-    if (!Number.isFinite(temp)) throw new Error('no data');
-
-    document.getElementById('wx-temp').textContent = `${temp}°`;
-    document.getElementById('wx-uv').textContent =
-      Number.isFinite(uv) ? `UV ${Math.round(uv)}` : 'UV –';
-    document.getElementById('wx-ico').innerHTML = ICONS[glyphFor(data.current?.weather_code ?? 3)];
+    if (pending !== key) return;   // the pin or the date moved on meanwhile
+    const temps = data.hourly?.temperature_2m || [];
+    if (!temps.some(Number.isFinite)) throw new Error('no data');
+    day = {
+      key, temps, resolved, picked,
+      code: data.daily?.weather_code?.[0],
+      max: data.daily?.temperature_2m_max?.[0],
+      min: data.daily?.temperature_2m_min?.[0],
+      uv: data.daily?.uv_index_max?.[0],
+    };
     el.hidden = false;
-    lastKey = key;
+    paint();
   } catch {
-    el.hidden = true;   // never let the decoration shout about itself
+    if (pending === key) el.hidden = true;   // never let the decoration shout about itself
+  } finally {
+    if (pending === key) pending = '';
   }
+}
+
+/** The hour moves more often than the day: repaint from what is in hand. */
+function paint() {
+  const el = document.getElementById('weather');
+  if (!el || !day) return;
+  const h = Math.min(day.temps.length - 1, Math.max(0, Math.floor(state.minutes / 60)));
+  const temp = day.temps[h];
+  document.getElementById('wx-temp').textContent = Number.isFinite(temp) ? `${Math.round(temp)}°` : '–°';
+  const range = Number.isFinite(day.max) && Number.isFinite(day.min) ? `↑${Math.round(day.max)}° ↓${Math.round(day.min)}°` : '';
+  document.getElementById('wx-uv').textContent = day.resolved.proxy ? `as in ${day.resolved.date.y}` : range;
+  document.getElementById('wx-ico').innerHTML = ICONS[glyphFor(day.code ?? 3)];
+  const { d, m, y } = day.picked;
+  const when = `${d} ${MONTHS[m - 1]} ${y}, ${pad(h)}:00`;
+  const source = day.resolved.proxy
+    ? `no forecast that far ahead: ${day.resolved.date.d} ${MONTHS[m - 1]} ${day.resolved.date.y} from the archive, a stand-in for the season`
+    : day.resolved.endpoint === 'archive' ? 'archive' : 'forecast';
+  el.dataset.tip = `Weather on ${when}<em>${source}${Number.isFinite(day.uv) ? ` · UV ${Math.round(day.uv)}` : ''} · ${range} · Open-Meteo</em>`;
 }

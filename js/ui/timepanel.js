@@ -131,7 +131,7 @@ export function initTimePanel() {
   render();
 }
 
-const TABS = ['visualize', 'analyze', 'air'];
+const TABS = ['visualize', 'analyze'];
 /** Where the year slider starts: the air-quality archive begins in 2013. */
 const YEAR_FROM = 2013;
 

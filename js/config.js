@@ -47,6 +47,18 @@ export const DEMO_ION_TOKEN = '';
  */
 export const ION_CLIENT_ID = '2354';
 
+/**
+ * Where the precomputed tiles are read from. They live in a Cloudflare R2
+ * bucket, uploaded by pipeline/publish_tiles.py, because a country of them
+ * outgrows what a Pages site may weigh. Served from localhost, the app reads
+ * the pipeline's own output in ./data/tiles instead, so a region can be
+ * looked at before it is published. Empty: always the local folder.
+ */
+export const TILES_REMOTE = 'https://pub-4f5488304900404e9818386a897e571d.r2.dev';
+export const TILES_BASE = !TILES_REMOTE || ['localhost', '127.0.0.1'].includes(location.hostname)
+  ? './data/tiles'
+  : TILES_REMOTE.replace(/\/$/, '');
+
 const ION_KEY_STORE = 'solargaze.ionToken';
 const PREF_STORE = 'solargaze.prefs';
 
@@ -114,10 +126,7 @@ export const PREFS = {
   /** The atmosphere layers by id (js/atmo/layers.js). Off until asked for: each one is a fetch. */
   layers: {},
   /** Which pollutant the air layer tints by; a key of AIR_METRICS. */
-  airMetric: 'european_aqi',
-  /** How the temperature and air layers answer: for the date, or typically. */
-  tempMode: 'date',
-  airMode: 'date',
+  airMetric: 'nitrogen_dioxide',
   /** The one-time hint about touch gestures. */
   touchHintShown: false,
 };

@@ -317,7 +317,11 @@ button,input,select,.tab{touch-action:manipulation}
 
 /* AIR. Five layers and their fine print outgrow the panel on a short screen,
    so the pane scrolls rather than the panel running under the tools. */
-#pane-air{max-height:calc(100vh - 190px);overflow-y:auto;overscroll-behavior:contain}
+#pane-analyze{max-height:calc(100vh - 190px);overflow-y:auto;overscroll-behavior:contain}
+.pane-h{margin:14px 0 6px;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted,#9aa0a6)}
+.pane-h:first-child{margin-top:2px}
+.atmo-label{display:inline-flex;align-items:center;gap:8px;padding:0 4px;font-weight:600}
+.atmo-label svg{width:18px;height:18px}
 .atmo-item + .atmo-item{margin-top:12px}
 .atmo-row{display:flex;align-items:center;gap:12px}
 .atmo-toggle{
@@ -621,7 +625,7 @@ button,input,select,.tab{touch-action:manipulation}
   .panel.is-collapsed .tabpane{display:none!important}
   .tabpane{padding:10px 16px calc(14px + var(--bottom-inset))}
   /* Short enough that the rail row above the sheet clears the tools column. */
-  #pane-air{max-height:40vh}
+  #pane-analyze{max-height:40vh}
   .tab{height:42px;font-size:11px;letter-spacing:.06em;gap:6px}
   .clockrow{gap:10px}
   .clock{font-size:24px}

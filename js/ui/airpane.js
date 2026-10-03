@@ -1,6 +1,6 @@
 /**
- * The AIR tab and the rail's Layers group, both generated from the layer
- * registry: a switch per layer, the number at the point, an option strip
+ * The readings in the ANALYZE tab and the rail's Layers group, both
+ * generated from the layer registry: a switch per layer, the number at the point, an option strip
  * where the layer has one, and a legend where it paints the ground. Nothing
  * in here knows what a layer *is*; add one to atmo/layers.js and it appears.
  */
@@ -39,7 +39,7 @@ export function initAirPane() {
 function buildRail() {
   const body = $('layers-group');
   if (!body) return;
-  for (const layer of LAYERS) {
+  for (const layer of LAYERS.filter(l => l.rail !== false)) {
     const btn = document.createElement('button');
     btn.className = 'icon-btn';
     btn.id = `btn-${layer.id}`;
@@ -59,7 +59,9 @@ function buildRows() {
     el.className = 'atmo-item';
     el.innerHTML = `
       <div class="atmo-row">
-        <button class="atmo-toggle" id="chip-${layer.id}" aria-pressed="false">${svg(layer.icon)}<span>${layer.label}</span></button>
+        ${layer.render
+          ? `<button class="atmo-toggle" id="chip-${layer.id}" aria-pressed="false" title="Draw it on the map">${svg(layer.icon)}<span>${layer.label}</span></button>`
+          : `<span class="atmo-label">${svg(layer.icon)}<span>${layer.label}</span></span>`}
         <div class="atmo-read">
           <svg class="wind-arrow" hidden viewBox="0 0 24 24"><path d="M12 3v18M6 9l6-6 6 6"/></svg>
           <b>…</b>
@@ -81,7 +83,7 @@ function buildRows() {
       lo: q('.legend-lbl span:first-child'), hi: q('.legend-lbl span:last-child'),
     });
 
-    q('.atmo-toggle').addEventListener('click', () => toggleLayer(layer.id));
+    q('.atmo-toggle')?.addEventListener('click', () => toggleLayer(layer.id));
     q('.seg-mode')?.addEventListener('click', e => {
       const btn = e.target.closest('button[data-mode]');
       if (btn) setPref(layer.modes.pref, btn.dataset.mode);
@@ -113,7 +115,7 @@ function schedule() {
 const pct = (v, lo, hi) => `${(Math.min(Math.max((v - lo) / (hi - lo || 1), 0), 1) * 100).toFixed(1)}%`;
 
 function render() {
-  if (state.tab !== 'air') return;
+  if (state.tab !== 'analyze') return;
   const all = readings();
 
   for (const layer of LAYERS) {
@@ -160,7 +162,7 @@ function render() {
     } else {
       const status = atmo.status[currentSource(layer)];
       el.value.textContent = status === 'error' || status === 'none' ? '—' : '…';
-      el.sub.textContent = status === 'none' ? 'no precomputed tile here yet' : '';
+      el.sub.textContent = status === 'none' ? 'not computed here yet' : '';
       el.band.hidden = true;
       el.arrow.hidden = true;
     }

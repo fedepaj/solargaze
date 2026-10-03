@@ -111,7 +111,7 @@ export const SOURCES = {
     kind: 'tile',
     product: 'heat',
     label: 'Surface heat',
-    note: 'Surface heat is Landsat 8/9 at 30 m, a per-pixel median of clear mid-morning overpasses since 2018, by month: what the roofs and streets typically read, not the air.',
+    note: 'Surface heat is Landsat 8/9 (100 m thermal band, kept at 90 m), a per-pixel median of clear mid-morning overpasses since 2018, by month: what the roofs and streets typically read, not the air. From afar it is shown coarser.',
   },
   'tile-wind': {
     id: 'tile-wind',
@@ -120,12 +120,12 @@ export const SOURCES = {
     label: 'Buildings',
     note: 'Where a tile has been built, the wind is threaded between the OpenStreetMap buildings by a potential-flow model solved in the browser: channelling, shelter and corner gusts, but no wakes — a picture, not a measurement.',
   },
-  'tile-air': {
-    id: 'tile-air',
+  'tile-air-street': {
+    id: 'tile-air-street',
     kind: 'tile',
-    product: 'air',
-    label: 'Typical air',
-    note: 'Typical air is a five-year CAMS climatology by month and hour of day, on the same ~11 km grid.',
+    product: 'air_street',
+    label: 'Street air',
+    note: 'Street air is that climatology at 50 m: NO₂ and PM10 corrected by a land-use regression fitted to the EEA monitoring stations (roads, buildings, green, terrain), ozone from NO₂ by titration, PM2.5 left as CAMS — a statistical model of where the stations are, not a measurement where you are.',
   },
 };
 

@@ -34,4 +34,10 @@ export const profile = {
   cacheBytes: (isPhone ? 192 : 512) * 1024 * 1024,
   /** Wind particles. Each one is a polyline updated every frame. */
   windParticles: isPhone ? 140 : 320,
+  /** Street air is drawn at this share of its 50 m cells: a quarter of the pixels on a phone. */
+  streetScale: isPhone ? 0.5 : 1,
+  /** Surface heat: up to this many tiles in view at 90 m, then at 270 m; beyond, 810 m. */
+  heatLevels: isPhone ? [4, 30] : [12, 110],
+  /** The widest a drape texture may be, in pixels, on either side. */
+  maxTexture: isPhone ? 2048 : 4096,
 };

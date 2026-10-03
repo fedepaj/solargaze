@@ -277,3 +277,73 @@ export function sampleRaster(raster, lat, lon, monthFrac) {
   if (Number.isNaN(b)) return a;
   return a * (1 - wm) + b * wm;
 }
+
+/** A raster-set: the value from whichever member tile holds the point. */
+export function sampleRasterSet(set, lat, lon, monthFrac) {
+  for (const r of set.tiles) {
+    const [west, south, east, north] = r.bounds;
+    if (lat >= south && lat < north && lon >= west && lon < east) return sampleRaster(r, lat, lon, monthFrac);
+  }
+  return NaN;
+}
+
+/**
+ * Street-scale air, from a CAMS value and the 50 m ratios (see
+ * pipeline/air_lur.py). NO₂ and PM10 are CAMS times the cell's ratio, on
+ * the same +1 µg/m³ footing the model was fitted on. Ozone is not modelled:
+ * at street scale Ox = O₃ + NO₂ (in ppb) is conserved, so where traffic
+ * adds NO₂ it takes about as much O₃ away — validated at 241 stations
+ * measuring both. PM2.5 is regional; the model found nothing to add, so it
+ * stays CAMS.
+ *
+ * `cams(name)` is the CAMS value at the point; `ratio(name)` the cell's
+ * ratio, NaN where there is none.
+ */
+export const STREET_MODELLED = ['nitrogen_dioxide', 'pm10'];
+const PPB_NO2 = 1.88;
+const PPB_O3 = 1.96;
+
+export function streetValue(option, cams, ratio) {
+  const scaled = name => {
+    const c = cams(name);
+    const r = ratio(name);
+    return Number.isNaN(r) ? c : (c + 1) * r - 1;
+  };
+  if (option === 'ozone') {
+    const ox = cams('ozone') / PPB_O3 + cams('nitrogen_dioxide') / PPB_NO2;
+    return Math.max(0, (ox - scaled('nitrogen_dioxide') / PPB_NO2) * PPB_O3);
+  }
+  return STREET_MODELLED.includes(option) ? scaled(option) : cams(option);
+}
+
+/** The CAMS variables a street value of `option` needs. */
+export const streetNeeds = option =>
+  (option === 'ozone' ? ['ozone', 'nitrogen_dioxide'] : [option]);
+
+/** The street tile of a street-set holding the point, or null. */
+export function streetTileAt(set, lat, lon) {
+  for (const t of set.tiles) {
+    const [west, south, east, north] = t.bounds;
+    if (lat >= south && lat < north && lon >= west && lon < east) return t;
+  }
+  return null;
+}
+
+/** The 50 m ratio of `name` at a point of a street tile (nearest cell). */
+export function streetRatio(tile, name, lat, lon) {
+  const bytes = tile.bytes[name];
+  if (!bytes) return NaN;
+  const [west, south, east, north] = tile.bounds;
+  const c = Math.min(tile.cols - 1, Math.max(0, Math.floor(((lon - west) / (east - west)) * tile.cols)));
+  const r = Math.min(tile.rows - 1, Math.max(0, Math.floor(((north - lat) / (north - south)) * tile.rows)));
+  return tile.ratioOf[bytes[r * tile.cols + c]];
+}
+
+/** Street-scale value at a point, for the reading and the tooltip. */
+export function sampleStreet(set, option, lat, lon, monthFrac, hourFrac) {
+  const tile = streetTileAt(set, lat, lon);
+  if (!tile) return NaN;
+  return streetValue(option,
+    name => sampleClimatology(tile.clim, name, lat, lon, monthFrac, hourFrac),
+    name => streetRatio(tile, name, lat, lon));
+}

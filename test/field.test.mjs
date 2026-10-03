@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  streetValue,
   gridFor, buildSeries, sampleAt, windAt, rangeOf, compassName, sampleClimatology, monthFraction, sampleRaster,
 } from '../js/atmo/field.js';
 import { bandOf, rampLut, airStops, heatStops } from '../js/atmo/scales.js';
@@ -145,16 +146,19 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
       if (group) assert.ok(group.choices.some(c => c.key === group.fallback), `${layer.id}/${mode} fallback`);
     }
     for (const extra of layer.also || []) assert.ok(SOURCES[extra], `${layer.id} extra ${extra}`);
-    assert.ok(['drape', 'particles'].includes(layer.render));
+    // A reading-only entry has no renderer and no rail button.
+    if (layer.rail === false) assert.equal(layer.render, undefined, `${layer.id} reads only`);
+    else assert.ok(['drape', 'particles'].includes(layer.render));
     assert.equal(typeof layer.reading, 'function');
     if (layer.render === 'drape') {
       for (const fn of ['field', 'domain', 'stops', 'legend']) assert.equal(typeof layer[fn], 'function', `${layer.id}.${fn}`);
     }
   }
   const temperature = LAYERS.find(l => l.id === 'temperature');
-  assert.equal(modeOf(temperature, {}), 'date');
-  assert.equal(modeOf(temperature, { tempMode: 'nonsense' }), 'date');
-  assert.equal(sourceOf(temperature, { tempMode: 'surface' }), 'tile-heat');
+  assert.equal(modeOf(temperature, {}), null);
+  assert.equal(sourceOf(temperature, {}), 'tile-heat');
+  assert.equal(sourceOf(LAYERS.find(l => l.id === 'air'), {}), 'tile-air-street');
+  assert.equal(optionsOf(LAYERS.find(l => l.id === 'air'), null).fallback, 'nitrogen_dioxide');
   assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air']);
   assert.deepEqual(rivalsOf(LAYERS.find(l => l.id === 'wind')), []);
 });
@@ -199,4 +203,22 @@ test('a raster stack is read bilinearly, blended between months, transparent whe
   // a month with no raster at all, and a point off the tile
   assert.ok(Number.isNaN(sampleRaster(raster, 41.375, 12.125, 2)));
   assert.ok(Number.isNaN(sampleRaster(raster, 40, 12.1, 5)));
+});
+
+test('street air: modelled pollutants scale CAMS, ozone titrates, PM2.5 is left alone', () => {
+  const cams = { nitrogen_dioxide: 20, ozone: 60, pm10: 20, pm2_5: 12 };
+  const ratio = { nitrogen_dioxide: 2, pm10: 1.5 };
+  const c = n => cams[n];
+  const r = n => ratio[n] ?? NaN;
+  // (CAMS + 1) × ratio − 1, the footing the model was fitted on
+  assert.equal(streetValue('nitrogen_dioxide', c, r), 41);
+  assert.equal(streetValue('pm10', c, r), 30.5);
+  assert.equal(streetValue('pm2_5', c, r), 12);
+  // Ox in ppb is conserved: the 21 µg/m³ of extra NO₂ takes ≈ 21 × 1.96/1.88 of O₃ away
+  const o3 = streetValue('ozone', c, r);
+  assert.ok(Math.abs(o3 - (60 - 21 * 1.96 / 1.88)) < 1e-9, String(o3));
+  // never below zero, however much NO₂ the street adds
+  assert.equal(streetValue('ozone', c, n => (n === 'nitrogen_dioxide' ? 20 : NaN)), 0);
+  // no ratio here: CAMS as it is
+  assert.equal(streetValue('nitrogen_dioxide', c, () => NaN), 20);
 });

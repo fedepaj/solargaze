@@ -97,7 +97,9 @@ export function createDrape(scene) {
    * @param alpha  0..1 opacity of the tint
    */
   function paint(grid, value, lut, [lo, hi], alpha = 0.5) {
+    clearSet();
     ensurePrimitive(grid);
+    primitive.show = shown;
     flip ^= 1;
     const ctx = contexts[flip];
     const img = ctx.createImageData(SIZE, SIZE);
@@ -131,23 +133,67 @@ export function createDrape(scene) {
    * 128-pixel sampler would throw away exactly the detail they exist for.
    */
   function paintCanvas(bounds, canvas) {
-    const [west, south, east, north] = bounds;
-    ensurePrimitive({ west, south, east, north, key: `canvas|${bounds.join(',')}` });
-    material.uniforms.image = canvas;
+    paintSet([{ bounds, canvas }]);
+  }
+
+  /**
+   * Several canvases over several rectangles — a mosaic of tiles. Each
+   * keeps its own primitive, keyed by bounds; ones no longer in the list go.
+   */
+  const extras = new Map();
+  function paintSet(items) {
+    const keep = new Set();
+    for (const { bounds, canvas } of items) {
+      const key = bounds.join(',');
+      keep.add(key);
+      let entry = extras.get(key);
+      if (!entry) {
+        const [west, south, east, north] = bounds;
+        const mat = C.Material.fromType('Image', { image: canvas });
+        const prim = new C.GroundPrimitive({
+          geometryInstances: new C.GeometryInstance({
+            geometry: new C.RectangleGeometry({
+              rectangle: C.Rectangle.fromDegrees(west, south, east, north),
+              vertexFormat: C.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+            }),
+          }),
+          appearance: new C.EllipsoidSurfaceAppearance({ material: mat, translucent: true, flat: true }),
+          classificationType: C.ClassificationType.BOTH,
+          asynchronous: false,
+          allowPicking: false,
+        });
+        scene.primitives.add(prim);
+        entry = { prim, mat };
+        extras.set(key, entry);
+      }
+      entry.mat.uniforms.image = canvas;
+      entry.prim.show = shown;
+    }
+    for (const [key, entry] of extras) {
+      if (!keep.has(key)) { scene.primitives.remove(entry.prim); extras.delete(key); }
+    }
+    // The single-rectangle primitive and the mosaic never show together.
+    if (primitive) primitive.show = false;
     requestRender();
+  }
+
+  function clearSet() {
+    for (const [key, entry] of extras) { scene.primitives.remove(entry.prim); extras.delete(key); }
   }
 
   function show(on) {
     shown = on;
     if (primitive) primitive.show = on;
+    for (const entry of extras.values()) entry.prim.show = on;
     requestRender();
   }
 
   function destroy() {
+    clearSet();
     if (primitive) scene.primitives.remove(primitive);
     primitive = null;
     gridKey = null;
   }
 
-  return { paint, paintCanvas, show, destroy, get visible() { return shown && !!primitive; } };
+  return { paint, paintCanvas, paintSet, show, destroy, get visible() { return shown && (!!primitive || extras.size > 0); } };
 }

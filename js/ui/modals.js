@@ -569,22 +569,19 @@ function openHelp() {
     ${keyTable(TOUCH_KEYS)}
 
     <h3>HEAT, AIR AND WIND</h3>
-    <p>The AIR tab adds three layers from <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>,
-       all following the same clock as the sun. <b>Heat</b> tints the ground and the buildings
-       standing on it by air temperature, on a scale that spans the selected day so playback
-       shows the afternoon warming up. <b>Air</b> does the same for a pollutant of your choice,
-       in the six colours of the European Air Quality Index. <b>Wind</b> is a cloud of particles
-       drifting over the point with the model's 10 m wind, and a vane at the point giving its
-       speed and where it blows from.</p>
-    <p>Read the fine print under the numbers: the models sit on grids of seven to eleven
-       kilometres, so the gradient across a neighbourhood is interpolation rather than
-       measurement, and a day beyond the forecast horizon is shown with the same date a year
-       earlier, as a stand-in for the season rather than a prediction.</p>
-    <p>Where the offline pipeline has covered the area, two <b>typical</b> layers join them:
-       <b>Surface</b>, the temperature of roofs and streets from Landsat at 30 m, a median of
-       clear mid-morning passes for the month on the date slider, coloured against the rest of
-       the area; and <b>Typical</b> air, a five-year mean for that month and hour, with the
-       year's mean and how often it exceeds the WHO guideline.</p>
+    <p>The map shows what a place is <b>like</b>; the ANALYZE tab reads it at the pin, with a
+       switch on each row to draw it. <b>Surface heat</b> is the temperature of roofs and streets
+       from Landsat, a median of clear mid-morning passes for the month on the date slider,
+       coloured against the rest of the area. <b>Air</b> is the five-year habit for that month and
+       hour, street by street at 50 m: CAMS corrected for the roads, buildings and green around
+       each street by a model fitted to the monitoring stations, ozone from NO₂ by titration.
+       <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>
+    <p>What a particular day was like sits beside them: the weather chip in the corner gives
+       the temperature at the hour on the clock and the day's sky, and <b>That day</b> in
+       ANALYZE the air from the CAMS forecast or archive. A day beyond the forecast horizon is
+       shown with the same date a year earlier, as a stand-in for the season. Where no tile has
+       been computed yet the map is greyed; read the fine print under the numbers for what each
+       source can and cannot say.</p>
 
     <h3>KEYBOARD</h3>
     <p>The map has focus by default, and keys are ignored while you are typing in a field.</p>

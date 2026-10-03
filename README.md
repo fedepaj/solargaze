@@ -40,13 +40,11 @@ for that day, and the beam arrives from the sun's direction into the studied poi
 - **Local wall clock** at the place you are looking at, DST included.
 - **Sun-hours probe** (ANALYZE tab): ray-casts against the loaded geometry to
   estimate hours of direct sun at the pin.
-- **Temperature, air quality and wind** (AIR tab), on the same clock as the
-  sun: a temperature or a pollutant tinted onto the ground and the buildings,
-  and the wind as a cloud of particles. Each answers either for the selected
-  date — any year back to 2013, there is a year slider — or *typically*,
-  from products precomputed by [`pipeline/`](pipeline/): Landsat surface
-  temperature at 30 m by month, a five-year air-quality climatology by month
-  and hour, and the buildings the wind has to thread between.
+- **Surface heat, street-scale air and wind** (ANALYZE tab, drawable on the
+  map), from products precomputed by [`pipeline/`](pipeline/): Landsat surface
+  temperature by month, the five-year air-quality habit by month and hour at
+  50 m, and the buildings the wind has to thread between; and the selected
+  day's weather and air, read at the pin.
 - **Shareable links** that restore the exact view, date and time.
 - **Works on a phone**: the panel becomes a bottom sheet, the camera answers
   to fingers, and the shadow and tile budgets start lower.
@@ -96,28 +94,24 @@ until the surroundings are sharp before you trust the number.
 
 ### Heat, air and wind
 
-The AIR tab adds three layers from Open-Meteo, all reading the hour and the
-day from the same two sliders. **Heat** tints the ground and the buildings
-standing on it by air temperature, on a scale that spans the selected day so
-that playing the day through shows the afternoon warming up. **Air** does the
-same for a pollutant — the European Air Quality Index, PM2.5, PM10, NO₂ or
-O₃ — in the six colours of the EAQI. **Wind** is a cloud of particles drifting
-over the point with the model's 10 m wind, plus a vane at the point with its
-speed and where it blows from. Heat and air are both tints on the same ground,
-so one replaces the other; wind floats above and combines with either.
+The map shows habits — what a place is like — and the ANALYZE tab reads them
+at the pin, with a switch on each row to draw one. **Surface heat** is the
+Landsat 8/9 temperature of roofs and streets, a per-pixel median of clear
+mid-morning scenes for the month on the date slider, coloured as an anomaly
+against the rest of the area. **Air** is the five-year CAMS habit for that
+month and hour, corrected street by street at 50 m by a land-use regression
+fitted to the EEA monitoring stations (NO₂ and PM10; ozone from NO₂ by
+titration; PM2.5 left as CAMS, where the model found nothing to add). Both are
+tints on the same ground, so one replaces the other. **Wind** is a cloud of
+particles with the model's 10 m wind; where the tile carries the building mask
+they drop to street level and thread between the buildings — a potential-flow
+model solved in a worker, channelling, shelter and corner gusts, no wakes.
 
-Each of the first two has a mode strip. **This date** reads Open-Meteo for
-the day on the sliders, and the year slider reaches back to 2013 through the
-archive, so July 2022 and July 2018 are both there. **Surface** (temperature)
-and **Typical** (air) read products precomputed by the offline pipeline for
-the quarter-degree tile under the pin: the Landsat 8/9 surface temperature at
-30 m as a per-pixel median of clear scenes for the month, coloured as an
-anomaly against the rest of the tile; and a five-year CAMS mean for that
-month and hour of day, with the year's mean and the share of days over the
-WHO guideline. Where the tile also carries the building mask, the wind's
-particles drop to street level and thread between the buildings: a
-potential-flow model solved in a worker for the window around the point and
-the wind of the moment — channelling, shelter and corner gusts, no wakes.
+What a given day was like is read rather than drawn: the weather chip gives
+the temperature at the hour on the clock and the day's sky, from the forecast
+or, back to 1940, the archive; **That day** in ANALYZE gives the CAMS air
+quality for the date and hour. Where no tile has been computed yet the map is
+greyed rather than guessed.
 See [`pipeline/README.md`](pipeline/README.md) for what exists and how to
 make more. Tiles and archived days are cached in the browser under a budget;
 Settings shows the size and clears it.
