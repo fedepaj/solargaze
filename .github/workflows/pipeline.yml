@@ -41,6 +41,9 @@ env:
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   R2_BUCKET: solargaze-tiles
   R2_OPS_BUCKET: solargaze-ops
+  # Kept empty and out of the token's reach: a write that succeeds there means
+  # the token is account-wide, and the run stops (sg doctor --scope-only).
+  R2_CANARY_BUCKET: solargaze-canary
   OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
   PYTHONUNBUFFERED: '1'
   SCOPE: ${{ inputs.scope || 'europe' }}
@@ -60,6 +63,9 @@ jobs:
       - uses: actions/setup-python@v6
         with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
       - run: pip install -r pipeline/requirements.txt
+      - name: The R2 token reaches its two buckets and nothing else
+        working-directory: pipeline
+        run: python -m sg doctor --scope-only
       - name: Check the run can work at all
         working-directory: pipeline
         run: python -m sg doctor || true

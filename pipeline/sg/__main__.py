@@ -289,10 +289,51 @@ def cmd_report(args) -> int:
     return 3 if alert else 0
 
 
+def _check_scope(r, row) -> None:
+    """The token must reach the two buckets and nothing else. A canary
+    bucket (R2_CANARY_BUCKET), made for the purpose and kept empty, is the
+    test: a scoped token is refused there; an account-wide one is not."""
+    from botocore.exceptions import ClientError
+    try:
+        names = [b["Name"] for b in r.s3.list_buckets()["Buckets"]]
+        listing = f"can list every bucket ({len(names)})"
+    except ClientError as exc:
+        listing = f"cannot list buckets ({exc.response['Error']['Code']})"
+    canary = os.environ.get("R2_CANARY_BUCKET")
+    if not canary:
+        row("R2 token scope", True, f"{listing}; no canary bucket set, scope not tested")
+        return
+    try:
+        r.s3.put_object(Bucket=canary, Key="doctor/should-be-refused", Body=b"x")
+        r.s3.delete_object(Bucket=canary, Key="doctor/should-be-refused")
+        row("R2 token limited to its buckets", False, f"it could write to {canary}: the token is not scoped; {listing}")
+    except ClientError as exc:
+        row("R2 token limited to its buckets", True, f"refused on {canary} ({exc.response['Error']['Code']}); {listing}")
+
+
 def cmd_doctor(args) -> int:
-    """Everything a run needs, checked before it is needed."""
+    """Everything a run needs, checked before it is needed. With --scope-only,
+    just the R2 token's reach — the check a runner must pass before it holds
+    the keys to anything."""
     import importlib
     ok = True
+    if args.scope_only:
+        from .remote import Remote
+
+        def row(name, good, detail=""):
+            nonlocal ok
+            ok &= bool(good)
+            print(f"  {'ok ' if good else 'BAD'}  {name:34} {detail}")
+        r = Remote.maybe(DATA_DIR, STATE)
+        if not r:
+            print("no R2 credentials")
+            return 1
+        _check_scope(r, row)
+        return 0 if ok else 1
+    try:
+        CACHE.mkdir(parents=True, exist_ok=True)   # a fresh runner has none yet
+    except OSError:
+        pass
 
     def row(name, good, detail=""):
         nonlocal ok
@@ -323,10 +364,13 @@ def cmd_doctor(args) -> int:
         from .remote import Remote
         r = Remote.maybe(DATA_DIR, STATE)
         if r:
-            r.s3.list_objects_v2(Bucket=r.bucket, MaxKeys=1)
-            row("R2 tiles bucket", True, r.bucket)
-            r.s3.list_objects_v2(Bucket=r.ops, MaxKeys=1)
-            row("R2 ops bucket (state, logs)", True, r.ops)
+            probe = f"doctor/probe-{socket.gethostname()}-{os.getpid()}"
+            for name, b in (("R2 tiles bucket", r.bucket), ("R2 ops bucket (state, logs)", r.ops)):
+                r.s3.put_object(Bucket=b, Key=probe, Body=b"probe")
+                got = r.s3.get_object(Bucket=b, Key=probe)["Body"].read()
+                r.s3.delete_object(Bucket=b, Key=probe)
+                row(name, got == b"probe", f"{b}: write, read, delete")
+            _check_scope(r, row)
         else:
             row("R2", False, "no credentials")
     except Exception as exc:  # noqa: BLE001
@@ -379,7 +423,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("report", help="merge the summaries of one workflow run; exit 3 if a human should look")
     p.add_argument("prefix", help="the shared start of the runs' names, e.g. gha-123456")
     p.add_argument("--out", help="also write the Markdown here")
-    sub.add_parser("doctor", help="check storage, credentials, network and modules")
+    p = sub.add_parser("doctor", help="check storage, credentials, network and modules")
+    p.add_argument("--scope-only", action="store_true", help="only check that the R2 token reaches its buckets and no other")
     args = ap.parse_args(argv)
     return {"plan": cmd_plan, "run": cmd_run, "status": cmd_status, "adopt": cmd_adopt, "sync": cmd_sync,
             "matrix": cmd_matrix, "report": cmd_report, "doctor": cmd_doctor}[args.cmd](args)
