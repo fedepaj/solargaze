@@ -112,6 +112,8 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: build ${{ matrix.name }}
     steps:
+      - name: No Overpass on runners (border tiles wait for both extracts)
+        run: echo "SG_NO_OVERPASS=1" >> "$GITHUB_ENV"
       - name: Make room (the extract and its index want tens of GB)
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/swift || true

@@ -34,6 +34,7 @@ rounded up to whole metres in one 8-bit channel.
 from __future__ import annotations
 
 import json
+import os
 import logging
 import re
 import sys
@@ -145,6 +146,13 @@ def fetch_buildings(tile: Tile) -> list[dict]:
     if local is not None:
         log.info("%d buildings for %s from the local extracts", len(local), tile.id)
         return local
+    if os.environ.get("SG_NO_OVERPASS"):
+        # On a runner a border tile would spend most of the night in
+        # Overpass's queue; it waits instead for a run that holds the
+        # neighbouring country's extract too.
+        from sg.errors import Upstream
+        raise Upstream(f"{tile.id} is not wholly inside the indexed extracts (it needs a neighbouring "
+                       "region's extract); Overpass is off on runners")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     elements = fetch_bbox(tile.bounds)
     # Quarters overlap nothing, but a building straddling a cut is returned
