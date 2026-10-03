@@ -117,6 +117,7 @@ jobs:
     outputs:
       alert: ${{ steps.report.outputs.code == '3' }}
       issue: ${{ steps.alarm.outputs.issue }}
+      log: ${{ steps.log.outputs.issue }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -130,6 +131,20 @@ jobs:
           python -m sg report "gha-${{ github.run_id }}" --out ../report.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
           cat ../report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Post to the run log (GitHub emails the mention)
+        id: log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create pipeline-log --color 0E8A16 --description "One comment per pipeline run" 2>/dev/null || true
+          n=$(gh issue list --label pipeline-log --state open --json number --jq '.[0].number')
+          if [ -z "$n" ]; then
+            n=$(gh issue create --title "Pipeline runs" --label pipeline-log \
+                  --body "One comment per run of the Pipeline workflow, with its summary. Keep this issue open." | sed 's#.*/##')
+          fi
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          { echo "@${{ github.repository_owner }} — [run ${{ github.run_id }}]($url)"; echo; cat report.md; } | gh issue comment "$n" --body-file -
+          echo "issue=$n" >> "$GITHUB_OUTPUT"
       - name: Raise the alarm
         id: alarm
         if: steps.report.outputs.code == '3'
@@ -148,13 +163,16 @@ jobs:
             echo "issue=${new##*/}" >> "$GITHUB_OUTPUT"
           fi
 
-  # The agent in the loop. It runs here rather than on the issue it was just
-  # given, because an issue opened with the workflow's own token does not
-  # start other workflows. Subscription-billed (CLAUDE_CODE_OAUTH_TOKEN), no
-  # R2 credentials, changes only as pull requests. See claude.yml.
+  # The agent in the loop, after every run: on a night with an alarm it
+  # investigates and may open a pull request; on every night it writes a
+  # short summary, in Italian, on the run log, mentioning the owner — which
+  # GitHub turns into an email. It runs here rather than on the issues
+  # because an issue or comment made with the workflow's own token starts
+  # no other workflow. Subscription-billed (CLAUDE_CODE_OAUTH_TOKEN), no R2
+  # credentials, changes only as pull requests.
   triage:
-    needs: report
-    if: always() && needs.report.outputs.alert == 'true' && needs.report.outputs.issue != ''
+    needs: [plan, report]
+    if: always() && needs.plan.outputs.any == 'true' && needs.report.outputs.log != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -168,11 +186,32 @@ jobs:
         with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
       - run: pip install -r pipeline/requirements.txt
       - id: prompt
+        env:
+          ALERT: ${{ needs.report.outputs.alert }}
+          ISSUE: ${{ needs.report.outputs.issue }}
+          LOG: ${{ needs.report.outputs.log }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          { echo 'text<<PROMPT_END'; sed "s/#ISSUE/#${{ needs.report.outputs.issue }}/" .github/claude/pipeline-alert.md; echo 'PROMPT_END'; } >> "$GITHUB_OUTPUT"
+          if [ "$ALERT" = "true" ] && [ -n "$ISSUE" ]; then
+            alert_line="It raised an alarm, issue #$ISSUE: deal with that first, as below."
+          else
+            alert_line="No alarm: nothing to fix unless the summary shows a cause worth a look."
+          fi
+          {
+            echo 'text<<PROMPT_END'
+            if [ "$ALERT" = "true" ] && [ -n "$ISSUE" ]; then sed "s/#ISSUE/#$ISSUE/" .github/claude/pipeline-alert.md; echo; fi
+            sed -e "s#RUN_URL#$RUN_URL#" -e "s/#LOG/#$LOG/g" -e "s/ LOG / $LOG /" -e "s/@OWNER/@$OWNER/" \
+                -e "s/ALERT_LINE/$alert_line/" .github/claude/pipeline-digest.md
+            echo 'PROMPT_END'
+          } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           prompt: ${{ steps.prompt.outputs.text }}
-          claude_args: --max-turns 40
+          claude_args: >-
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(gh issue:*),Bash(gh pr:*),Bash(git:*),Bash(python:*),Bash(cd:*)"
