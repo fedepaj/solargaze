@@ -10,6 +10,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # The pipeline and its workflows are not part of the site.
+    paths-ignore: ['pipeline/**', '.github/workflows/pipeline.yml', '.github/workflows/claude.yml']
   workflow_dispatch:
 
 permissions:

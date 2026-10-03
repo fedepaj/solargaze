@@ -1,0 +1,178 @@
+# Builds tiles, unattended, a few countries a night, and says how it went.
+#
+#   plan    reads the state from R2 and picks the regions with work left,
+#           in the catalogue's order (pipeline/sg/regions.py)
+#   build   one job per region: download and verify its OSM extract, index
+#           it, build what is missing within the time budget, publishing
+#           each tile and its state record as soon as it is done
+#   report  merges the jobs' summaries into this run's summary page, and
+#           opens (or comments on) an issue labelled pipeline-alert when a
+#           job stopped as systemic or more than a fifth of the work failed
+#
+# Everything a job does is in the private bucket afterwards: state/ and
+# logs/<run>.jsonl. Design: pipeline/ARCHITECTURE.md.
+#
+# Secrets: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (a token
+# scoped to the two buckets), OPENAQ_API_KEY.
+name: Pipeline
+
+on:
+  schedule:
+    - cron: '17 1 * * *'      # nightly, off the hour when GitHub is busiest
+  workflow_dispatch:
+    inputs:
+      scope: { description: 'scope (pipeline/sg/regions.py)', default: 'europe' }
+      max: { description: 'regions in parallel', default: '6' }
+      products: { description: 'products', default: 'wind,heat' }
+      hours: { description: 'build budget per region, hours', default: '4.5' }
+
+# One pipeline run at a time: the state is shared, and two runs on the same
+# tiles would only race each other.
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+  R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  R2_BUCKET: solargaze-tiles
+  R2_OPS_BUCKET: solargaze-ops
+  OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
+  PYTHONUNBUFFERED: '1'
+  SCOPE: ${{ inputs.scope || 'europe' }}
+  MAX: ${{ inputs.max || '6' }}
+  PRODUCTS: ${{ inputs.products || 'wind,heat' }}
+  HOURS: ${{ inputs.hours || '4.5' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      any: ${{ steps.matrix.outputs.any }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
+      - run: pip install -r pipeline/requirements.txt
+      - name: Check the run can work at all
+        working-directory: pipeline
+        run: python -m sg doctor || true
+      - name: Framework tests
+        working-directory: pipeline
+        run: python -m unittest discover -s tests
+      - name: Pick the regions
+        id: matrix
+        working-directory: pipeline
+        run: |
+          python -m sg sync
+          python -m sg matrix --scope "$SCOPE" --max "$MAX" --products "$PRODUCTS"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: build ${{ matrix.name }}
+    steps:
+      - name: Make room (the extract and its index want tens of GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/swift || true
+          df -h /
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
+      - run: pip install -r pipeline/requirements.txt
+      - name: Build ${{ matrix.region }}
+        working-directory: pipeline
+        run: |
+          python -m sg run --region "${{ matrix.region }}" --products "$PRODUCTS" \
+            --hours "$HOURS" --min-free-gb 4 --name "gha-${{ github.run_id }}-${{ matrix.name }}"
+      - name: Keep the log with the run as well
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ matrix.name }}
+          path: pipeline/cache/logs/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report:
+    needs: [plan, build]
+    if: always() && needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      alert: ${{ steps.report.outputs.code == '3' }}
+      issue: ${{ steps.alarm.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
+      - run: pip install -r pipeline/requirements.txt
+      - name: Merge the summaries
+        id: report
+        working-directory: pipeline
+        run: |
+          set +e
+          python -m sg report "gha-${{ github.run_id }}" --out ../report.md
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat ../report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Raise the alarm
+        id: alarm
+        if: steps.report.outputs.code == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create pipeline-alert --color B60205 --description "The pipeline needs a look" 2>/dev/null || true
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          open=$(gh issue list --label pipeline-alert --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            { echo "Again in [run ${{ github.run_id }}]($url):"; echo; cat report.md; } | gh issue comment "$open" --body-file -
+            echo "issue=$open" >> "$GITHUB_OUTPUT"
+          else
+            new=$({ echo "The [nightly pipeline run]($url) needs a look."; echo; cat report.md; } \
+              | gh issue create --title "Pipeline: run ${{ github.run_id }} needs a look" --label pipeline-alert --body-file -)
+            echo "issue=${new##*/}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The agent in the loop. It runs here rather than on the issue it was just
+  # given, because an issue opened with the workflow's own token does not
+  # start other workflows. Subscription-billed (CLAUDE_CODE_OAUTH_TOKEN), no
+  # R2 credentials, changes only as pull requests. See claude.yml.
+  triage:
+    needs: report
+    if: always() && needs.report.outputs.alert == 'true' && needs.report.outputs.issue != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
+      - run: pip install -r pipeline/requirements.txt
+      - id: prompt
+        run: |
+          { echo 'text<<PROMPT_END'; sed "s/#ISSUE/#${{ needs.report.outputs.issue }}/" .github/claude/pipeline-alert.md; echo 'PROMPT_END'; } >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          claude_args: --max-turns 40

@@ -73,8 +73,13 @@ ROAD_CLASSES = ("major", "secondary", "local")
 WORLDCOVER = {"green": (10, 20, 30), "builtup": (50,), "water": (80,)}
 
 
-class MissingData(RuntimeError):
-    """The extracts do not cover the window, or a raster could not be read."""
+from sg.errors import Upstream  # noqa: E402
+
+
+class MissingData(Upstream):
+    """The extracts do not cover the window, or a raster could not be read:
+    an input that is not there, retried when it might be (an upstream
+    failure), never mistaken for a bug in this code."""
 
 
 class Window:

@@ -81,6 +81,7 @@ class Run:
         self.durations: list[tuple[float, str, str]] = []  # (seconds, tile, product)
         self.failures: defaultdict = defaultdict(list)     # signature → [(tile, product, kind, message)]
         self.counters: Counter = Counter()
+        self.systemic: str | None = None   # why the run stopped itself, if it did
 
     # -- events --------------------------------------------------------------
 
@@ -167,6 +168,7 @@ class Run:
             "stage_seconds": {k: round(v, 1) for k, v in sorted(self.stage_time.items(), key=lambda kv: -kv[1])},
             "slowest": [{"tile": t, "product": p, "seconds": round(s, 1)} for s, t, p in sorted(self.durations, reverse=True)[:10]],
             "counters": dict(self.counters),
+            "systemic": self.systemic,
             "failures": digest,
             "log": str(self.path),
         }
@@ -174,7 +176,10 @@ class Run:
     def markdown(self, s: dict | None = None) -> str:
         s = s or self.summary()
         lines = [f"### {s['name']} — run `{s['run']}`", "",
-                 f"{s['seconds'] / 60:.1f} min on `{s['host']}` at `{s['git']}`", "",
+                 f"{s['seconds'] / 60:.1f} min on `{s['host']}` at `{s['git']}`", ""]
+        if s.get("systemic"):
+            lines += [f"**Stopped as systemic:** {s['systemic']}", ""]
+        lines += [
                  "| product | done | empty | failed | skipped |", "|---|---:|---:|---:|---:|"]
         for p, c in sorted(s["outcomes"].items()):
             lines.append(f"| {p} | {c.get('done', 0)} | {c.get('empty', 0)} | {c.get('failed', 0)} | {c.get('skipped', 0)} |")

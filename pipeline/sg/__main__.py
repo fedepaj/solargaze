@@ -46,9 +46,22 @@ LOGS = CACHE / "logs"
 
 # ---------------------------------------------------------------- tile selection
 
+def region_poly(path: str) -> Path:
+    from . import regions
+    poly = CACHE / "geofabrik" / f"{regions.name_of(path)}.poly"
+    if not poly.exists():
+        poly.parent.mkdir(parents=True, exist_ok=True)
+        regions._get(f"{regions.GEOFABRIK}/{path}.poly", poly)
+    return poly
+
+
 def select_tiles(args) -> list[str]:
     if args.tiles:
         return [t.strip() for t in args.tiles.split(",") if t.strip()]
+    if getattr(args, "region", None):
+        from . import regions
+        ids = regions.tiles_of(region_poly(args.region))
+        return _shard(ids, args.shard)
     tiles: list[Tile] = []
     if args.bbox:
         tiles += list(tiles_in_bbox(*map(float, args.bbox.split(","))))
@@ -65,12 +78,15 @@ def select_tiles(args) -> list[str]:
             pts = [t.centre, (s + .02, w + .02), (s + .02, e - .02), (n - .02, w + .02), (n - .02, e - .02)]
             return any(globe.is_land(la, lo) for la, lo in pts)
         tiles = [t for t in tiles if on_land(t)]
-    ids = list(dict.fromkeys(t.id for t in tiles))
-    if args.shard:
-        i, n = map(int, args.shard.split("/"))
-        # Stable across runs and machines: the same tile always lands in the same shard.
-        ids = [t for t in ids if int(hashlib.md5(t.encode()).hexdigest(), 16) % n == i - 1]
-    return ids
+    return _shard(list(dict.fromkeys(t.id for t in tiles)), args.shard)
+
+
+def _shard(ids: list[str], shard: str | None) -> list[str]:
+    if not shard:
+        return ids
+    i, n = map(int, shard.split("/"))
+    # Stable across runs and machines: the same tile always lands in the same shard.
+    return [t for t in ids if int(hashlib.md5(t.encode()).hexdigest(), 16) % n == i - 1]
 
 
 def products_of(args):
@@ -111,6 +127,16 @@ def cmd_run(args) -> int:
         if remote and not args.no_pull:
             with run.step("state.pull"):
                 run.info("state.pulled", records=remote.pull_state())
+        if args.region:
+            from . import regions
+            import osm_extract
+            with run.step("extract", region=args.region):
+                pbf, poly = regions.fetch(args.region, CACHE / "geofabrik", run)
+                if osm_extract.MANIFEST.exists() and json.loads(osm_extract.MANIFEST.read_text()).get("extracts", [{}])[0].get("pbf") == pbf.name \
+                        and not args.reindex:
+                    run.info("extract.indexed", msg="index already holds this extract")
+                else:
+                    osm_extract.index_extracts([str(pbf)])
         tiles = select_tiles(args)
         jobs = plan(products_of(args), tiles, state, run.context["git"])
         if args.limit:
@@ -123,6 +149,7 @@ def cmd_run(args) -> int:
             run.info("counts", **counts)
         except Systemic as exc:
             run.error("systemic", msg=str(exc))
+            run.systemic = str(exc)
             code = 2
         finally:
             with run.step("index"):
@@ -190,6 +217,78 @@ def cmd_sync(args) -> int:
     return 0
 
 
+def cmd_matrix(args) -> int:
+    """The regions with the most work, as a GitHub Actions matrix."""
+    from . import regions
+    from .log import git_sha
+    state = State(STATE)
+    products = products_of(args)
+    rows = []
+    for path in regions.SCOPES[args.scope]:
+        try:
+            tiles = regions.tiles_of(region_poly(path))
+        except Exception as exc:  # noqa: BLE001 — one region's boundary is one region
+            print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
+            continue
+        n = len(plan(products, tiles, state, git_sha()))
+        if n:
+            rows.append({"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": n})
+    # The catalogue's order is the priority: where people live first, so that
+    # a week of runs has covered the cities rather than the tundra.
+    chosen = rows[:args.max]
+    out = json.dumps({"include": chosen})
+    print(out)
+    gh = os.environ.get("GITHUB_OUTPUT")
+    if gh:
+        with open(gh, "a") as f:
+            f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
+    for r in rows:
+        print(f"  {r['region']:38} {r['tiles']:5} tiles {r['jobs']:6} jobs", file=sys.stderr)
+    return 0
+
+
+def cmd_report(args) -> int:
+    """Merge the summaries of every run whose name starts with a prefix (the
+    jobs of one workflow run), print them as Markdown, and say whether a
+    human should look: exit 3 when a run stopped as systemic, or when more
+    than a fifth of the jobs failed."""
+    from .remote import Remote
+    r = Remote.maybe(DATA_DIR, STATE)
+    summaries = []
+    if r:
+        import gzip as _gz
+        for page in r.s3.get_paginator("list_objects_v2").paginate(Bucket=r.ops, Prefix="logs/"):
+            for obj in page.get("Contents", []):
+                k = obj["Key"]
+                if k.endswith(".summary.json") and f"-{args.prefix}" in k:
+                    raw = r.s3.get_object(Bucket=r.ops, Key=k)["Body"].read()
+                    summaries.append(json.loads(_gz.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw))
+    if not summaries:
+        print(f"no summary found for runs named {args.prefix}*")
+        return 3
+    from .log import Run
+    total, failed, systemic = Counter(), Counter(), []
+    lines = [f"## Pipeline run `{args.prefix}`", ""]
+    for s_ in sorted(summaries, key=lambda x: x["run"]):
+        lines.append(Run.markdown(None, s_))
+        for product, c in s_["outcomes"].items():
+            total.update({k: v for k, v in c.items()})
+        if s_.get("systemic"):
+            systemic.append(s_["run"])
+    jobs = sum(v for k, v in total.items() if k != "skipped")
+    alert = bool(systemic) or (jobs and total.get("failed", 0) / jobs > 0.2)
+    head = (f"**{jobs} jobs**: {total.get('done', 0)} done, {total.get('empty', 0)} empty, "
+            f"{total.get('failed', 0)} failed, {total.get('skipped', 0)} left for the next run.")
+    if systemic:
+        head += f" Stopped as systemic: {', '.join(systemic)}."
+    lines.insert(2, head + "\n")
+    text = "\n".join(lines)
+    print(text)
+    if args.out:
+        Path(args.out).write_text(text)
+    return 3 if alert else 0
+
+
 def cmd_doctor(args) -> int:
     """Everything a run needs, checked before it is needed."""
     import importlib
@@ -253,6 +352,7 @@ def main(argv=None) -> int:
         p.add_argument("--bbox", help="west,south,east,north")
         p.add_argument("--tiles", help="comma list of tile ids")
         p.add_argument("--only-land", action="store_true", help="drop tiles that are open sea")
+        p.add_argument("--region", help="a Geofabrik region path, e.g. europe/france: fetch, verify and index its extract, then its tiles")
         p.add_argument("--shard", help="i/n: this worker's share of the tiles (stable hash)")
         p.add_argument("--products", help="comma list, default all: " + ",".join(ORDER))
         p.add_argument("-v", "--verbose", action="store_true")
@@ -267,13 +367,22 @@ def main(argv=None) -> int:
     p.add_argument("--name", help="a name for the run, in its id")
     p.add_argument("--no-publish", action="store_true", help="build locally, publish nothing")
     p.add_argument("--no-pull", action="store_true", help="do not refresh the state from R2 first")
+    p.add_argument("--reindex", action="store_true", help="index the region's extract even if the index holds it")
     p = sub.add_parser("status", help="where things stand")
     p.add_argument("--products")
     sub.add_parser("adopt", help="record tiles built before the framework")
     sub.add_parser("sync", help="state both ways between this machine and the bucket")
+    p = sub.add_parser("matrix", help="the regions with most work, as a GitHub Actions matrix")
+    p.add_argument("--scope", default="europe")
+    p.add_argument("--max", type=int, default=8)
+    p.add_argument("--products")
+    p = sub.add_parser("report", help="merge the summaries of one workflow run; exit 3 if a human should look")
+    p.add_argument("prefix", help="the shared start of the runs' names, e.g. gha-123456")
+    p.add_argument("--out", help="also write the Markdown here")
     sub.add_parser("doctor", help="check storage, credentials, network and modules")
     args = ap.parse_args(argv)
-    return {"plan": cmd_plan, "run": cmd_run, "status": cmd_status, "adopt": cmd_adopt, "sync": cmd_sync, "doctor": cmd_doctor}[args.cmd](args)
+    return {"plan": cmd_plan, "run": cmd_run, "status": cmd_status, "adopt": cmd_adopt, "sync": cmd_sync,
+            "matrix": cmd_matrix, "report": cmd_report, "doctor": cmd_doctor}[args.cmd](args)
 
 
 if __name__ == "__main__":
