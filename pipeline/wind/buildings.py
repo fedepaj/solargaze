@@ -138,6 +138,13 @@ def fetch_bbox(bbox, depth: int = 0) -> list[dict]:
 
 
 def fetch_buildings(tile: Tile) -> list[dict]:
+    # Geofabrik extracts indexed by osm_extract.py answer first when their
+    # boundaries cover the tile: local, and not at the mercy of a busy Overpass.
+    import osm_extract
+    local = osm_extract.read_tile(tile)
+    if local is not None:
+        log.info("%d buildings for %s from the local extracts", len(local), tile.id)
+        return local
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     elements = fetch_bbox(tile.bounds)
     # Quarters overlap nothing, but a building straddling a cut is returned
@@ -222,7 +229,10 @@ def footprints(elements: list[dict]) -> list[tuple[dict, float, str]]:
     for el in elements:
         tags = el.get("tags") or {}
         h, src = building_height(tags)
-        if el["type"] == "way":
+        if el["type"] == "polygon":
+            # From an extract: rings already closed and assembled by osmium.
+            out.append(({"type": "Polygon", "coordinates": el["coordinates"]}, h, src))
+        elif el["type"] == "way":
             geom = el.get("geometry")
             if not geom or len(geom) < 4:
                 continue

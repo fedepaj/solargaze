@@ -37,8 +37,9 @@ exact solution is a cosh profile, agrees to 3e-3; a lone block stagnates
 fore and aft, speeds up 14 % along its flanks and 44 % at its corners,
 mirror-symmetrically, and is exactly zero inside).
 
-Buildings come from OpenStreetMap via Overpass, one query for the tile
-bbox, cached under `pipeline/cache/`. Height: `height` tag, else
+Buildings come from OpenStreetMap: from Geofabrik extracts indexed once by
+`osm_extract.py` when their boundaries cover the tile, else from Overpass,
+one query for the tile bbox, cached under `pipeline/cache/`. Height: `height` tag, else
 `building:levels` × 3.2 m, else 10 m (`buildings.py` says why). A cell is
 a building when more than half of it is covered.
 

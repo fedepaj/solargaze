@@ -40,6 +40,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tiles import STEP, Tile, write_meta  # noqa: E402
+import netdns  # noqa: E402,F401  (falls back to DNS over HTTPS when the system resolver drops a name)
 from air_cams import VARS, WHO_DAILY, nodes_for  # noqa: E402
 from run_region import REGIONS, tiles_in_bbox  # noqa: E402
 
@@ -126,11 +127,13 @@ def fold_region_cached(bbox, years, tiles):
     tag = f"folded_{'_'.join(f'{v:.2f}' for v in bbox)}_{years[0]}-{years[-1]}.npz"
     path = CACHE / tag
     wanted = sorted({node for t in tiles for node in nodes_for(t)})
-    if path.exists():
-        z = np.load(path, allow_pickle=True)
+    # Any earlier fold over the same years that holds every node will do: a
+    # region inside a box already folded costs nothing to write again.
+    for p in sorted(CACHE.glob(f"folded_*_{years[0]}-{years[-1]}.npz"), key=lambda p: p != path):
+        z = np.load(p, allow_pickle=True)
         have = [tuple(x) for x in z["wanted"]]
         if set(wanted) <= set(have):
-            log.info("folded tables from %s", path.name)
+            log.info("folded tables from %s", p.name)
             result = {v: {"sum": z[f"{v}_sum"], "n": z[f"{v}_n"], "daily": [z[f"{v}_daily"]]} for v in VARS}
             return have, result
     wanted, result = fold_region(bbox, years, tiles)

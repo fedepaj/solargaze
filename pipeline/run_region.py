@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "wind"))
 
 from tiles import STEP, Tile, read_meta  # noqa: E402
+import netdns  # noqa: E402,F401  (falls back to DNS over HTTPS when the system resolver drops a name)
 
 log = logging.getLogger("region")
 
@@ -79,6 +80,24 @@ def run_product(tile: Tile, product: str) -> None:
         raise ValueError(product)
 
 
+# What a failure says when it is the network's and not the tile's: a DNS
+# that comes and goes, a connection dropped, too many scenes unread.
+NETWORK_HINTS = ("NameResolution", "resolve host", "Max retries exceeded", "Connection", "failed to read")
+
+
+def run_patiently(tile: Tile, product: str, waits=(60, 300, 900)) -> None:
+    """run_product, waiting out a network outage on the same tile instead of
+    letting it fail every tile behind it in a few seconds each."""
+    for wait in (*waits, None):
+        try:
+            return run_product(tile, product)
+        except Exception as e:
+            if wait is None or not any(h in str(e) for h in NETWORK_HINTS):
+                raise
+            log.warning("  %s %s: network trouble (%s); again in %d s", tile.id, product, str(e)[:120], wait)
+            time.sleep(wait)
+
+
 def building_count(tile: Tile) -> int:
     """Cheap first look through the wind product's fetch, cached by it."""
     import buildings
@@ -93,6 +112,8 @@ def main() -> None:
     ap.add_argument("--only-built", type=int, default=2000,
                     help="skip heat/air for tiles with fewer OSM buildings than this (0 = never skip)")
     ap.add_argument("--pause", type=float, default=15.0, help="seconds between tiles, for Overpass's sake")
+    ap.add_argument("--only-land", action="store_true",
+                    help="skip tiles that are open sea (a 1 km land mask, checked at the centre and corners)")
     args = ap.parse_args()
 
     if args.bbox:
@@ -103,6 +124,15 @@ def main() -> None:
         tiles = [Tile.containing(*map(float, w.split(","))) for w in args.what]
     products = [p for p in ("wind", "heat", "air") if p in args.products.split(",")]
 
+    if args.only_land:
+        from global_land_mask import globe
+        def on_land(t):
+            w, s_, e, n = t.bounds
+            return any(globe.is_land(la, lo) for la, lo in
+                       ((t.centre), (s_ + .02, w + .02), (s_ + .02, e - .02), (n - .02, w + .02), (n - .02, e - .02)))
+        before = len(tiles)
+        tiles = [t for t in tiles if on_land(t)]
+        log.info("%d of %d tiles touch land", len(tiles), before)
     log.info("%d tiles, products %s", len(tiles), products)
     t0 = time.time()
     done = 0
@@ -118,7 +148,7 @@ def main() -> None:
                     log.info("  %d buildings: keeping only the mask", n)
                     todo = [p for p in todo if p == "wind"]
             for product in todo:
-                run_product(tile, product)
+                run_patiently(tile, product)
             done += 1
         except KeyboardInterrupt:
             raise

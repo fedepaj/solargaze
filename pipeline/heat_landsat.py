@@ -112,6 +112,39 @@ def downsample(t: np.ndarray, k: int = DOWNSAMPLE) -> np.ndarray:
         return np.nanmean(blocks, axis=(1, 3))
 
 
+# Overviews: the 90 m month averaged 3 × 3 and 9 × 9 again, for the view
+# from far away. The app picks the level by how many tiles are on screen;
+# a whole region at 810 m is a few kilobytes a tile.
+OVERVIEWS = (3, 9)
+
+
+# The twelve months of a level travel as one image, stacked north to south
+# from January: one request and one object instead of twelve. A month with
+# no data is a band of byte 0, like any pixel without one.
+PACKING = "months stacked north to south, January on top, each `rows` tall; byte 0 = no data"
+
+
+def stack_months(by_month: dict[int, np.ndarray], rows: int, cols: int) -> np.ndarray:
+    """Byte images of the months present → one (12·rows) × cols image."""
+    out = np.zeros((12 * rows, cols), np.uint8)
+    for m, b in by_month.items():
+        out[(m - 1) * rows:m * rows] = b
+    return out
+
+
+def write_packed(t90: dict[int, np.ndarray], out_dir: Path) -> dict:
+    """The 90 m months and their overviews, packed; returns the file map."""
+    rows, cols = next(iter(t90.values())).shape
+    files = {}
+    for k in (1, *OVERVIEWS):
+        level = {m: np.asarray(encode(t if k == 1 else downsample(t, k))) for m, t in t90.items()}
+        r, c = next(iter(level.values())).shape
+        name = "months" if k == 1 else f"months.o{k}"
+        Image.fromarray(stack_months(level, r, c), "L").save(out_dir / f"{name}.png", optimize=True)
+        files[name] = f"heat/{name}.png"
+    return files
+
+
 def encode(t: np.ndarray) -> Image.Image:
     valid = np.isfinite(t)
     byte = np.clip(np.round((t - T_MIN) / T_STEP) + 1, 1, 255)
@@ -130,9 +163,11 @@ def run(tile: Tile) -> None:
 
     by_month: dict[int, list[np.ndarray]] = {m: [] for m in range(1, 13)}
     t0 = time.time()
+    failed = 0
     for i, item in enumerate(sorted(items, key=lambda it: it.datetime)):
         arr = cached_scene(item, tile, shape)
         if arr is None:
+            failed += 1
             continue
         # A scene that only clips the tile's corner adds noise, not signal.
         if np.isfinite(arr).mean() < 0.05:
@@ -141,9 +176,17 @@ def run(tile: Tile) -> None:
         if (i + 1) % 10 == 0:
             print(f"  {i + 1}/{len(items)} scenes, {time.time() - t0:.0f}s")
 
+    # A scene or two that will not read is the archive's; many is the
+    # network's, and a tile written from what happened to get through would
+    # look finished while missing most of its months. Keep the scene cache,
+    # write nothing, and let the next run pick it up.
+    if not items or failed > max(3, 0.05 * len(items)):
+        raise RuntimeError(f"{tile.id}: {failed} of {len(items)} scenes failed to read; tile not written")
+
     out_dir = tile.path / "heat"
     out_dir.mkdir(parents=True, exist_ok=True)
     months = {}
+    medians = {}
     for m, stack in by_month.items():
         if not stack:
             continue
@@ -153,7 +196,7 @@ def run(tile: Tile) -> None:
         # One clear look is not a climatology; ask for at least three.
         median[count < 3] = np.nan
         median = downsample(median)
-        encode(median).save(out_dir / f"m{m:02d}.png", optimize=True)
+        medians[m] = median
         tile_median = float(np.nanmedian(median)) if np.isfinite(median).any() else None
         months[f"{m:02d}"] = {
             "scenes": len(stack),
@@ -161,6 +204,8 @@ def run(tile: Tile) -> None:
             "tile_median_c": None if tile_median is None else round(tile_median, 2),
         }
         print(f"  month {m:02d}: {len(stack)} scenes, coverage {months[f'{m:02d}']['coverage']:.0%}")
+
+    files = write_packed(medians, out_dir)
 
     # The per-scene cache exists to resume an interrupted tile, not to keep
     # half a gigabyte per tile around: drop it once the months are written.
@@ -177,7 +222,9 @@ def run(tile: Tile) -> None:
         "native_degrees_per_pixel": DEG_PER_PX,
         "encoding": {"version": ENCODING, "channel": "L", "nodata_byte": 0, "byte1_c": T_MIN, "step_c": T_STEP,
                      "note": "median at 30 m, then a 3 x 3 mean; byte 0 = fewer than 3 clear scenes"},
-        "files": {f"m{m:02d}": f"heat/m{m:02d}.png" for m in range(1, 13) if f"{m:02d}" in months},
+        "files": files,
+        "packing": PACKING,
+        "overviews": list(OVERVIEWS),
         "months": months,
         "source": "USGS via Microsoft Planetary Computer STAC (landsat-c2-l2)",
         "licence": "Landsat data are in the public domain (USGS)",

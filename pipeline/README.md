@@ -8,7 +8,8 @@ fetched again on demand and cached under `pipeline/cache/` (ignored).
 ```bash
 uv venv pipeline/.venv
 uv pip install --python pipeline/.venv/bin/python numpy pillow requests \
-    pystac-client planetary-computer rasterio pyproj scipy
+    pystac-client planetary-computer rasterio pyproj scipy \
+    osmium shapely global-land-mask boto3
 
 cd pipeline
 .venv/bin/python tiles.py 41.89 12.49          # which tile holds a place → N41.75E12.25
@@ -35,11 +36,20 @@ over Rome, it is just less interesting.
 | --- | --- | --- | --- |
 | `heat` | `heat_landsat.py` | Landsat 8/9 surface temperature, per-pixel median of clear scenes per calendar month, read at 30 m and written at 90 m, 2018 on | ~0.5 MB (12 PNGs) |
 | `air` | `air_cams.py` or `air_cams_bulk.py` | CAMS air quality (PM2.5, PM10, NO₂, O₃) as means by month × hour, local time, 2020–2024, 0.1° nodes | ~200 KB |
+| `wind` | `wind/` | the OpenStreetMap building mask the browser solves the street-level flow on | ~0.4 MB |
 
 `air_cams_bulk.py` produces the same product for a whole region from the
 Copernicus Atmosphere Data Store (needs `~/.cdsapirc` with your key, never
 in the repo) and is the one to use beyond a handful of tiles.
-| `wind` | `wind/` | the OpenStreetMap building mask the browser solves the street-level flow on | ~0.4 MB |
+
+Buildings for many tiles come faster and more reliably from Geofabrik
+extracts than from Overpass: download the regional `.osm.pbf` files into
+`cache/geofabrik/` and index them once (all together, the index is rebuilt
+each time); tiles their boundaries do not cover still go to Overpass.
+
+```bash
+.venv/bin/python wind/osm_extract.py centro sud nord-ovest   # minutes per extract
+```
 
 Many tiles at once, resumable, with a pause between them for Overpass's sake:
 
@@ -47,6 +57,7 @@ Many tiles at once, resumable, with a pause between them for Overpass's sake:
 .venv/bin/python run_region.py lazio                      # a named bbox
 .venv/bin/python run_region.py 41.89,12.49 45.07,7.69      # the tiles holding these places
 .venv/bin/python run_region.py --bbox 6.5,36.5,18.6,47.2 --products wind,heat
+.venv/bin/python run_region.py italy --only-land       # skip tiles that are open sea
 ```
 
 Tiles with fewer than 2000 OSM buildings get the mask only, which is what
@@ -54,6 +65,19 @@ keeps a country-sized box tractable: Italy is 2107 quarter-degree squares
 and most are fields or sea. Even so, Landsat is ~5 minutes a built tile and
 CAMS through Open-Meteo a handful of tiles a day, so a night covers a region,
 not a country; see the sizing notes in `run_region.py`.
+
+## Publishing
+
+The app reads the tiles from a Cloudflare R2 bucket (`TILES_REMOTE` in
+`js/config.js`), and from `data/tiles/` when served from localhost, so a
+region can be checked before it goes out. `publish_tiles.py` sends what
+changed, index last; credentials go in `pipeline/.env` (ignored by git).
+
+```bash
+.venv/bin/python publish_tiles.py --setup-cors   # once per bucket
+.venv/bin/python publish_tiles.py --dry-run
+.venv/bin/python publish_tiles.py
+```
 
 Every product writes its provenance, encoding and caveats into `meta.json`;
 the app prints the caveats under the numbers.

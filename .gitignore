@@ -15,7 +15,22 @@ tools/
 # was built from. Working files: not part of the site, so not published.
 solargaze-assets/
 
-# The offline pipeline's own environment and raw downloads. Its outputs go to
-# data/tiles/ and are committed; the inputs are re-fetchable.
+# The offline pipeline's own environment and raw downloads; the inputs are
+# re-fetchable. (pipeline/cache is a symlink to an external disk, which a
+# trailing slash would not match.)
 pipeline/.venv/
-pipeline/cache/
+pipeline/cache
+pipeline/cache.local-backup/
+__pycache__/
+
+# The pipeline's output lives in the R2 bucket the app reads
+# (pipeline/publish_tiles.py), not in git: a country of tiles would outgrow
+# a Pages site and weigh down every clone.
+data/tiles/
+
+# Secrets for the pipeline (R2 and OpenAQ keys); see pipeline/.env.
+.env
+
+# A stray copy of a Claude config directory, created by a command that took
+# "~" literally.
+/~/
