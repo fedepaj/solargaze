@@ -284,9 +284,15 @@ def apply_model(model: dict, f: dict) -> np.ndarray:
 
 
 def street_tile(tile: Tile, models: dict) -> None:
+    """The old command line: build straight into the tile's folder."""
+    from tiles import write_meta
+    write_meta(tile, "air_street", build_street(tile, tile.path / "air_street", models))
+
+
+def build_street(tile: Tile, out: Path, models: dict) -> dict:
+    """The 50 m ratios into out/; returns the meta entry, writes nothing else."""
     import air_features as af
     from PIL import Image
-    from tiles import write_meta
     from datetime import datetime, timezone
     w, s, e, n = tile.bounds
     step = STEP / CELLS
@@ -297,7 +303,6 @@ def street_tile(tile: Tile, models: dict) -> None:
     win = af.Window.around(x.min(), y.min(), x.max(), y.max())
     t0 = time.time()
     f = af.features(win, x, y)
-    out = tile.path / "air_street"
     out.mkdir(parents=True, exist_ok=True)
     files = {}
     for var in STREET_VARS:
@@ -307,7 +312,7 @@ def street_tile(tile: Tile, models: dict) -> None:
         files[var] = f"air_street/{var}.png"
         log.info("  %s %s: ratio median %.2f, 99th pct %.2f", tile.id, var, float(np.exp(np.median(lr))),
                  float(np.exp(np.percentile(lr, 99))))
-    write_meta(tile, "air_street", {
+    info = {
         "product": "Street-scale correction to the CAMS air-quality tables: a land-use regression ratio at 50 m",
         "use": "concentration(cell, month, hour) = (CAMS(month, hour) + 1) * exp(ln_ratio(cell)) - 1, µg/m³",
         "rows": CELLS, "cols": CELLS, "degrees_per_pixel": step,
@@ -321,8 +326,9 @@ def street_tile(tile: Tile, models: dict) -> None:
         "caveat": "A statistical model of annual means fitted to monitoring stations, applied as one ratio to every month and hour, "
                   "and held to the range of ratios the stations show; it knows the roads, not the traffic on them. "
                   "Validated by leaving out whole tiles of stations.",
-    })
+    }
     log.info("  %s done in %.0f s", tile.id, time.time() - t0)
+    return info
 
 
 def street_tiles(region: str) -> None:

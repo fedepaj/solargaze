@@ -39,6 +39,7 @@ from rasterio.transform import from_bounds
 from rasterio.vrt import WarpedVRT
 
 from tiles import Tile, write_meta
+from sg.errors import NoData, Transient
 
 # Scenes are read at 30 m — 0.00027°, the product's own pixel — and the
 # monthly median is then averaged 3 × 3 down to 90 m before it is written.
@@ -152,6 +153,15 @@ def encode(t: np.ndarray) -> Image.Image:
 
 
 def run(tile: Tile) -> None:
+    """The old command line: build straight into the tile's folder."""
+    info = build(tile, tile.path / "heat")
+    write_meta(tile, "heat", info)
+
+
+def build(tile: Tile, out_dir: Path) -> dict:
+    """The packed months into out_dir; returns the meta entry, writes nothing
+    else. NoData where no scene covers the tile; Transient when too many
+    scenes would not read (the network, not the tile)."""
     shape = tile.shape(DEG_PER_PX)
     print(f"{tile.id}: {shape[0]}×{shape[1]} px at {DEG_PER_PX}°")
     cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
@@ -180,10 +190,11 @@ def run(tile: Tile) -> None:
     # network's, and a tile written from what happened to get through would
     # look finished while missing most of its months. Keep the scene cache,
     # write nothing, and let the next run pick it up.
-    if not items or failed > max(3, 0.05 * len(items)):
-        raise RuntimeError(f"{tile.id}: {failed} of {len(items)} scenes failed to read; tile not written")
+    if not items:
+        raise NoData(f"{tile.id}: no Landsat scene under {MAX_CLOUD}% cloud")
+    if failed > max(3, 0.05 * len(items)):
+        raise Transient(f"{tile.id}: {failed} of {len(items)} scenes failed to read; tile not written")
 
-    out_dir = tile.path / "heat"
     out_dir.mkdir(parents=True, exist_ok=True)
     months = {}
     medians = {}
@@ -205,6 +216,8 @@ def run(tile: Tile) -> None:
         }
         print(f"  month {m:02d}: {len(stack)} scenes, coverage {months[f'{m:02d}']['coverage']:.0%}")
 
+    if not medians:
+        raise NoData(f"{tile.id}: no month with a clear look")
     files = write_packed(medians, out_dir)
 
     # The per-scene cache exists to resume an interrupted tile, not to keep
@@ -212,7 +225,7 @@ def run(tile: Tile) -> None:
     for p in CACHE.glob(f"{tile.id}_*.npy"):
         p.unlink()
 
-    write_meta(tile, "heat", {
+    info = {
         "product": "Landsat 8/9 Collection 2 Level-2 surface temperature (ST_B10), per-pixel median by calendar month",
         "years": YEARS,
         "max_cloud_percent": MAX_CLOUD,
@@ -230,8 +243,9 @@ def run(tile: Tile) -> None:
         "licence": "Landsat data are in the public domain (USGS)",
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "caveat": "Surface temperature at a mid-morning overpass on clear days, not air temperature; a median over several years, not any particular day.",
-    })
+    }
     print(f"done in {time.time() - t0:.0f}s")
+    return info
 
 
 if __name__ == "__main__":

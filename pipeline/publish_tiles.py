@@ -88,7 +88,10 @@ def remote_etags(s3, bucket: str) -> dict[str, str]:
 
 def local_files() -> list[Path]:
     """Every file under data/tiles, products first, metas next, index last."""
-    files = [p for p in DATA_DIR.rglob("*") if p.is_file() and p.suffix in TYPES]
+    # Hidden paths are a build in progress or one left by a crash
+    # (.heat.stage-…, .heat.old-…, .meta.json.tmp): never published.
+    files = [p for p in DATA_DIR.rglob("*") if p.is_file() and p.suffix in TYPES
+             and not any(part.startswith(".") for part in p.relative_to(DATA_DIR).parts)]
     rank = {"meta.json": 1, "index.json": 2}
     return sorted(files, key=lambda p: (rank.get(p.name, 0), str(p)))
 
@@ -97,7 +100,16 @@ def body(p: Path) -> bytes:
     """What is stored for a file: JSON gzipped (deterministically, so that an
     unchanged file has an unchanged ETag), anything else as it is."""
     data = p.read_bytes()
-    return gzip.compress(data, 9, mtime=0) if p.suffix == ".json" else data
+    return gzip.compress(data, 9, mtime=0) if p.suffix in (".json", ".jsonl") else data
+
+
+def put(s3, bucket: str, key: str, p: Path, data: bytes | None = None) -> int:
+    """Store one file the way the app expects it; returns the bytes sent."""
+    data = body(p) if data is None else data
+    extra = {"ContentEncoding": "gzip"} if p.suffix in (".json", ".jsonl") else {}
+    s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=TYPES.get(p.suffix, "application/octet-stream"),
+                  CacheControl=FRESH if p.name in ("meta.json", "index.json") else FOREVER, **extra)
+    return len(data)
 
 
 def main() -> None:
@@ -128,9 +140,7 @@ def main() -> None:
         size = len(data)
         log.info("%s %s (%.0f KB)", "would send" if args.dry_run else "send", key, size / 1e3)
         if not args.dry_run:
-            extra = {"ContentEncoding": "gzip"} if p.suffix == ".json" else {}
-            s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=TYPES[p.suffix],
-                          CacheControl=FRESH if p.name in ("meta.json", "index.json") else FOREVER, **extra)
+            put(s3, bucket, key, p, data)
         sent += 1
         sent_bytes += size
 

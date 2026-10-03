@@ -146,39 +146,45 @@ def fold_region_cached(bbox, years, tiles):
     return wanted, result
 
 
-def write_tiles(tiles, years, wanted, result, source_note):
+def build_tile(tile, out_dir: Path, years, wanted, result, source_note) -> dict:
+    """One tile's month × hour tables into out_dir/climatology.json; returns
+    the meta entry. Writes nothing else."""
     index = {node: k for k, node in enumerate(wanted)}
+    nodes = []
+    for (lat, lon) in nodes_for(tile):
+        k = index[(lat, lon)]
+        entry = {"lat": lat, "lon": lon, "requested": [lat, lon]}
+        for var in VARS:
+            r = result[var]
+            with np.errstate(invalid="ignore"):
+                mean = np.where(r["n"][k] > 0, r["sum"][k] / r["n"][k], np.nan)
+            daily = np.concatenate([d[:, k] for d in r["daily"]])
+            daily = daily[np.isfinite(daily)]
+            entry[var] = {
+                "by_month_hour": [[None if np.isnan(x) else round(float(x), 1) for x in row] for row in mean],
+                "annual_mean": round(float(np.nanmean(mean)), 1),
+                "days_over_who": round(float((daily > WHO_DAILY[var]).mean()), 3) if len(daily) else None,
+            }
+        nodes.append(entry)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"step": 0.1, "timezone": "Europe/Rome", "years": years, "vars": VARS,
+               "lats": sorted({n["requested"][0] for n in nodes}), "lons": sorted({n["requested"][1] for n in nodes}),
+               "nodes": nodes}
+    (out_dir / "climatology.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
+    return {
+        "product": "CAMS European air quality reanalysis (ensemble, surface): hourly means by calendar month, local time",
+        "years": years, "timezone": "Europe/Rome", "step_degrees": 0.1, "nodes": len(nodes), "vars": VARS,
+        "who_daily_guideline": WHO_DAILY, "file": "air/climatology.json",
+        "source": source_note,
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "caveat": "A ~11 km model grid: regional background, not the street. Means over the years listed, not any particular day.",
+    }
+
+
+def write_tiles(tiles, years, wanted, result, source_note):
+    """The old command line: build straight into each tile's folder."""
     for tile in tiles:
-        nodes = []
-        for (lat, lon) in nodes_for(tile):
-            k = index[(lat, lon)]
-            entry = {"lat": lat, "lon": lon, "requested": [lat, lon]}
-            for var in VARS:
-                r = result[var]
-                with np.errstate(invalid="ignore"):
-                    mean = np.where(r["n"][k] > 0, r["sum"][k] / r["n"][k], np.nan)
-                daily = np.concatenate([d[:, k] for d in r["daily"]])
-                daily = daily[np.isfinite(daily)]
-                entry[var] = {
-                    "by_month_hour": [[None if np.isnan(x) else round(float(x), 1) for x in row] for row in mean],
-                    "annual_mean": round(float(np.nanmean(mean)), 1),
-                    "days_over_who": round(float((daily > WHO_DAILY[var]).mean()), 3) if len(daily) else None,
-                }
-            nodes.append(entry)
-        out_dir = tile.path / "air"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        payload = {"step": 0.1, "timezone": "Europe/Rome", "years": years, "vars": VARS,
-                   "lats": sorted({n["requested"][0] for n in nodes}), "lons": sorted({n["requested"][1] for n in nodes}),
-                   "nodes": nodes}
-        (out_dir / "climatology.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
-        write_meta(tile, "air", {
-            "product": "CAMS European air quality reanalysis (ensemble, surface): hourly means by calendar month, local time",
-            "years": years, "timezone": "Europe/Rome", "step_degrees": 0.1, "nodes": len(nodes), "vars": VARS,
-            "who_daily_guideline": WHO_DAILY, "file": "air/climatology.json",
-            "source": source_note,
-            "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "caveat": "A ~11 km model grid: regional background, not the street. Means over the years listed, not any particular day.",
-        })
+        write_meta(tile, "air", build_tile(tile, tile.path / "air", years, wanted, result, source_note))
         log.info("wrote %s", tile.id)
 
 

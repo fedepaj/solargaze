@@ -69,6 +69,15 @@ def preview(u: np.ndarray, v: np.ndarray, solid: np.ndarray) -> np.ndarray:
 def main(tile_id: str, fields: bool = False) -> None:
     tile = Tile.parse(tile_id)
     out = tile.path / "wind"
+    out.mkdir(parents=True, exist_ok=True)
+    info = build(tile, out, fields)
+    write_meta(tile, "wind", info)
+    log.info("done in %.0f s -> %s", info["runtime_seconds"], out)
+
+
+def build(tile: Tile, out: Path, fields: bool = False) -> dict:
+    """The building mask (and, with fields, the sixteen solved directions)
+    into out/; returns the meta entry. Writes nothing else."""
     t_start = time.time()
 
     heights, binfo = buildings.build(tile, GRID_N, out)
@@ -125,8 +134,7 @@ def main(tile_id: str, fields: bool = False) -> None:
         ],
         **binfo,
     }
-    write_meta(tile, "wind", info)
-    log.info("done in %.0f s -> %s", runtime, out)
+    return info
 
 
 if __name__ == "__main__":

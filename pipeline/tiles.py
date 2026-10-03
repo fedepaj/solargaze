@@ -70,15 +70,25 @@ def read_meta(tile: Tile) -> dict:
     return json.loads(p.read_text())
 
 
-def write_meta(tile: Tile, product: str, info: dict) -> None:
-    """Record a product under the tile, and refresh the top-level index."""
+def _atomic(path: Path, text: str) -> None:
+    """Readers see the old file or the new one, never half of either."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
+def write_meta(tile: Tile | str, product: str, info: dict, refresh: bool = True) -> None:
+    """Record a product under the tile, and (unless told not to — the runner
+    refreshes once per run, not once per tile) refresh the top-level index."""
+    tile = Tile.parse(tile) if isinstance(tile, str) else tile
     tile.path.mkdir(parents=True, exist_ok=True)
     meta = read_meta(tile)
     meta["id"] = tile.id
     meta["bounds"] = list(tile.bounds)
     meta.setdefault("products", {})[product] = info
-    (tile.path / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
-    refresh_index()
+    _atomic(tile.path / "meta.json", json.dumps(meta, indent=2) + "\n")
+    if refresh:
+        refresh_index()
 
 
 def refresh_index() -> None:
@@ -88,7 +98,7 @@ def refresh_index() -> None:
         m = json.loads(p.read_text())
         tiles.append({"id": m["id"], "bounds": m["bounds"], "products": sorted(m.get("products", {}))})
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (DATA_DIR / "index.json").write_text(json.dumps({"step": STEP, "tiles": tiles}, indent=2) + "\n")
+    _atomic(DATA_DIR / "index.json", json.dumps({"step": STEP, "tiles": tiles}, indent=2) + "\n")
 
 
 if __name__ == "__main__":

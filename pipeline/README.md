@@ -18,6 +18,29 @@ cd pipeline
 .venv/bin/python wind/run.py N41.75E12.25      # see wind/README.md
 ```
 
+## Running it: `python -m sg`
+
+The products run through one framework, built to be left alone for months
+(design and rules in [ARCHITECTURE.md](ARCHITECTURE.md)): every tile is built
+in staging, validated, swapped in atomically, recorded, and published as soon
+as it is done; failures are classified (transient, no data, upstream, bug)
+and retried or not accordingly; every run writes structured JSON logs, a
+summary and a digest of failures grouped by cause, locally under
+`cache/logs/` and to the private R2 bucket `solargaze-ops`, with the state.
+
+```bash
+cd pipeline
+.venv/bin/python -m sg doctor                       # storage, credentials, DNS, R2, modules
+.venv/bin/python -m sg plan lazio --only-land       # what would be done, and why
+.venv/bin/python -m sg run lazio --only-land --hours 5
+.venv/bin/python -m sg status                       # done / empty / failed, failures by cause
+.venv/bin/python -m sg sync                         # state both ways with the bucket
+.venv/bin/python -m unittest discover -s tests      # the framework's own tests
+```
+
+The per-product scripts below still work on their own, and hold the science;
+the framework wraps them.
+
 ## The tiles
 
 `tiles.py` is the authority: quarter-degree squares keyed by their south-west
