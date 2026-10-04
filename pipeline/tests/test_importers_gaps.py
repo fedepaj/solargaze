@@ -90,3 +90,22 @@ class PublishedMD5(unittest.TestCase):
         for status, text in ((200, ""), (200, "<html>busy</html>"), (503, "")):
             with self.subTest(status=status, text=text), self.assertRaises(errors.Transient):
                 self._with(status, text)
+
+
+class MirrorChecksum(unittest.TestCase):
+    """Geofabrik serves Germany from a mirror, with the MD5 beside it there."""
+
+    def test_the_checksum_is_found_beside_the_mirrored_file(self):
+        from unittest import mock
+        from sg import regions
+
+        def get(url, timeout=None, **kw):
+            ok = url == "https://mirror/germany-latest.osm.pbf.md5"
+            r = mock.Mock(status_code=200 if ok else 404, text="0123456789abcdef0123456789abcdef  g.osm.pbf\n" if ok else "")
+            r.raise_for_status = mock.Mock()
+            return r
+        head = mock.Mock(status_code=307, headers={"location": "https://mirror/germany-latest.osm.pbf"})
+        with mock.patch.object(regions.requests, "get", side_effect=get), \
+                mock.patch.object(regions.requests, "head", return_value=head):
+            self.assertEqual(regions._checksum_for("https://geofabrik/europe/germany-latest.osm.pbf"),
+                             "0123456789abcdef0123456789abcdef")

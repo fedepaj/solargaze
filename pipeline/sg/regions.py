@@ -51,9 +51,16 @@ def _get(url: str, dest: Path, log=None) -> None:
             if r.status_code == 404:
                 raise errors.Upstream(f"{url}: not found")
             r.raise_for_status()
+            want = r.headers.get("content-length")
+            n = 0
             with open(tmp, "wb") as f:
                 for chunk in r.iter_content(1 << 22):
                     f.write(chunk)
+                    n += len(chunk)
+        # A connection that closes early leaves a short file and no error.
+        if want is not None and int(want) != n:
+            tmp.unlink(missing_ok=True)
+            raise errors.Transient(f"{url}: {n} bytes of {want}")
         tmp.rename(dest)
     errors.retry(once, tries=6, base=20,
                  on_retry=lambda n, e, w: log and log.warn("retry", stage="download", attempt=n, wait=w, msg=str(e)[:200]))
@@ -76,6 +83,29 @@ def _published_md5(url: str) -> str:
     return parts[0]
 
 
+def _checksum_for(pbf_url: str, log=None) -> str | None:
+    """The extract's published MD5: beside it on Geofabrik, or — for the
+    big countries Geofabrik serves from a mirror (Germany redirects to
+    gwdg.de) — beside it on the mirror. None when neither has one; the
+    download is then checked for its length only, and the log says so."""
+    retry = dict(tries=6, base=15,
+                 on_retry=lambda n, e, w: log and log.warn("retry", stage="md5", attempt=n, wait=w, msg=str(e)[:200]))
+    try:
+        return errors.retry(lambda: _published_md5(pbf_url + ".md5"), **retry)
+    except errors.Upstream:
+        pass
+    head = errors.retry(lambda: requests.head(pbf_url, timeout=60, allow_redirects=False), tries=5, base=10)
+    where = head.headers.get("location")
+    if head.status_code in (301, 302, 303, 307, 308) and where:
+        try:
+            return errors.retry(lambda: _published_md5(where + ".md5"), **retry)
+        except errors.Upstream:
+            pass
+    if log:
+        log.warn("extract.no_checksum", msg=f"no MD5 published for {pbf_url}; checking its length only")
+    return None
+
+
 def fetch(path: str, geofabrik_dir: Path, log=None) -> tuple[Path, Path]:
     """The region's .osm.pbf, verified against Geofabrik's MD5, and its .poly.
     A download that does not match is deleted and fetched again; one that
@@ -85,9 +115,7 @@ def fetch(path: str, geofabrik_dir: Path, log=None) -> tuple[Path, Path]:
     pbf, poly = geofabrik_dir / f"{name}-latest.osm.pbf", geofabrik_dir / f"{name}.poly"
     if not poly.exists():
         _get(f"{GEOFABRIK}/{path}.poly", poly, log)
-    md5_url = f"{GEOFABRIK}/{path}-latest.osm.pbf.md5"
-    want = errors.retry(lambda: _published_md5(md5_url), tries=6, base=15,
-                        on_retry=lambda n, e, w: log and log.warn("retry", stage="md5", attempt=n, wait=w, msg=str(e)[:200]))
+    want = _checksum_for(f"{GEOFABRIK}/{path}-latest.osm.pbf", log)
     for attempt in (1, 2):
         if not pbf.exists():
             _get(f"{GEOFABRIK}/{path}-latest.osm.pbf", pbf, log)
@@ -95,7 +123,7 @@ def fetch(path: str, geofabrik_dir: Path, log=None) -> tuple[Path, Path]:
         with open(pbf, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 24), b""):
                 h.update(chunk)
-        if h.hexdigest() == want:
+        if want is None or h.hexdigest() == want:
             if log:
                 log.info("extract.verified", region=path, mb=round(pbf.stat().st_size / 1e6))
             return pbf, poly
