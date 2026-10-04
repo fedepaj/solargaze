@@ -113,6 +113,8 @@ def downsample(t: np.ndarray, k: int = DOWNSAMPLE) -> np.ndarray:
         return np.nanmean(blocks, axis=(1, 3))
 
 
+SCENE_WORKERS = int(os.environ.get("SG_SCENE_WORKERS", "8"))
+
 # Overviews: the 90 m month averaged 3 × 3 and 9 × 9 again, for the view
 # from far away. The app picks the level by how many tiles are on screen;
 # a whole region at 810 m is a few kilobytes a tile.
@@ -174,8 +176,15 @@ def build(tile: Tile, out_dir: Path) -> dict:
     by_month: dict[int, list[np.ndarray]] = {m: [] for m in range(1, 13)}
     t0 = time.time()
     failed = 0
-    for i, item in enumerate(sorted(items, key=lambda it: it.datetime)):
-        arr = cached_scene(item, tile, shape)
+    # Reading a scene is a few windowed requests to the archive and mostly
+    # waiting, so several go at once: a runner far from the archive spent
+    # ten minutes a tile reading them one by one.
+    from concurrent.futures import ThreadPoolExecutor
+    ordered = sorted(items, key=lambda it: it.datetime)
+    with ThreadPoolExecutor(SCENE_WORKERS) as pool:
+        arrays = pool.map(lambda it: cached_scene(it, tile, shape), ordered)
+        pairs = list(zip(ordered, arrays))
+    for i, (item, arr) in enumerate(pairs):
         if arr is None:
             failed += 1
             continue
