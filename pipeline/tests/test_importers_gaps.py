@@ -70,6 +70,15 @@ if __name__ == "__main__":
     unittest.main()
 
 
+    def test_the_agent_is_handed_only_station_gaps(self):
+        issue = lambda n, gap, pr=None, blocked=False: {"number": n, "gap": gap, "pr": pr, "blocked": blocked}
+        # The oldest open gap is a coverage one: pipeline code, not a source to find.
+        self.assertEqual(gaps.pick([issue(4, "coverage-wind"), issue(2, "stations-JP", pr=12),
+                                    issue(7, "stations-US")]), 7)
+        self.assertIsNone(gaps.pick([issue(4, "coverage-wind"), issue(9, "stations-MX", blocked=True),
+                                     issue(5, "")]))
+
+
 class PublishedMD5(unittest.TestCase):
     """The Germany job of the first European run died on an empty answer."""
 

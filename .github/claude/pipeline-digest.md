@@ -9,4 +9,7 @@ When you are done, post exactly one comment on issue #LOG, in Italian, starting 
   one was worked on tonight and with what result (a pull request to review, or why no
   source was found), and which are blocked waiting for a person;
 - what the next run will take on.
+Each job in the summary says the commit it ran at ("at <sha>"): before calling a failure
+open, read `git log --oneline <sha>..HEAD` — a fix may already be on main, and then say
+which commit fixed it and that the next run will show it.
 Numbers, not adjectives. Use `gh issue comment LOG --body-file <file>`.

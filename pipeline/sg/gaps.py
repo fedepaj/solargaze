@@ -160,9 +160,9 @@ def sync_issues(gaps: list[dict]) -> list[dict]:
             continue
         url = _gh("issue", "create", "--title", g["title"], "--label", LABEL, "--body", g["body"]).strip()
         created.append({"number": int(url.rsplit("/", 1)[-1]), "title": g["title"], "labels": [{"name": LABEL}],
-                        "createdAt": "9999"})   # newest: picked after any older open gap
+                        "body": g["body"], "createdAt": "9999"})   # newest: picked after any older open gap
     issues = json.loads(_gh("issue", "list", "--label", LABEL, "--state", "open", "--limit", "500",
-                            "--json", "number,title,labels,createdAt"))
+                            "--json", "number,title,labels,body,createdAt"))
     # GitHub's listing lags behind a creation by seconds: add what was just
     # opened rather than trust the list to have it already.
     listed = {i["number"] for i in issues}
@@ -172,12 +172,21 @@ def sync_issues(gaps: list[dict]) -> list[dict]:
         ref = f"#{i['number']}"
         i["pr"] = next((p["number"] for p in prs if ref in (p.get("body") or "") or ref in p["title"]), None)
         i["blocked"] = any(l["name"] == BLOCKED for l in i["labels"])
+        body = i.pop("body", "") or ""
+        i["gap"] = body.split("<!-- gap:", 1)[1].split(" -->", 1)[0] if "<!-- gap:" in body else ""
     return sorted(issues, key=lambda i: i["createdAt"])
 
 
+# The gaps the agent has a brief for (.github/claude/source-gap.md): finding
+# a country's stations. Coverage and upstream gaps are pipeline code, not a
+# source to find, and wait for a person.
+AGENT_KINDS = ("stations-",)
+
+
 def pick(issues: list[dict]) -> int | None:
-    """The oldest open gap with no pull request and not marked blocked."""
+    """The oldest open gap the agent can work: one of AGENT_KINDS, with no
+    pull request and not marked blocked."""
     for i in issues:
-        if not i["pr"] and not i["blocked"]:
+        if i.get("gap", "").startswith(AGENT_KINDS) and not i["pr"] and not i["blocked"]:
             return i["number"]
     return None
