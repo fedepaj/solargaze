@@ -1,0 +1,32 @@
+[
+ {
+  "id": 38,
+  "name": "CC0 1.0",
+  "commercialUseAllowed": true,
+  "attributionRequired": false,
+  "shareAlikeRequired": false,
+  "modificationAllowed": true,
+  "redistributionAllowed": true,
+  "sourceUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.ca"
+ },
+ {
+  "id": 39,
+  "name": "政府標準利用規約（第2.0版） (Government Standard Terms of Use v2.0)",
+  "commercialUseAllowed": true,
+  "attributionRequired": true,
+  "shareAlikeRequired": false,
+  "modificationAllowed": true,
+  "redistributionAllowed": true,
+  "sourceUrl": "https://www.env.go.jp/kanbo/koho/opendata.html"
+ },
+ {
+  "id": 41,
+  "name": "CC BY 4.0",
+  "commercialUseAllowed": true,
+  "attributionRequired": true,
+  "shareAlikeRequired": false,
+  "modificationAllowed": true,
+  "redistributionAllowed": true,
+  "sourceUrl": "https://creativecommons.org/licenses/by/4.0/"
+ }
+]
