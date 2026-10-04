@@ -114,9 +114,9 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    name: build ${{ matrix.name }}
+    name: ${{ matrix.support && 'pieces' || 'build' }} ${{ matrix.name }}
     steps:
-      - name: No Overpass on runners (border tiles wait for both extracts)
+      - name: No Overpass on runners (border tiles are finished from the neighbours' pieces)
         run: echo "SG_NO_OVERPASS=1" >> "$GITHUB_ENV"
       - name: Make room (the extract and its index want tens of GB)
         run: |
@@ -130,7 +130,8 @@ jobs:
         working-directory: pipeline
         run: |
           python -m sg run --region "${{ matrix.region }}" --products "$PRODUCTS" \
-            --hours "$HOURS" --min-free-gb 4 --name "gha-${{ github.run_id }}-${{ matrix.name }}"
+            --hours "$HOURS" --min-free-gb 4 --name "gha-${{ github.run_id }}-${{ matrix.name }}" \
+            ${{ matrix.support && '--pieces-only' || '' }}
       - name: Keep the log with the run as well
         if: always()
         uses: actions/upload-artifact@v7

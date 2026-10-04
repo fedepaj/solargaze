@@ -2,6 +2,17 @@ You are filling a gap in the SolarGaze tile pipeline: issue #GAP. Read the issue
 pipeline/ARCHITECTURE.md and pipeline/importers/__init__.py (the importer contract and the
 common schema), and pipeline/importers/eea.py as the example to follow.
 
+This is one unattended session with no later turn: when you stop, the job ends and
+whatever is not pushed is lost. So:
+- never run a command in the background, and never end your turn to wait for one —
+  everything runs in the foreground and finishes before you go on;
+- you have about 45 minutes in all: run the importer on a sample (one state or region,
+  a few hundred stations, one year) rather than the whole country, and say in the pull
+  request how large the sample was — the pipeline runs the full import later;
+- if time or turns run short, push what you have as a draft pull request
+  (`gh pr create --draft`) saying what is done and what is left, and comment on the
+  issue with its link. A draft with honest notes is worth more than lost work.
+
 0. OpenAQ (api.openaq.org/v3, header X-API-Key from $OPENAQ_API_KEY) aggregates many
    national networks and records, per provider, whether redistribution is allowed:
    check it first, and say what it has for this country and under which licence.

@@ -183,6 +183,12 @@ def _run_body(args, run, state, box) -> int:
                 run.info("extract.indexed", msg="index already holds this extract")
             else:
                 osm_extract.index_extracts([str(pbf)])
+        if remote:
+            done = _border(args, run, remote, poly)
+            if args.pieces_only:
+                return done
+    elif args.pieces_only:
+        raise SystemExit("--pieces-only needs --region")
     tiles = select_tiles(args)
     jobs = plan(products_of(args), tiles, state, run.context["git"])
     if args.limit:
@@ -199,6 +205,47 @@ def _run_body(args, run, state, box) -> int:
         run.error("systemic", msg=str(exc))
         run.systemic = str(exc)
         return 2
+
+
+def others_shape(path: str):
+    """The union of the boundaries of every other region of the scope this
+    region belongs to or neighbours: catalogue and neighbours alike."""
+    from shapely.ops import unary_union
+    from . import regions
+    import osm_extract
+    scope = next(k for k, v in regions.SCOPES.items() if path in v + regions.NEIGHBOURS.get(k, []))
+    others = [r for r in regions.SCOPES[scope] + regions.NEIGHBOURS.get(scope, []) if r != path]
+    return unary_union([osm_extract.read_poly(region_poly(r)) for r in others])
+
+
+def _border(args, run, remote, poly) -> int:
+    """Leave this region's pieces of every tile it shares with another
+    region; pick up the neighbours' pieces of the tiles it cannot cover
+    alone. A failure here costs the border tiles, never the run — except in
+    a pieces-only run, where the pieces are the whole point.
+
+    The two sets differ: a tile can be wholly inside this region's boundary
+    and still be a border tile for a neighbour whose boundary overlaps it
+    (Geofabrik's boundaries overlap along borders), so the pieces left are
+    those of every tile another boundary reaches into."""
+    from shapely.geometry import box
+    from . import border, regions
+    name = regions.name_of(args.region)
+    try:
+        with run.step("border", region=args.region):
+            tiles = regions.tiles_of(poly)
+            others = others_shape(args.region)
+            shared = [t for t in tiles if others.intersects(tb := box(*Tile.parse(t).bounds))
+                      and not others.touches(tb)]
+            border.leave(remote, name, poly, shared, run)
+            if not args.pieces_only:
+                border.gather(remote, name, border.border_tiles(tiles), run)
+        return 0
+    except Exception as exc:  # noqa: BLE001 — classified and logged; the border tiles wait
+        run.error("border.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
+        if args.pieces_only:
+            raise
+        return 0
 
 
 def cmd_status(args) -> int:
@@ -272,10 +319,17 @@ def cmd_matrix(args) -> int:
             continue
         n = len(plan(products, tiles, state, git_sha()))
         if n:
-            rows.append({"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": n})
+            rows.append({"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": n,
+                         "support": False})
     # The catalogue's order is the priority: where people live first, so that
     # a week of runs has covered the cities rather than the tundra.
     chosen = rows[:args.max]
+    # Neighbours whose border pieces are missing or old go first: they take
+    # minutes, and the builds after them find their pieces.
+    if chosen:
+        support = _stale_neighbours(args.scope)
+        rows = support + rows
+        chosen = support + chosen
     out = json.dumps({"include": chosen})
     print(out)
     gh = os.environ.get("GITHUB_OUTPUT")
@@ -283,8 +337,28 @@ def cmd_matrix(args) -> int:
         with open(gh, "a") as f:
             f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
     for r in rows:
-        print(f"  {r['region']:38} {r['tiles']:5} tiles {r['jobs']:6} jobs", file=sys.stderr)
+        what = "pieces only" if r["support"] else f"{r['tiles']:5} tiles {r['jobs']:6} jobs"
+        print(f"  {r['region']:38} {what}", file=sys.stderr)
     return 0
+
+
+def _stale_neighbours(scope: str) -> list[dict]:
+    from . import border, regions
+    from .remote import Remote
+    remote = Remote.maybe(DATA_DIR, STATE)
+    if not remote:
+        return []
+    out = []
+    for path in regions.NEIGHBOURS.get(scope, []):
+        name = regions.name_of(path)
+        try:
+            age = border.pieces_age_days(remote, name)
+        except Exception as exc:  # noqa: BLE001 — a neighbour skipped tonight is retried tomorrow
+            print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
+            continue
+        if age >= border.REFRESH_DAYS:
+            out.append({"region": path, "name": name, "tiles": 0, "jobs": 0, "support": True})
+    return out
 
 
 def cmd_report(args) -> int:
@@ -481,6 +555,8 @@ def main(argv=None) -> int:
     p.add_argument("--no-publish", action="store_true", help="build locally, publish nothing")
     p.add_argument("--no-pull", action="store_true", help="do not refresh the state from R2 first")
     p.add_argument("--reindex", action="store_true", help="index the region's extract even if the index holds it")
+    p.add_argument("--pieces-only", action="store_true",
+                   help="with --region: leave its pieces of the scope's border tiles on the bucket, build nothing")
     p = sub.add_parser("status", help="where things stand")
     p.add_argument("--products")
     sub.add_parser("adopt", help="record tiles built before the framework")

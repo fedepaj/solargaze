@@ -5,8 +5,8 @@ same lines the extracts are: download and verify the extract, index it,
 build its tiles.
 
 A tile across a national border is covered by neither country's extract on
-its own; its OSM-based products fall back to Overpass (wind) or are
-recorded as upstream failures until a run with both extracts comes by.
+its own: it is finished from the pieces each side leaves on the bucket
+(``border.py``), and stays an upstream failure until both sides have.
 """
 
 from __future__ import annotations
@@ -36,6 +36,16 @@ EUROPE = [f"europe/{c}" for c in (
     "luxembourg", "montenegro", "malta", "cyprus", "iceland",
 )]
 SCOPES = {"europe": EUROPE, "italy": ["europe/italy"]}
+
+# Regions outside a scope whose land reaches into its border tiles. They run
+# with --pieces-only: index, leave their pieces of those tiles, build nothing.
+# Chosen by overlaying Geofabrik's boundaries: with these, every border tile
+# of Europe is covered (1512 tiles, 369 of which need one of them).
+NEIGHBOURS = {
+    "europe": ["russia/northwestern-fed-district", "europe/ukraine", "europe/belarus", "europe/turkey",
+               "russia/kaliningrad", "europe/kosovo", "africa/morocco", "europe/andorra", "europe/liechtenstein",
+               "europe/isle-of-man", "europe/guernsey-jersey"],
+}
 
 
 def name_of(path: str) -> str:
@@ -144,7 +154,10 @@ def tiles_of(poly_path: Path) -> list[str]:
     for la in range(math.floor(s / STEP), math.floor(n / STEP) + 1):
         for lo in range(math.floor(w / STEP), math.floor(e / STEP) + 1):
             t = Tile(la * STEP, lo * STEP)
-            if not shape.intersects(box(*t.bounds)):
+            tb = box(*t.bounds)
+            # Touching the boundary along an edge or at a corner is not having
+            # any of the tile: the neighbour that has all of it builds it.
+            if not shape.intersects(tb) or shape.touches(tb):
                 continue
             tw, ts, te, tn = t.bounds
             pts = [t.centre, (ts + .02, tw + .02), (ts + .02, te - .02), (tn - .02, tw + .02), (tn - .02, te - .02)]

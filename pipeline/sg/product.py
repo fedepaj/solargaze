@@ -62,6 +62,10 @@ class Product:
         if rec.status == FAILED:
             if rec.kind == errors.BUG and rec.git == git:
                 return None   # same code, same bug
+            if rec.sig.startswith("NotCovered"):
+                # Waiting for a neighbour's pieces, which may come any night;
+                # asking again costs nothing, so it is never given up on.
+                return "retry: border tile, waiting for a neighbour's pieces"
             if rec.attempts >= self.max_attempts and rec.git == git:
                 return None
             return f"retry {rec.kind or 'failure'} (attempt {rec.attempts + 1})"

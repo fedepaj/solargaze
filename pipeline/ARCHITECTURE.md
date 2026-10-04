@@ -106,3 +106,17 @@ writes the work list; a matrix of workers each takes a shard, processes it
 within its time budget, publishes, and writes state and logs back; a final
 job merges the summaries and opens or updates an issue when something
 systemic broke. The same commands run on a laptop.
+
+## Border tiles
+
+A worker holds one Geofabrik region's extract, so a tile across a border has
+only part of its buildings and roads there and fails as `NotCovered`
+(per-tile: it never stops the run, and it is retried every run, never given
+up on). After indexing, each region leaves its *piece* of every border tile
+on the private bucket (`border/`, refreshed monthly) and picks up its
+neighbours' pieces; a tile whose land they cover together is merged and
+built like any other. Regions outside the catalogue whose land reaches into
+it — Ukraine, Belarus, Turkey, Russia's north-west, Kaliningrad, Kosovo,
+Morocco and a few microstates — run with `--pieces-only`: they leave pieces
+and build nothing. With them every border tile of Europe can be closed
+(`sg/border.py`, `regions.NEIGHBOURS`).

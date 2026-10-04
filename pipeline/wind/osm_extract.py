@@ -16,6 +16,12 @@ them at once. They are downloaded by hand into ``pipeline/cache/geofabrik/``
 from https://download.geofabrik.de/europe/italy/ (ODbL, © OpenStreetMap
 contributors); the ``.poly`` boundary of each is fetched next to it.
 
+A runner has the disk for one country, so a tile across a border is
+finished with *pieces*: the part of the tile another region's extract holds,
+which that region's run left on the bucket (``sg/border.py``). Pieces are
+merged into the tile's files and their boundaries recorded in the manifest
+for that tile only — they say nothing about the land of any other tile.
+
 An extract is cut along its region's boundary, so a tile across the edge of
 what was indexed — Lazio into Abruzzo, Liguria into France — holds only part
 of its buildings. The boundaries are what decides: a tile counts as covered
@@ -199,13 +205,26 @@ def read_poly(path: Path):
     return shape.difference(unary_union(holes)) if holes else shape
 
 
+def _manifest() -> dict:
+    return json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
+
+
 @functools.cache
 def coverage():
     """Union of the boundaries of every indexed extract, or None."""
-    if not MANIFEST.exists():
-        return None
-    extracts = json.loads(MANIFEST.read_text())["extracts"]
+    extracts = _manifest().get("extracts", [])
     return unary_union([read_poly(GEOFABRIK / e["poly"]) for e in extracts]) if extracts else None
+
+
+@functools.cache
+def piece_cover() -> dict:
+    """Tile id → the part of that tile the merged pieces of other regions
+    cover: each piece's boundary cut to its own tile."""
+    out = {}
+    for tid, regions in _manifest().get("pieces", {}).items():
+        tbox = box(*Tile.parse(tid).bounds)
+        out[tid] = unary_union([read_poly(GEOFABRIK / f"{r}.poly") for r in regions]).intersection(tbox)
+    return out
 
 
 def covered(tile: Tile) -> bool:
@@ -220,15 +239,24 @@ def covered_box(bounds) -> bool:
     cov = coverage()
     if cov is None:
         return False
-    rest = box(*bounds).difference(cov)
+    want = box(*bounds)
+    extra = [shape for tid, shape in piece_cover().items() if shape.intersects(want)]
+    if extra:
+        cov = unary_union([cov, *extra])
+    return land_outside(want, cov) == 0
+
+
+def land_outside(shape, cov) -> int:
+    """How many probe points of land in shape lie outside cov."""
+    rest = shape.difference(cov)
     if rest.is_empty:
-        return True
+        return 0
     from global_land_mask import globe
     w, s, e, n = rest.bounds
     lon, lat = np.meshgrid(np.arange(w, e + PROBE_STEP, PROBE_STEP), np.arange(s, n + PROBE_STEP, PROBE_STEP))
     inside = shapely.contains_xy(rest, lon, lat)
     lat, lon = np.clip(lat[inside], -90, 90), lon[inside]
-    return not (lat.size and globe.is_land(lat, lon).any())
+    return int(globe.is_land(lat, lon).sum()) if lat.size else 0
 
 
 # ---------------------------------------------------------------- index and read
@@ -253,13 +281,33 @@ def index_extracts(args: list[str]) -> None:
         sink.flush()
         roads.flush()
         log.info("%s: %d buildings, %d road ways in %.0f s", pbf.name, h.count, h.road_count, time.time() - t0)
-    MANIFEST.write_text(json.dumps({
+    MANIFEST.write_text(json.dumps({   # a fresh index has no pieces: they are merged after
         "extracts": [{"name": n, "pbf": p.name, "poly": q.name,
                       "pbf_modified": time.strftime("%Y-%m-%d", time.gmtime(p.stat().st_mtime))}
                      for n, p, q in zip(names, pbfs, polys)],
     }, indent=2) + "\n")
     coverage.cache_clear()
+    piece_cover.cache_clear()
     log.info("%d tiles indexed", len(list(OUT.glob("*.jsonl"))))
+
+
+def merge_piece(tile_id: str, region: str, buildings: list[str], roads: list[str]) -> None:
+    """Append another region's part of a tile to its files and record it, so
+    that the tile counts as covered as far as that region's boundary goes
+    (whose .poly must be in GEOFABRIK). Merging the same region's piece again
+    rewrites nothing: a tile file holds each region's piece once."""
+    manifest = _manifest()
+    pieces = manifest.setdefault("pieces", {})
+    if region in pieces.get(tile_id, []):
+        return
+    (OUT / "roads").mkdir(parents=True, exist_ok=True)
+    for path, lines in ((OUT / f"{tile_id}.jsonl", buildings), (OUT / "roads" / f"{tile_id}.jsonl", roads)):
+        if lines:
+            with open(path, "a") as f:
+                f.writelines(line if line.endswith("\n") else line + "\n" for line in lines)
+    pieces.setdefault(tile_id, []).append(region)
+    MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
+    piece_cover.cache_clear()
 
 
 def _read_jsonl(p: Path) -> list[dict]:
