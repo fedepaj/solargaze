@@ -35,6 +35,7 @@ on:
       products: { description: 'products', default: 'wind,heat' }
       hours: { description: 'build budget per region, hours', default: '4.5' }
       gap_scope: { description: 'countries whose gaps to track (pipeline/sg/gaps.py)', default: 'next' }
+      gaps_only: { description: 'skip the build: only scan the gaps and let the agent work on one', type: boolean, default: false }
 
 # One pipeline run at a time: the state is shared, and two runs on the same
 # tiles would only race each other.
@@ -89,6 +90,9 @@ jobs:
         working-directory: pipeline
         run: |
           python -m sg sync
+          if [ "${{ inputs.gaps_only }}" = "true" ]; then
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"; echo "any=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           python -m sg matrix --scope "$SCOPE" --max "$MAX" --products "$PRODUCTS"
 
   build:
@@ -255,9 +259,12 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           prompt: ${{ steps.prompt.outputs.text }}
+          # The whole transcript in the job log: a gap the agent gave up on
+          # should say why, and the repository is public anyway.
+          show_full_output: true
           claude_args: >-
-            --max-turns 90
-            --allowedTools "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,Bash(gh issue:*),Bash(gh pr:*),Bash(git:*),Bash(python:*),Bash(cd:*),Bash(curl:*),Bash(ls:*),Bash(head:*),Bash(mkdir:*)"
+            --max-turns 120
+            --allowedTools "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,Bash(gh issue:*),Bash(gh pr:*),Bash(gh api:*),Bash(git:*),Bash(python:*),Bash(python3:*),Bash(pip:*),Bash(cd:*),Bash(curl:*),Bash(ls:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(wc:*),Bash(find:*),Bash(grep:*),Bash(jq:*),Bash(mkdir:*),Bash(unzip:*),Bash(gunzip:*),Bash(file:*)"
 
   triage:
     needs: [plan, report, gaps]
