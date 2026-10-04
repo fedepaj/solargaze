@@ -60,6 +60,8 @@ def atomic_write(path: Path, text: str) -> None:
 class State:
     def __init__(self, root: Path):
         self.root = root
+        # What this process recorded, for the run's delta file on the bucket.
+        self.touched: set[tuple[str, str]] = set()
 
     def path(self, product: str, tile: str) -> Path:
         return self.root / product / f"{tile}.json"
@@ -77,7 +79,28 @@ class State:
     def put(self, rec: Record) -> Path:
         p = self.path(rec.product, rec.tile)
         atomic_write(p, json.dumps(asdict(rec), indent=1) + "\n")
+        self.touched.add((rec.product, rec.tile))
         return p
+
+    def put_raw(self, rec: dict) -> None:
+        """A record from elsewhere (the bucket), written as it is and not
+        counted as this process's own."""
+        atomic_write(self.path(rec["product"], rec["tile"]), json.dumps(rec, indent=1) + "\n")
+
+    def raw(self, product: str, tile: str) -> dict | None:
+        p = self.path(product, tile)
+        try:
+            return json.loads(p.read_text()) if p.exists() else None
+        except ValueError:
+            return None
+
+    def every(self):
+        """Every local record, as dicts."""
+        for p in self.root.glob("*/*.json"):
+            try:
+                yield json.loads(p.read_text())
+            except ValueError:
+                continue
 
     def record(self, tile: str, product: str, status: str, *, version: int, run: str = "", git: str = "",
                seconds: float = 0.0, kind: str = "", sig: str = "", msg: str = "", inputs: dict | None = None) -> Record:

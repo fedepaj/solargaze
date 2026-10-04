@@ -175,6 +175,9 @@ jobs:
           python -m sg report "gha-${{ github.run_id }}" --out ../report.md
           echo "code=$?" >> "$GITHUB_OUTPUT"
           cat ../report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Fold the night's state into the base (its only writer)
+        working-directory: pipeline
+        run: python -m sg sync --compact || echo "compaction failed; the deltas stay and are read as they are"
       - name: Post to the run log (GitHub emails the mention)
         id: log
         env:

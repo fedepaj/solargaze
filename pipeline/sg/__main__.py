@@ -145,13 +145,13 @@ def cmd_run(args) -> int:
                     run.error("index.failed", sig=errors.signature(exc), msg=str(exc)[:300])
                     code = code or 1
                 if remote:
-                    # Done tiles sent their records as they went; failed and
-                    # empty ones are sent here, so the next runner neither
-                    # rebuilds a tile that has nothing nor loses count of the
-                    # attempts on one that keeps failing.
+                    # Every record this run made — done, empty or failed — in
+                    # its delta file, so the next runner neither rebuilds a
+                    # tile that has nothing nor loses count of the attempts on
+                    # one that keeps failing.
                     try:
                         with run.step("state.push"):
-                            run.info("state.pushed", records=remote.push_state())
+                            run.info("state.pushed", records=remote.push_delta(run.id, state))
                     except Exception as exc:  # noqa: BLE001
                         run.error("state.push.failed", sig=errors.signature(exc), msg=str(exc)[:300])
                         code = code or 1
@@ -172,7 +172,7 @@ def _run_body(args, run, state, box) -> int:
     box["remote"] = remote
     if remote and not args.no_pull:
         with run.step("state.pull"):
-            run.info("state.pulled", records=remote.pull_state())
+            run.info("state.pulled", records=remote.pull_state(state))
     if args.region:
         from . import regions
         import osm_extract
@@ -191,7 +191,8 @@ def _run_body(args, run, state, box) -> int:
     ctx = Context(DATA_DIR, CACHE, run=run, before_tile=remote.pull_meta if remote else None)
     try:
         counts = execute(jobs, ctx, state, run, budget=Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb),
-                         publish=remote.publish if remote else None)
+                         publish=remote.publish if remote else None,
+                         checkpoint=(lambda: remote.push_delta(run.id, state)) if remote else None)
         run.info("counts", **counts)
         return 0
     except Systemic as exc:
@@ -240,15 +241,19 @@ def cmd_adopt(args) -> int:
 
 
 def cmd_sync(args) -> int:
-    """State both ways: what the bucket has that this machine does not, then
-    what this machine has (adopted tiles, a run without --publish) that the
-    bucket does not."""
+    """State both ways: what the bucket has newer than this machine, then
+    what this machine has newer (adopted tiles, a run without --publish).
+    With --compact, then fold the bucket's deltas into its base — the report
+    job's last step, the base's only writer."""
     from .remote import Remote
     r = Remote.maybe(DATA_DIR, STATE)
     if not r:
         print("no R2 credentials")
         return 1
-    print(f"pulled {r.pull_state()} record(s), pushed {r.push_state()}")
+    state = State(STATE)
+    print(f"pulled {r.pull_state(state)} record(s), pushed {r.push_state(state)}")
+    if args.compact:
+        print("compacted:", r.compact())
     return 0
 
 
@@ -479,7 +484,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("status", help="where things stand")
     p.add_argument("--products")
     sub.add_parser("adopt", help="record tiles built before the framework")
-    sub.add_parser("sync", help="state both ways between this machine and the bucket")
+    p = sub.add_parser("sync", help="state both ways between this machine and the bucket")
+    p.add_argument("--compact", action="store_true", help="then fold the bucket's deltas into its base")
     p = sub.add_parser("matrix", help="the regions with most work, as a GitHub Actions matrix")
     p.add_argument("--scope", default="europe")
     p.add_argument("--max", type=int, default=8)

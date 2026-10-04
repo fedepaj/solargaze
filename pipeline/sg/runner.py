@@ -99,7 +99,8 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
             publish: Callable[[list[Path]], None] | None = None,
             write_meta: Callable = None,
             tries: int = 3, retry_base: float = 10.0,
-            breaker: int = 8, sleep: Callable[[float], None] = time.sleep) -> dict:
+            breaker: int = 8, sleep: Callable[[float], None] = time.sleep,
+            checkpoint: Callable[[], None] | None = None, every: int = 20) -> dict:
     """Do the jobs. Returns counts by status. Raises Systemic when the run
     itself has to stop for a reason that is not one tile's."""
     budget = budget or Budget()
@@ -117,6 +118,32 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
         by_product.setdefault(job.product.name, []).append(job)
     run.info("plan", jobs=len(jobs), by_product={k: len(v) for k, v in by_product.items()})
 
+    last_saved = 0
+
+    def maybe_checkpoint(force: bool = False) -> None:
+        # The run's records reach the bucket every few tiles, not only at the
+        # end: a runner that is killed loses a handful, not a night's worth.
+        nonlocal last_saved
+        n = counts[DONE] + counts[EMPTY] + counts[FAILED]
+        if checkpoint and n != last_saved and (force or n - last_saved >= every):
+            try:
+                checkpoint()
+                last_saved = n
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:  # noqa: BLE001 — the records are on disk; the next checkpoint retries
+                run.warn("checkpoint.failed", sig=errors.signature(exc), msg=str(exc)[:200])
+
+    try:
+        _execute_groups(by_product, ctx, state, run, budget, publish, write_meta, git, tries, retry_base,
+                        breaker, sleep, counts, recent, maybe_checkpoint)
+    finally:
+        maybe_checkpoint(force=True)
+    return counts
+
+
+def _execute_groups(by_product, ctx, state, run, budget, publish, write_meta, git, tries, retry_base,
+                    breaker, sleep, counts, recent, maybe_checkpoint):
     with _Stop():
         for name, group in by_product.items():
             product = group[0].product
@@ -180,6 +207,7 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
                     run.outcome(job.tile, name, "skipped", reason=f"waiting for {', '.join(waiting)}")
                     continue
                 status, exc = _one(job, ctx, state, run, publish, write_meta, git, tries, retry_base, sleep, counts)
+                maybe_checkpoint()
                 if status == FAILED:
                     # A retry has nothing fresh behind it to protect, and a
                     # cause that belongs to the tile (a border no extract
@@ -191,7 +219,6 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
                     recent.clear()
                 if len(recent) == breaker and len(set(recent)) == 1:
                     raise Systemic(f"the last {breaker} tiles all failed with: {recent[0]}")
-    return counts
 
 
 def _one(job, ctx, state, run, publish, write_meta, git, tries, retry_base, sleep, counts):
