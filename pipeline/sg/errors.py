@@ -28,6 +28,7 @@ TRANSIENT, NODATA, UPSTREAM, BUG = "transient", "nodata", "upstream", "bug"
 
 class PipelineError(Exception):
     kind = BUG
+    per_tile = False   # True: says something about this tile only, never about the run
 
 
 class Transient(PipelineError):
@@ -40,6 +41,14 @@ class NoData(PipelineError):
 
 class Upstream(PipelineError):
     kind = UPSTREAM
+
+
+class NotCovered(Upstream):
+    """This tile lacks an input that other tiles have — a border tile no
+    single extract covers. A property of the tile, however many of them come
+    in a row (a whole mountain range of border tiles does), so it never
+    counts as evidence that the run itself is broken."""
+    per_tile = True
 
 
 class Invalid(PipelineError):

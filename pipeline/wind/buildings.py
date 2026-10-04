@@ -150,8 +150,8 @@ def fetch_buildings(tile: Tile) -> list[dict]:
         # On a runner a border tile would spend most of the night in
         # Overpass's queue; it waits instead for a run that holds the
         # neighbouring country's extract too.
-        from sg.errors import Upstream
-        raise Upstream(f"{tile.id} is not wholly inside the indexed extracts (it needs a neighbouring "
+        from sg.errors import NotCovered
+        raise NotCovered(f"{tile.id} is not wholly inside the indexed extracts (it needs a neighbouring "
                        "region's extract); Overpass is off on runners")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     elements = fetch_bbox(tile.bounds)

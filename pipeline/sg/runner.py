@@ -181,9 +181,11 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
                     continue
                 status, exc = _one(job, ctx, state, run, publish, write_meta, git, tries, retry_base, sleep, counts)
                 if status == FAILED:
-                    # A retry has nothing fresh behind it to protect; only
-                    # first attempts say the cause is not the tile.
-                    if not job.reason.startswith("retry"):
+                    # A retry has nothing fresh behind it to protect, and a
+                    # cause that belongs to the tile (a border no extract
+                    # covers) says nothing about the run: only first attempts
+                    # failing for a run-wide reason feed the breaker.
+                    if not job.reason.startswith("retry") and not getattr(exc, "per_tile", False):
                         recent.append(errors.signature(exc))
                 elif status == DONE:
                     recent.clear()

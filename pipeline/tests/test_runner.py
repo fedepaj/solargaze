@@ -42,6 +42,8 @@ class Scripted(Product):
             raise errors.NoData("open sea")
         if act == "upstream":
             raise errors.Upstream("not wholly inside the indexed extracts")
+        if act == "border":
+            raise errors.NotCovered(f"{tile} is not wholly inside the indexed extracts")
         if act == "bug":
             raise ZeroDivisionError("division by zero")
         (stage / "months.png").write_bytes(b"png" if act != "invalid" else b"")
@@ -112,6 +114,13 @@ class RunnerTest(unittest.TestCase):
         counts, _ = self.go(Scripted(script), tiles=border + fresh, breaker=3)
         self.assertEqual(counts[DONE], 6)
         self.assertEqual(counts[FAILED], 3)
+
+    def test_a_mountain_range_of_border_tiles_is_not_systemic(self):
+        border = [f"N46.{i}0E7.00" for i in range(10)]      # first attempts, all in a row
+        fresh = [f"N40.{i}0E12.00" for i in range(3)]
+        counts, _ = self.go(Scripted({t: "border" for t in border}), tiles=border + fresh, breaker=4)
+        self.assertEqual((counts[FAILED], counts[DONE]), (10, 3))
+        self.assertEqual(self.state.get("heat", border[0]).kind, errors.UPSTREAM)
 
     def test_out_of_time_skips_without_recording(self):
         counts, _ = self.go(Scripted({}), budget=Budget(seconds=30))

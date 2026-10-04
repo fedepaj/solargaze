@@ -102,12 +102,18 @@ def failure_gaps(state_root: Path, min_tiles: int = 3) -> list[dict]:
         except ValueError:
             continue
         if r.get("status") == "failed" and r.get("kind") == "upstream":
-            groups[(r["product"], r.get("sig", ""))].append(r["tile"])
+            sig = r.get("sig", "")
+            if "not wholly inside the indexed extracts" in sig:
+                sig = "NotCovered: <tile> is not wholly inside the indexed extracts (needs a neighbouring region's extract)"
+            groups[(r["product"], sig)].append(r["tile"])
     out = []
     for (product, sig), tiles in groups.items():
         if len(tiles) < min_tiles:
             continue
-        gid = f"upstream-{product}-{hashlib.md5(sig.encode()).hexdigest()[:8]}"
+        # Coverage has one name whatever the message says, so that a change
+        # of wording or class does not open the same gap twice.
+        gid = (f"coverage-{product}" if "not wholly inside the indexed extracts" in sig
+               else f"upstream-{product}-{hashlib.md5(sig.encode()).hexdigest()[:8]}")
         out.append({
             "id": gid,
             "title": f"Gap: {product} — {sig[:70]}",

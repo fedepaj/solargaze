@@ -137,7 +137,8 @@ def osm_layers(win: Window) -> dict[str, np.ndarray]:
     # What matters is the land this window sees, not the tiles it borrows
     # from: a station in Trieste is covered though its tile runs into Slovenia.
     if not osm_extract.covered_box(win.lonlat_bounds()):
-        raise MissingData(f"the window {tuple(round(v, 3) for v in win.lonlat_bounds())} runs outside the indexed extracts")
+        from sg.errors import NotCovered
+        raise NotCovered(f"the window {tuple(round(v, 3) for v in win.lonlat_bounds())} runs outside the indexed extracts")
     for tid in _tiles(win.lonlat_bounds()):
         r, b = _osm(tid)
         if r is None or b is None:
