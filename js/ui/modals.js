@@ -594,7 +594,22 @@ function openHelp() {
     <p>Sun geometry is good to well under a tenth of a degree. What limits the result is the mesh: Google's tiles are photogrammetry, so trees, awnings and thin structures are approximate, and shading baked into the imagery is not removed. Treat it as a very good study, not a survey.</p>
 
     <h3>CREDITS</h3>
-    <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Weather, heat, air quality and wind by <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0; air quality from Copernicus CAMS). Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
+    <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
+
+    <h3>DATA SOURCES</h3>
+    <p>The heat, air and wind tiles are derived from these sources. They are our processing, not the
+       providers' products, and none of the providers endorses them.</p>
+    <ul class="sources">
+      <li><b>Weather, and the air on a given day</b>: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0), with air quality from the Copernicus Atmosphere Monitoring Service.</li>
+      <li><b>Surface heat</b>: Landsat 8–9 Collection 2 Level-2, courtesy of the <a href="https://www.usgs.gov/landsat-missions" target="_blank" rel="noopener">U.S. Geological Survey</a> (public domain), read through Microsoft Planetary Computer.</li>
+      <li><b>Air, background</b>: generated using Copernicus Atmosphere Monitoring Service information, 2020–2024 (<a href="https://atmosphere.copernicus.eu" target="_blank" rel="noopener">CAMS</a>, Copernicus licence). Neither the European Commission nor ECMWF is responsible for any use of it.</li>
+      <li><b>Air, monitoring stations</b>: Europe from the <a href="https://www.eea.europa.eu/en/datahub" target="_blank" rel="noopener">European Environment Agency</a> (free re-use with attribution). Japan from the Ministry of the Environment's <a href="https://soramame.env.go.jp/" target="_blank" rel="noopener">Atmospheric Environmental Regional Observation System (Soramame)</a>, prefectural and municipal governments and NIES, through <a href="https://openaq.org" target="_blank" rel="noopener">OpenAQ</a>, under the Government of Japan Standard Terms of Use 2.0.</li>
+      <li><b>Buildings and roads</b> (wind and street-scale air): © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL, from <a href="https://download.geofabrik.de" target="_blank" rel="noopener">Geofabrik</a> extracts.</li>
+      <li><b>Land cover and terrain</b> (street-scale air): ESA WorldCover 2021 (© ESA WorldCover project, CC-BY 4.0) and Copernicus DEM GLO-30 (© DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA).</li>
+    </ul>
+    <p>If you hold rights to any of these data and want them used differently, credited differently
+       or removed, <a href="https://github.com/fedepaj/solargaze/issues" target="_blank" rel="noopener">open an issue</a>
+       and we will act on it.</p>
   `, wireHelp);
 }
 

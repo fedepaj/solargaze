@@ -491,6 +491,7 @@ button,input,select,.tab{touch-action:manipulation}
 .sheet p{margin:0 0 12px;font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.78)}
 .sheet a{color:var(--accent)}
 .sheet ol,.sheet ul{margin:0 0 12px;padding-left:20px;font-size:13.5px;line-height:1.7;color:rgba(255,255,255,.78)}
+.sheet ul.sources li{margin-bottom:6px}
 .sheet code{
   background:rgba(255,255,255,.09);padding:1px 6px;border-radius:5px;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
