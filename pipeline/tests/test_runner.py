@@ -40,6 +40,8 @@ class Scripted(Product):
             raise RuntimeError("HTTPSConnectionPool: Max retries exceeded (Could not resolve host)")
         if act == "nodata":
             raise errors.NoData("open sea")
+        if act == "upstream":
+            raise errors.Upstream("not wholly inside the indexed extracts")
         if act == "bug":
             raise ZeroDivisionError("division by zero")
         (stage / "months.png").write_bytes(b"png" if act != "invalid" else b"")
@@ -101,6 +103,15 @@ class RunnerTest(unittest.TestCase):
         tiles = [f"N4{i}.00E12.00" for i in range(8)]
         with self.assertRaises(Systemic):
             self.go(Scripted({t: "bug" for t in tiles}), tiles=tiles, breaker=4)
+
+    def test_tiles_that_keep_failing_do_not_starve_the_fresh_ones(self):
+        border = [f"N43.{i}0E7.00" for i in range(3)]
+        fresh = [f"N40.{i}0E12.00" for i in range(6)]
+        script = {t: "upstream" for t in border}
+        self.go(Scripted(script), tiles=border)           # first night: all fail
+        counts, _ = self.go(Scripted(script), tiles=border + fresh, breaker=3)
+        self.assertEqual(counts[DONE], 6)
+        self.assertEqual(counts[FAILED], 3)
 
     def test_out_of_time_skips_without_recording(self):
         counts, _ = self.go(Scripted({}), budget=Budget(seconds=30))

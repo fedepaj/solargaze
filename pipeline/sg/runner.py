@@ -56,14 +56,19 @@ class Job:
 
 def plan(products: list[Product], tiles: Iterable[str], state: State, git: str) -> list[Job]:
     """Every (tile, product) that needs work, products in the order given
-    (dependencies first), tiles in the order given within each."""
+    (dependencies first), tiles in the order given within each — except that
+    tiles being retried after a failure go last: a few that can never succeed
+    (a border tile no single extract covers) must not trip the breaker ahead
+    of the fresh tiles and starve them night after night."""
     tiles = list(tiles)
     jobs = []
     for product in products:
+        fresh, retries = [], []
         for tile in tiles:
             why = product.reason(tile, state.get(product.name, tile), git=git)
             if why:
-                jobs.append(Job(tile, product, why))
+                (retries if why.startswith("retry") else fresh).append(Job(tile, product, why))
+        jobs += fresh + retries
     return jobs
 
 
@@ -176,7 +181,10 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
                     continue
                 status, exc = _one(job, ctx, state, run, publish, write_meta, git, tries, retry_base, sleep, counts)
                 if status == FAILED:
-                    recent.append(errors.signature(exc))
+                    # A retry has nothing fresh behind it to protect; only
+                    # first attempts say the cause is not the tile.
+                    if not job.reason.startswith("retry"):
+                        recent.append(errors.signature(exc))
                 elif status == DONE:
                     recent.clear()
                 if len(recent) == breaker and len(set(recent)) == 1:
