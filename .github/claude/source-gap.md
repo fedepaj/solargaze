@@ -2,6 +2,10 @@ You are filling a gap in the SolarGaze tile pipeline: issue #GAP. Read the issue
 pipeline/ARCHITECTURE.md and pipeline/importers/__init__.py (the importer contract and the
 common schema), and pipeline/importers/eea.py as the example to follow.
 
+0. OpenAQ (api.openaq.org/v3, header X-API-Key from $OPENAQ_API_KEY) aggregates many
+   national networks and records, per provider, whether redistribution is allowed:
+   check it first, and say what it has for this country and under which licence.
+
 1. Find where the data actually are. Search the web for the national or regional
    monitoring network (environment ministry, national institute, open-data portal) or an
    aggregator that has it; read its documentation and terms. Prefer a source with an

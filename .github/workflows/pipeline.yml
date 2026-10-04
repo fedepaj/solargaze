@@ -255,6 +255,9 @@ jobs:
         if: steps.gaps.outputs.pick != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          # Free and read-only: the agent needs it to see what OpenAQ holds
+          # for a country and under which licence each provider shares it.
+          OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
