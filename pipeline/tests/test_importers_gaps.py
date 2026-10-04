@@ -68,3 +68,25 @@ class Gaps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublishedMD5(unittest.TestCase):
+    """The Germany job of the first European run died on an empty answer."""
+
+    def _with(self, status, text):
+        from unittest import mock
+        from sg import regions, errors
+        resp = mock.Mock(status_code=status, text=text)
+        resp.raise_for_status = mock.Mock()
+        with mock.patch.object(regions.requests, "get", return_value=resp):
+            return regions._published_md5("https://example/x.md5")
+
+    def test_a_checksum_is_read(self):
+        self.assertEqual(self._with(200, "0123456789abcdef0123456789abcdef  germany-latest.osm.pbf\n"),
+                         "0123456789abcdef0123456789abcdef")
+
+    def test_an_empty_or_odd_answer_is_transient(self):
+        from sg import errors
+        for status, text in ((200, ""), (200, "<html>busy</html>"), (503, "")):
+            with self.subTest(status=status, text=text), self.assertRaises(errors.Transient):
+                self._with(status, text)

@@ -59,6 +59,23 @@ def _get(url: str, dest: Path, log=None) -> None:
                  on_retry=lambda n, e, w: log and log.warn("retry", stage="download", attempt=n, wait=w, msg=str(e)[:200]))
 
 
+def _published_md5(url: str) -> str:
+    """Geofabrik's checksum for an extract. An answer that is not one — an
+    empty body, an error page from a busy server — is transient: asked again,
+    never taken for a checksum."""
+    import re
+    r = requests.get(url, timeout=60)
+    if r.status_code in (429, 500, 502, 503, 504):
+        raise errors.Transient(f"{url}: HTTP {r.status_code}")
+    if r.status_code == 404:
+        raise errors.Upstream(f"{url}: not found")
+    r.raise_for_status()
+    parts = r.text.split()
+    if not parts or not re.fullmatch(r"[0-9a-f]{32}", parts[0]):
+        raise errors.Transient(f"{url}: no MD5 in the answer ({r.text[:60]!r})")
+    return parts[0]
+
+
 def fetch(path: str, geofabrik_dir: Path, log=None) -> tuple[Path, Path]:
     """The region's .osm.pbf, verified against Geofabrik's MD5, and its .poly.
     A download that does not match is deleted and fetched again; one that
@@ -69,7 +86,8 @@ def fetch(path: str, geofabrik_dir: Path, log=None) -> tuple[Path, Path]:
     if not poly.exists():
         _get(f"{GEOFABRIK}/{path}.poly", poly, log)
     md5_url = f"{GEOFABRIK}/{path}-latest.osm.pbf.md5"
-    want = errors.retry(lambda: requests.get(md5_url, timeout=60).text.split()[0], tries=5, base=10)
+    want = errors.retry(lambda: _published_md5(md5_url), tries=6, base=15,
+                        on_retry=lambda n, e, w: log and log.warn("retry", stage="md5", attempt=n, wait=w, msg=str(e)[:200]))
     for attempt in (1, 2):
         if not pbf.exists():
             _get(f"{GEOFABRIK}/{path}-latest.osm.pbf", pbf, log)
