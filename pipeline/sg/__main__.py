@@ -395,7 +395,8 @@ def cmd_report(args) -> int:
     """Merge the summaries of every run whose name starts with a prefix (the
     jobs of one workflow run), print them as Markdown, and say whether a
     human should look: exit 3 when a run stopped as systemic, or when more
-    than a fifth of the jobs failed."""
+    than a fifth of the jobs failed — border tiles waiting for a neighbour's
+    pieces left out of both counts, since they fail by design until it comes."""
     from .remote import Remote
     r = Remote.maybe(DATA_DIR, STATE)
     summaries = []
@@ -415,7 +416,7 @@ def cmd_report(args) -> int:
             Path(args.out).write_text(text)
         return 3
     from .log import Run
-    total, failed, systemic = Counter(), Counter(), []
+    total, systemic, waiting = Counter(), [], 0
     lines = [f"## Pipeline run `{args.prefix}`", ""]
     for s_ in sorted(summaries, key=lambda x: x["run"]):
         lines.append(Run.markdown(None, s_))
@@ -423,10 +424,14 @@ def cmd_report(args) -> int:
             total.update({k: v for k, v in c.items()})
         if s_.get("systemic"):
             systemic.append(s_["run"])
+        waiting += sum(f["count"] for f in s_.get("failures", []) if f["signature"].startswith("NotCovered"))
     jobs = sum(v for k, v in total.items() if k != "skipped")
-    alert = bool(systemic) or (jobs and total.get("failed", 0) / jobs > 0.2)
+    failed = total.get("failed", 0) - waiting
+    alert = bool(systemic) or (jobs - waiting > 0 and failed / (jobs - waiting) > 0.2)
     head = (f"**{jobs} jobs**: {total.get('done', 0)} done, {total.get('empty', 0)} empty, "
-            f"{total.get('failed', 0)} failed, {total.get('skipped', 0)} left for the next run.")
+            f"{total.get('failed', 0)} failed" + (f" ({waiting} of them border tiles waiting for a neighbour)"
+                                                  if waiting else "") +
+            f", {total.get('skipped', 0)} left for the next run.")
     if systemic:
         head += f" Stopped as systemic: {', '.join(systemic)}."
     lines.insert(2, head + "\n")
