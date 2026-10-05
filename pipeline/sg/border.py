@@ -13,6 +13,7 @@ until that neighbour's run has come by.
     border/polys/<region>.poly            the region's boundary
     border/regions/<region>.json          when its pieces were left, and for which tiles
     border/tiles/<tile>/<region>.jsonl.gz "b <building line>" / "r <road line>"
+    border/gathered/<region>.json         when it last picked up its neighbours' pieces
 
 Regions outside the build catalogue but bordering it (Ukraine, Turkey,
 Russia's north-west …) run with ``--pieces-only``: they leave their pieces
@@ -148,8 +149,37 @@ def gather(remote, name: str, tiles: list[str], log=None) -> dict:
                 b, r = split_piece(raw)
                 osm_extract.merge_piece(tile, region, b, r)
             merged[tile] = sorted(raws)
+    remote._call(lambda: remote.s3.put_object(Bucket=remote.ops, Key=f"{PREFIX}gathered/{name}.json", Body=json.dumps(
+        {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "covered": len(merged)}).encode()))
     if log:
         waiting = sorted(set(tiles) - set(merged))
         log.info("border.gathered", region=name, covered=len(merged), waiting=len(waiting),
                  sample=waiting[:10])
     return merged
+
+
+def waiting_tiles(state, product: str = "wind") -> set[str]:
+    """Tiles failed as NotCovered: border tiles waiting for a neighbour.
+    Every product on them waits with them, since all depend on the mask."""
+    return {t for t, r in state.all(product).items() if r.status == "failed" and r.sig.startswith("NotCovered")}
+
+
+def stamps(remote) -> tuple[dict, dict]:
+    """When each region last left its pieces, and last gathered its
+    neighbours': two dicts of region name → ISO time."""
+    out = ({}, {})
+    for i, sub in enumerate(("regions/", "gathered/")):
+        for page in remote.s3.get_paginator("list_objects_v2").paginate(Bucket=remote.ops, Prefix=PREFIX + sub):
+            for o in page.get("Contents", []):
+                meta = remote._get_json(remote.ops, o["Key"]) or {}
+                if meta.get("at"):
+                    out[i][o["Key"].rsplit("/", 1)[-1].removesuffix(".json")] = meta["at"]
+    return out
+
+
+def ripe(name: str, neighbours: list[str], left: dict, gathered: dict) -> bool:
+    """Has a neighbour left pieces since this region last gathered? Only
+    then can a run of a region whose sole work is waiting border tiles
+    close any of them."""
+    since = gathered.get(name, "")
+    return any(left.get(n, "") > since for n in neighbours)

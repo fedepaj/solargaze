@@ -308,21 +308,32 @@ def cmd_matrix(args) -> int:
     """The regions with the most work, as a GitHub Actions matrix."""
     from . import regions
     from .log import git_sha
+    from . import border
     state = State(STATE)
     products = products_of(args)
-    rows = []
+    waiting = border.waiting_tiles(state)
+    rows, idle = [], []
     for path in regions.SCOPES[args.scope]:
         try:
             tiles = regions.tiles_of(region_poly(path))
         except Exception as exc:  # noqa: BLE001 — one region's boundary is one region
             print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
             continue
-        n = len(plan(products, tiles, state, git_sha()))
-        if n:
-            rows.append({"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": n,
-                         "support": False})
+        jobs = plan(products, tiles, state, git_sha())
+        row = {"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": len(jobs),
+               "support": False, "real": sum(j.tile not in waiting for j in jobs)}
+        if row["real"]:
+            rows.append(row)
+        elif jobs:
+            idle.append(row)
     # The catalogue's order is the priority: where people live first, so that
-    # a week of runs has covered the cities rather than the tundra.
+    # a week of runs has covered the cities rather than the tundra. A region
+    # whose only work is border tiles waiting for a neighbour comes after,
+    # and only once a neighbour has left pieces since it last looked —
+    # otherwise the first six would hold their slots for ever on tiles that
+    # wait for the seventh.
+    if idle:
+        rows += _ripe(idle, args.scope)
     chosen = rows[:args.max]
     # Neighbours whose border pieces are missing or old go first: they take
     # minutes, and the builds after them find their pieces.
@@ -337,9 +348,28 @@ def cmd_matrix(args) -> int:
         with open(gh, "a") as f:
             f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
     for r in rows:
-        what = "pieces only" if r["support"] else f"{r['tiles']:5} tiles {r['jobs']:6} jobs"
+        what = "pieces only" if r["support"] else f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting)"
         print(f"  {r['region']:38} {what}", file=sys.stderr)
     return 0
+
+
+def _ripe(idle: list[dict], scope: str) -> list[dict]:
+    from . import border, regions
+    from .remote import Remote
+    import osm_extract
+    remote = Remote.maybe(DATA_DIR, STATE)
+    if not remote:
+        return []
+    left, gathered = border.stamps(remote)
+    paths = regions.SCOPES[scope] + regions.NEIGHBOURS.get(scope, [])
+    shapes = {p: osm_extract.read_poly(region_poly(p)) for p in paths}
+    out = []
+    for row in idle:
+        me = shapes[row["region"]]
+        near = [regions.name_of(p) for p, sh in shapes.items() if p != row["region"] and sh.intersects(me)]
+        if border.ripe(row["name"], near, left, gathered):
+            out.append(row)
+    return out
 
 
 def _stale_neighbours(scope: str) -> list[dict]:

@@ -122,6 +122,20 @@ class Border(unittest.TestCase):
         self.assertNotIn(TILE, regions.tiles_of(path))
         self.assertIn("N45.00E6.75", regions.tiles_of(path))
 
+    def test_a_region_waiting_on_its_border_runs_only_when_a_neighbour_has_news(self):
+        left = {"france": "2026-10-05T07:30:00+00:00", "ireland-and-northern-ireland": ""}
+        self.assertTrue(border.ripe("united-kingdom", ["france"], left, {"united-kingdom": "2026-10-05T07:22:55+00:00"}))
+        self.assertFalse(border.ripe("united-kingdom", ["france"], left, {"united-kingdom": "2026-10-06T07:00:00+00:00"}))
+        self.assertFalse(border.ripe("united-kingdom", ["ireland-and-northern-ireland"], left, {}))
+        self.assertTrue(border.ripe("italy", ["france"], left, {}))   # never gathered
+
+    def test_waiting_tiles_are_the_ones_failed_for_coverage(self):
+        from sg.state import State
+        st = State(self.tmp / "state")
+        st.record(TILE, "wind", FAILED, version=1, kind="upstream", sig="NotCovered: <tile> is not wholly inside")
+        st.record("N45.00E7.25", "wind", FAILED, version=1, kind="upstream", sig="Upstream: <url> not found")
+        self.assertEqual(border.waiting_tiles(st), {TILE})
+
     def test_a_border_tile_is_never_given_up_on(self):
         p = Product()
         p.max_attempts = 3
