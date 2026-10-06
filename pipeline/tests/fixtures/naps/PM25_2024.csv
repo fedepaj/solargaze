@@ -1,0 +1,16 @@
+File generated on // Fichier créé sur, 2026-06-19
+
+Pollutant // Polluant:, PM2.5
+Units // Unités, µg/m3
+Note // Note,Data is hour ending local standard time // Données en heure normale locale
+Note // Note,Zeros are valid. -999 denotes no data available // Zéros sont valides .-999 Données non disponibles
+
+Pollutant//Polluant,Method Code//Code Méthode,NAPS ID//Identifiant SNPA,City//Ville,Province/Territory//Province/Territoire,Latitude//Latitude,Longitude//Longitude,Date//Date,H01//H01,H02//H02,H03//H03,H04//H04,H05//H05,H06//H06,H07//H07,H08//H08,H09//H09,H10//H10,H11//H11,H12//H12,H13//H13,H14//H14,H15//H15,H16//H16,H17//H17,H18//H18,H19//H19,H20//H20,H21//H21,H22//H22,H23//H23,H24//H24
+PM2.5,636,010102,St. John's,NL,47.56038,-52.71147,2024-03-08,5,5,5,5,5,5,4,5,5,5,5,6,6,5,6,5,4,4,4,4,3,3,4,5
+PM2.5,636,010102,St. John's,NL,47.56038,-52.71147,2024-03-09,5,6,6,7,7,8,9,11,12,15,16,15,14,14,15,14,12,12,12,13,13,12,9,8
+PM2.5,636,010102,St. John's,NL,47.56038,-52.71147,2024-03-10,8,6,6,5,5,5,5,5,5,6,6,6,6,5,5,5,5,6,5,5,5,5,5,6
+PM2.5,636,010102,St. John's,NL,47.56038,-52.71147,2024-03-11,6,4,4,5,6,8,9,8,9,11,10,11,11,10,12,14,16,18,17,17,17,19,18,17
+PM2.5,636,060450,Brampton,ON,43.66957,-79.76567,2024-03-08,4,4,7,7,7,7,4,4,4,4,4,4,4,4,4,4,4,3,3,3,3,3,3,4
+PM2.5,636,060450,Brampton,ON,43.66957,-79.76567,2024-03-09,5,5,6,5,4,5,4,2,1,1,1,1,1,1,2,2,1,1,2,2,2,2,1,1
+PM2.5,636,060450,Brampton,ON,43.66957,-79.76567,2024-03-10,1,1,1,2,1,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,1
+PM2.5,636,060450,Brampton,ON,43.66957,-79.76567,2024-03-11,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,1,1,2,2,3,5,7,8
