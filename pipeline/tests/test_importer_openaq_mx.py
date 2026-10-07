@@ -57,5 +57,18 @@ class OpenAQMexico(unittest.TestCase):
         self.assertIsInstance(importers.importer_for("MX"), OpenAQ)
 
 
+class Dedupe(unittest.TestCase):
+    def test_a_monitor_two_providers_relay_counts_once(self):
+        import pandas as pd
+        from importers.openaq import dedupe
+        df = pd.DataFrame([
+            {"point": "sinaica-o3", "var": "ozone", "lat": 19.4326, "lon": -99.1332, "capture": 0.55},
+            {"point": "airnow-o3", "var": "ozone", "lat": 19.4330, "lon": -99.1335, "capture": 0.62},   # ~50 m away
+            {"point": "airnow-pm", "var": "pm2_5", "lat": 19.4330, "lon": -99.1335, "capture": 0.40},   # another gas
+            {"point": "far-o3", "var": "ozone", "lat": 19.4500, "lon": -99.1332, "capture": 0.30},      # ~2 km away
+        ])
+        self.assertEqual(sorted(dedupe(df)["point"]), ["airnow-o3", "airnow-pm", "far-o3"])
+
+
 if __name__ == "__main__":
     unittest.main()

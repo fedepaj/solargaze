@@ -241,4 +241,32 @@ class OpenAQ(Importer):
                     log.info("  %d/%d locations", i, len(futures))
         if not rows:
             raise NoData(f"{country}: no OpenAQ location with usable data in {years[0]}–{years[-1]}")
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        kept = dedupe(df)
+        if len(kept) < len(df):
+            log.info("%s: %d points that another provider relays dropped as duplicates", country, len(df) - len(kept))
+        return kept
+
+
+DUPLICATE_M = 200   # two providers' points of one gas this close are one monitor
+
+
+def dedupe(df: pd.DataFrame, metres: float = DUPLICATE_M) -> pd.DataFrame:
+    """One point per monitor and gas. OpenAQ can carry the same monitor from
+    two providers (Mexico's SINAICA stations, relayed by AirNow too); fitted
+    twice, it would count twice. Of points of the same gas within `metres`,
+    the one with the best capture is kept."""
+    keep = []
+    for _, group in df.groupby("var", sort=False):
+        group = group.sort_values("capture", ascending=False)
+        lat, lon = np.radians(group["lat"].to_numpy()), np.radians(group["lon"].to_numpy())
+        taken: list[int] = []
+        for i in range(len(group)):
+            if taken:
+                j = np.array(taken)
+                dlat, dlon = lat[j] - lat[i], (lon[j] - lon[i]) * np.cos(lat[i])
+                if (6_371_000 * np.hypot(dlat, dlon) < metres).any():
+                    continue
+            taken.append(i)
+        keep += list(group.index[taken])
+    return df.loc[sorted(keep)].reset_index(drop=True)
