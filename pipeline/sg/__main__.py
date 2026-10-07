@@ -94,7 +94,16 @@ def products_of(args):
     unknown = [n for n in names if n not in PRODUCTS]
     if unknown:
         sys.exit(f"unknown product(s): {', '.join(unknown)}; known: {', '.join(ORDER)}")
-    return [PRODUCTS[n] for n in ORDER if n in names]
+    out = []
+    for n in ORDER:
+        if n not in names:
+            continue
+        why = PRODUCTS[n].unavailable()
+        if why:
+            print(f"{n}: left out: {why}", file=sys.stderr)
+            continue
+        out.append(PRODUCTS[n])
+    return out
 
 
 # ---------------------------------------------------------------- commands

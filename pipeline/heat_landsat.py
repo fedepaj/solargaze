@@ -135,22 +135,25 @@ def stack_months(by_month: dict[int, np.ndarray], rows: int, cols: int) -> np.nd
     return out
 
 
-def write_packed(t90: dict[int, np.ndarray], out_dir: Path) -> dict:
-    """The 90 m months and their overviews, packed; returns the file map."""
+def write_packed(t90: dict[int, np.ndarray], out_dir: Path, subdir: str = "heat",
+                 t_min: float = T_MIN, t_step: float = T_STEP) -> dict:
+    """The 90 m months and their overviews, packed; returns the file map.
+    Other surface-temperature products (heat_ecostress.py) write the same
+    way under their own folder, with their own scale."""
     rows, cols = next(iter(t90.values())).shape
     files = {}
     for k in (1, *OVERVIEWS):
-        level = {m: np.asarray(encode(t if k == 1 else downsample(t, k))) for m, t in t90.items()}
+        level = {m: np.asarray(encode(t if k == 1 else downsample(t, k), t_min, t_step)) for m, t in t90.items()}
         r, c = next(iter(level.values())).shape
         name = "months" if k == 1 else f"months.o{k}"
         Image.fromarray(stack_months(level, r, c), "L").save(out_dir / f"{name}.png", optimize=True)
-        files[name] = f"heat/{name}.png"
+        files[name] = f"{subdir}/{name}.png"
     return files
 
 
-def encode(t: np.ndarray) -> Image.Image:
+def encode(t: np.ndarray, t_min: float = T_MIN, t_step: float = T_STEP) -> Image.Image:
     valid = np.isfinite(t)
-    byte = np.clip(np.round((t - T_MIN) / T_STEP) + 1, 1, 255)
+    byte = np.clip(np.round((t - t_min) / t_step) + 1, 1, 255)
     return Image.fromarray(np.where(valid, byte, 0).astype(np.uint8), "L")
 
 

@@ -30,5 +30,16 @@ class Catalog(unittest.TestCase):
                 seen.add((card["theme"], card["variant"]))
 
 
+
+class AppFallback(unittest.TestCase):
+    def test_the_apps_built_in_catalog_lists_every_product(self):
+        """The app shows its built-in copy until catalog.json arrives; a
+        product missing there would flicker in late, or never offline."""
+        import re
+        js = (Path(__file__).resolve().parents[2] / "js" / "atmo" / "catalog.js").read_text()
+        names = set(re.findall(r"\n    (\w+): \{\n", js))
+        self.assertEqual(names, set(catalog.catalog()["products"]))
+
+
 if __name__ == "__main__":
     unittest.main()

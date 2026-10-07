@@ -16,7 +16,7 @@ class Heat(Product):
     card = {
         "theme": "heat", "variant": "morning", "order": 10, "kind": "raster-months",
         "label": "Morning", "title": "Surface heat on clear mornings",
-        "when": "mornings", "resolution_m": 90,
+        "when": "mornings", "span_c": 6, "resolution_m": 90,
         "source": "Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer",
         "licence": "public domain",
         "note": "A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by "
@@ -24,6 +24,7 @@ class Heat(Product):
     }
     depends = ("wind",)
     min_buildings = 2000
+    plausible_c = (-20, 75)      # a month's median surface temperature, °C, on a clear morning
 
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:
         import heat_landsat
@@ -40,7 +41,8 @@ class Heat(Product):
             if not (stage / f"months.o{k}.png").exists():
                 raise Invalid(f"overview o{k} missing")
         medians = [m["tile_median_c"] for m in info["months"].values() if m.get("tile_median_c") is not None]
-        if not medians or not all(-20 < v < 75 for v in medians):
+        lo, hi = self.plausible_c
+        if not medians or not all(lo < v < hi for v in medians):
             raise Invalid(f"implausible monthly medians {medians}")
         if not np.asarray(months).any():
             raise Invalid("every pixel is no-data")

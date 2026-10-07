@@ -32,7 +32,7 @@ on:
     inputs:
       scope: { description: 'build scope (pipeline/sg/regions.py)', default: 'europe' }
       max: { description: 'regions in parallel', default: '6' }
-      products: { description: 'products', default: 'wind,heat' }
+      products: { description: 'products', default: 'wind,heat,heat_night' }
       hours: { description: 'build budget per region, hours', default: '4.5' }
       gap_scope: { description: 'countries whose gaps to track (pipeline/sg/gaps.py)', default: 'next' }
       gaps_only: { description: 'skip the build: only scan the gaps and let the agent work on one', type: boolean, default: false }
@@ -50,7 +50,7 @@ env:
   PYTHONUNBUFFERED: '1'
   SCOPE: ${{ inputs.scope || 'europe' }}
   MAX: ${{ inputs.max || '6' }}
-  PRODUCTS: ${{ inputs.products || 'wind,heat' }}
+  PRODUCTS: ${{ inputs.products || 'wind,heat,heat_night' }}
   HOURS: ${{ inputs.hours || '4.5' }}
   GAP_SCOPE: ${{ inputs.gap_scope || 'next' }}
 
@@ -68,6 +68,8 @@ jobs:
       # means the token is account-wide, and the run stops.
       R2_CANARY_BUCKET: solargaze-canary
       OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
+      # Whether night heat can run, without handing the plan job the credentials.
+      EARTHDATA_CONFIGURED: ${{ secrets.EARTHDATA_TOKEN != '' || secrets.EARTHDATA_PASSWORD != '' }}
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       any: ${{ steps.matrix.outputs.any }}
@@ -110,6 +112,10 @@ jobs:
       # means the token is account-wide, and the run stops.
       R2_CANARY_BUCKET: solargaze-canary
       OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
+      # Night heat (ECOSTRESS). Without them the product is skipped, never failed.
+      EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+      EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
     strategy:
       fail-fast: false
       max-parallel: 6

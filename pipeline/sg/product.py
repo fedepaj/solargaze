@@ -47,6 +47,13 @@ class Product:
     # reads and draws it, and the words and credits that go with it.
     card: dict = {}
 
+    def unavailable(self) -> str | None:
+        """Why this product cannot run here at all — a credential it needs is
+        not set — or None. Such a product is left out of the plan, not
+        planned and skipped tile by tile: its jobs would count as work no
+        run can do."""
+        return None
+
     # -- what to do -----------------------------------------------------------
 
     def reason(self, tile: str, rec: Record, *, git: str = "") -> str | None:

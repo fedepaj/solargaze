@@ -42,7 +42,7 @@ const ICONS = {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthName = mf => MONTHS[((Math.round(mf) % 12) + 12) % 12];
 
-/** Anomaly span of the surface-heat legend, °C either side of the tile median. */
+/** Anomaly span of a surface-heat legend, °C either side of the tile median, unless the card says (`span_c`). */
 const HEAT_SPAN = 6;
 
 /** A raster or the centre tile of a raster-set, for medians and meta. */
@@ -90,10 +90,15 @@ export const KINDS = {
   /** Twelve months of a raster, blended between months like the pixels are (Landsat, ECOSTRESS). */
   'raster-months': {
     field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, ctx.monthFrac),
-    /** An anomaly around the tile's median for the month: "hotter than the rest of the city" is the question. */
-    domain(s, ctx) {
+    /**
+     * An anomaly around the tile's median for the month: "hotter than the rest
+     * of the city" is the question. Nights spread less than mornings, so the
+     * card can narrow the span.
+     */
+    domain(s, ctx, card) {
       const med = blendedMedian(s, ctx.monthFrac);
-      return med === null ? null : [med - HEAT_SPAN, med + HEAT_SPAN];
+      const span = card?.span_c ?? HEAT_SPAN;
+      return med === null ? null : [med - span, med + span];
     },
     stops: () => heatStops(),
     legend: ([lo, hi]) => ({ lo: `${lo.toFixed(0)} °C`, hi: `${hi.toFixed(0)} °C` }),
@@ -146,7 +151,7 @@ function theme(spec) {
   return {
     ...spec,
     field: (s, lat, lon, t, ctx) => kindOf(ctx)?.field(s, lat, lon, t, ctx) ?? NaN,
-    domain: (s, ctx) => kindOf(ctx)?.domain(s, ctx) ?? null,
+    domain: (s, ctx) => kindOf(ctx)?.domain(s, ctx, cardOf(ctx.mode)) ?? null,
     stops: ctx => (kindOf(ctx) || KINDS[spec.defaultKind]).stops(ctx),
     legend: (domain, ctx) => (kindOf(ctx) || KINDS[spec.defaultKind]).legend(domain, ctx),
     reading: (s, lat, lon, t, ctx) => kindOf(ctx)?.reading(s, lat, lon, t, ctx, cardOf(ctx.mode)) ?? null,
