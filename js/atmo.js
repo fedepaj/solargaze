@@ -21,9 +21,10 @@ import { profile } from './device.js';
 import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED } from './atmo/field.js';
 import { rampLut } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
-import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround } from './atmo/tiles.js';
-import { SOURCES, resolveDate } from './atmo/sources.js';
-import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf } from './atmo/layers.js';
+import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, getCatalog } from './atmo/tiles.js';
+import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
+import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available } from './atmo/layers.js';
+import { setCatalog } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape } from './atmo/drape.js';
 import { createWind } from './atmo/wind.js';
@@ -73,6 +74,21 @@ export function initAtmo() {
 
   apply();
   scheduleFetch(true);
+
+  // The catalog the tiles were built with: new variants of a theme, new
+  // words. The built-in copy stands in until it lands, or if it never does.
+  getCatalog().then(cat => {
+    if (!setCatalog(cat)) return;
+    for (const id of registerTileSources()) {
+      atmo.series[id] = null;
+      atmo.status[id] = 'idle';
+      atmo.error[id] = '';
+    }
+    applyCatalog();
+    emit('catalog');
+    apply();
+    scheduleFetch(true);
+  }).catch(() => { /* the built-in catalog stays */ });
 }
 
 /* ── switches ──────────────────────────────────────────────────────── */
@@ -117,11 +133,11 @@ export const currentSource = layer => sourceOf(layer, state.prefs);
 
 /* ── what we need ──────────────────────────────────────────────────── */
 
-const enabledLayers = () => LAYERS.filter(l => isOn(l.id));
+const enabledLayers = () => LAYERS.filter(l => available(l) && isOn(l.id));
 
 /** Sources to have in hand: every enabled layer's, and every layer's while ANALYZE shows their numbers. */
 function neededSources() {
-  if (state.tab === 'analyze') return [...new Set(LAYERS.flatMap(l => [currentSource(l), ...(l.also || [])]))];
+  if (state.tab === 'analyze') return [...new Set(LAYERS.filter(available).flatMap(l => [currentSource(l), ...(l.also || [])]))];
   return [...new Set(enabledLayers().flatMap(l => [currentSource(l), ...(l.also || [])]))];
 }
 
@@ -131,7 +147,7 @@ const todayHere = () => {
 };
 
 /** Does any enabled layer want the view-driven raster set right now? */
-const needsView = () => enabledLayers().some(l => currentSource(l) === 'tile-heat') || state.tab === 'analyze';
+const needsView = () => enabledLayers().some(l => SOURCES[currentSource(l)]?.dataKind === 'raster-months') || state.tab === 'analyze';
 
 /**
  * The ground the camera sees, snapped to tile edges and never wider than a
@@ -155,7 +171,7 @@ function viewRect() {
 }
 
 function wantFor(source) {
-  if (source.kind === 'tile' && source.product === 'heat') {
+  if (source.kind === 'tile' && source.dataKind === 'raster-months') {
     const rect = viewRect();
     return { source, rect, lat: state.lat, lon: state.lon, key: `${source.id}|${levelFor(rect)}|${rect.join(',')}` };
   }
@@ -174,10 +190,10 @@ function fetchWant(want) {
   if (want.source.kind === 'tile') {
     // Rasters come as a mosaic of the tile and its neighbours, so a drape
     // does not end at a tile edge; the tables and the mask are per tile.
-    if (want.source.product === 'heat') return tileProductsInView(want.rect, want.lat, want.lon, 'heat');
+    if (want.source.dataKind === 'raster-months') return tileProductsInView(want.rect, want.lat, want.lon, want.source.product);
     // Street air reads the tile under the pin and its neighbours, each with
     // the CAMS table its ratios multiply.
-    if (want.source.product === 'air_street') return streetSetAround(want.lat, want.lon);
+    if (want.source.dataKind === 'street-air') return streetSetAround(want.lat, want.lon, want.source.product);
     return tileProduct(want.tileId, want.source.product);
   }
   return fetchSeries(want);
@@ -518,7 +534,7 @@ function apply() {
 export function readings() {
   const t = state.utc.getTime();
   const out = {};
-  for (const layer of LAYERS) {
+  for (const layer of LAYERS.filter(available)) {
     const series = atmo.series[currentSource(layer)];
     const ctx = contextFor(layer);
     const reading = series ? layer.reading(series, state.lat, state.lon, t, ctx) : null;

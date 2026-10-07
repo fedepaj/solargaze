@@ -15,6 +15,13 @@ YEARS = list(range(2020, 2025))
 
 class Air(Product):
     name, version, subdir = "air", 1, "air"
+    card = {
+        "kind": "climatology", "title": "CAMS air quality by month and hour", "resolution_m": 10000,
+        "source": "Copernicus Atmosphere Monitoring Service (CAMS) European reanalysis 2020–2024",
+        "licence": "Copernicus licence",
+        "note": "The five-year habit of the air for each month and hour, on CAMS's ~10 km grid; the street "
+                "layer is built on it.",
+    }
     depends = ("wind",)
     min_buildings = 2000
 

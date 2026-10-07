@@ -12,7 +12,9 @@ import {
 } from '../js/atmo/field.js';
 import { bandOf, rampLut, airStops, heatStops } from '../js/atmo/scales.js';
 import { SOURCES, resolveDate, lastYear, shiftDate } from '../js/atmo/sources.js';
-import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf } from '../js/atmo/layers.js';
+import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS } from '../js/atmo/layers.js';
+import { FALLBACK, setCatalog, variantsOf, KNOWN_KINDS } from '../js/atmo/catalog.js';
+import { registerTileSources } from '../js/atmo/sources.js';
 
 const W = SOURCES.weather;
 const A = SOURCES.air;
@@ -155,12 +157,51 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
     }
   }
   const temperature = LAYERS.find(l => l.id === 'temperature');
-  assert.equal(modeOf(temperature, {}), null);
+  assert.equal(modeOf(temperature, {}), 'heat');
   assert.equal(sourceOf(temperature, {}), 'tile-heat');
   assert.equal(sourceOf(LAYERS.find(l => l.id === 'air'), {}), 'tile-air-street');
   assert.equal(optionsOf(LAYERS.find(l => l.id === 'air'), null).fallback, 'nitrogen_dioxide');
   assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air']);
   assert.deepEqual(rivalsOf(LAYERS.find(l => l.id === 'wind')), []);
+});
+
+test('a theme takes its variants from the catalog, and only of kinds it can draw', () => {
+  const night = {
+    theme: 'heat', variant: 'night', order: 20, kind: 'raster-months', label: 'Night',
+    title: 'Surface heat at night', when: 'nights', resolution_m: 70, source: 'ECOSTRESS', licence: 'public domain', note: 'n',
+  };
+  const cat = { version: 1, products: { ...FALLBACK.products, heat_night: night,
+    noise: { theme: 'noise', variant: 'lden', kind: 'contours-3d', label: 'Lden', title: 't', note: 'n' } } };
+  try {
+    assert.ok(setCatalog(cat));
+    registerTileSources();
+    applyCatalog();
+    const heat = LAYERS.find(l => l.id === 'temperature');
+    assert.deepEqual(heat.modes.choices.map(c => [c.key, c.source]), [['heat', 'tile-heat'], ['heat_night', 'tile-heat-night']]);
+    assert.equal(modeOf(heat, { heatVariant: 'heat_night' }), 'heat_night');
+    assert.equal(modeOf(heat, { heatVariant: 'nonsense' }), 'heat');
+    assert.equal(SOURCES['tile-heat-night'].dataKind, 'raster-months');
+    // A kind this app cannot draw is left out, not drawn wrong.
+    assert.deepEqual(variantsOf('noise'), []);
+    assert.equal(SOURCES['tile-noise'], undefined);
+    // The night variant reads in nights.
+    const raster = { kind: 'raster', rows: 1, cols: 1, bounds: [0, 0, 1, 1], decode: b => b, decLut: null,
+      months: Object.fromEntries([...Array(12)].map((_, m) => [m, { values: Uint8Array.of(20), cols: 1, rows: 1 }])),
+      tileMedian: () => 18 };
+    const r = heat.reading(raster, 0.5, 0.5, 0, { mode: 'heat_night', monthFrac: 6.5 });
+    assert.match(r.sub, /nights$/);
+    // A catalog with no heat at all leaves the theme with nothing to show.
+    setCatalog({ version: 1, products: { air: FALLBACK.products.air, air_street: FALLBACK.products.air_street } });
+    applyCatalog();
+    assert.equal(available(heat), false);
+    assert.equal(available(LAYERS.find(l => l.id === 'air')), true);
+    // Not a catalog: ignored.
+    assert.equal(setCatalog({ version: 2, products: {} }), false);
+  } finally {
+    setCatalog(FALLBACK);
+    applyCatalog();
+  }
+  for (const kind of Object.keys(KINDS)) assert.ok(KNOWN_KINDS.has(kind), kind);
 });
 
 test('a climatology wraps December into January and 23:30 into midnight', () => {

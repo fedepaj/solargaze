@@ -1,13 +1,16 @@
 /**
  * The readings in the ANALYZE tab and the rail's Layers group, both
- * generated from the layer registry: a switch per layer, the number at the point, an option strip
- * where the layer has one, and a legend where it paints the ground. Nothing
- * in here knows what a layer *is*; add one to atmo/layers.js and it appears.
+ * generated from the layer registry: a switch per theme, the number at the
+ * point, a strip of variants where the catalog gives the theme more than
+ * one (morning, night …), an option strip where it has one, and a legend
+ * where it paints the ground. Nothing in here knows what a layer *is*; add
+ * one to atmo/layers.js, or a product to the pipeline's catalog, and it
+ * appears. Both are rebuilt when the catalog lands.
  */
 
 import { state, on, setPref } from '../state.js';
 import { atmo, readings, dateNote, sourceNotes, toggleLayer, isOn, optionOf, layerPrefs, currentSource } from '../atmo.js';
-import { LAYERS, modeOf, optionsOf } from '../atmo/layers.js';
+import { LAYERS, modeOf, optionsOf, available } from '../atmo/layers.js';
 import { cssGradient } from '../atmo/scales.js';
 
 const $ = id => document.getElementById(id);
@@ -21,6 +24,13 @@ let renderTimer = null;
 export function initAirPane() {
   buildRail();
   buildRows();
+  on('catalog', () => {
+    buildRail();
+    buildRows();
+    $('atmo-fine').textContent = sourceNotes();
+    paintToggles();
+    render();
+  });
 
   on('atmo', schedule);
   on('pref', ({ key }) => {
@@ -39,7 +49,8 @@ export function initAirPane() {
 function buildRail() {
   const body = $('layers-group');
   if (!body) return;
-  for (const layer of LAYERS.filter(l => l.rail !== false)) {
+  body.innerHTML = '';
+  for (const layer of LAYERS.filter(l => l.rail !== false && available(l))) {
     const btn = document.createElement('button');
     btn.className = 'icon-btn';
     btn.id = `btn-${layer.id}`;
@@ -54,7 +65,9 @@ function buildRail() {
 function buildRows() {
   const host = $('layer-rows');
   if (!host) return;
-  for (const layer of LAYERS) {
+  host.innerHTML = '';
+  rows.clear();
+  for (const layer of LAYERS.filter(available)) {
     const el = document.createElement('div');
     el.className = 'atmo-item';
     el.innerHTML = `
@@ -69,7 +82,7 @@ function buildRows() {
           <span></span>
         </div>
       </div>
-      ${layer.modes ? `<div class="seg seg-mode">${layer.modes.choices.map(c =>
+      ${layer.modes?.choices.length > 1 ? `<div class="seg seg-mode">${layer.modes.choices.map(c =>
         `<button data-mode="${c.key}" title="${c.title}">${c.label}</button>`).join('')}</div>` : ''}
       ${optionsOf(layer, layer.modes?.fallback ?? null) ? '<div class="seg seg-metric"></div>' : ''}
       ${layer.render === 'drape' ? `<div class="legend"><i class="legend-mark"></i></div>
@@ -96,7 +109,7 @@ function buildRows() {
 }
 
 function paintToggles() {
-  for (const layer of LAYERS) {
+  for (const layer of LAYERS.filter(available)) {
     const onNow = isOn(layer.id);
     for (const el of [$(`btn-${layer.id}`), rows.get(layer.id)?.chip]) {
       if (!el) continue;
@@ -118,7 +131,7 @@ function render() {
   if (state.tab !== 'analyze') return;
   const all = readings();
 
-  for (const layer of LAYERS) {
+  for (const layer of LAYERS.filter(available)) {
     const el = rows.get(layer.id);
     const r = all[layer.id];
     const mode = modeOf(layer, state.prefs);

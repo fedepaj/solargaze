@@ -139,8 +139,11 @@ def cmd_run(args) -> int:
                 try:
                     with run.step("index"):
                         refresh_index()
+                        from . import catalog
+                        cat = catalog.write(DATA_DIR)
                         if remote:
                             remote.publish_index()
+                            remote.publish_file(cat)
                 except Exception as exc:  # noqa: BLE001
                     run.error("index.failed", sig=errors.signature(exc), msg=str(exc)[:300])
                     code = code or 1

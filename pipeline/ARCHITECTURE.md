@@ -53,6 +53,12 @@ A product declares:
 - `validate(stage, meta)` — reject what must never be published: a heat tile
   with no month, a ratio raster all one value, a mask with no building where
   OSM has thousands. Validation failures are bugs, not bad luck.
+- `card` — what the app is told: the theme and variant it is shown under
+  (heat / morning), the kind of data (`raster-months`, `street-air`, …),
+  which decides how the app reads and draws it, and its title, source,
+  licence and note. Every run publishes them as `catalog.json` beside
+  `index.json` (`sg/catalog.py`); the app builds a theme's variants from it,
+  so a new product of a kind the app already reads needs no app change.
 
 The runner installs a validated product atomically and records it.
 

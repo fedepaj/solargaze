@@ -15,6 +15,17 @@ from ..product import Context, Product
 
 class AirStreet(Product):
     name, version, subdir = "air_street", 1, "air_street"
+    card = {
+        "theme": "air", "variant": "street", "order": 10, "kind": "street-air", "base": "air",
+        "label": "Street", "title": "Air quality street by street",
+        "resolution_m": 50,
+        "source": "CAMS (Copernicus) corrected by a land-use regression fitted to monitoring stations "
+                  "(EEA in Europe); OpenStreetMap, ESA WorldCover, Copernicus DEM",
+        "licence": "Copernicus licence; EEA re-use policy; ODbL; CC-BY 4.0",
+        "note": "The CAMS climatology at 50 m: NO₂ and PM10 corrected by a land-use regression fitted to the "
+                "monitoring stations (roads, buildings, green, terrain), ozone from NO₂ by titration, PM2.5 left "
+                "as CAMS — a statistical model of where the stations are, not a measurement where you are.",
+    }
     depends = ("wind", "air")
     min_buildings = 2000
 

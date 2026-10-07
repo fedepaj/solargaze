@@ -14,6 +14,8 @@
  * Pure: no fetch, no DOM. The date policy is the part worth testing.
  */
 
+import { catalog, tileSourceId, KNOWN_KINDS } from './catalog.js';
+
 export const DAY_MS = 86400000;
 const dayNumber = ({ y, m, d }) => Math.round(Date.UTC(y, m - 1, d) / DAY_MS);
 
@@ -101,33 +103,26 @@ export const SOURCES = {
     derive: null,
     note: 'Air quality on a ~11 km grid (CAMS).',
   },
-  /**
-   * Precomputed tiles (pipeline/, data/tiles/). No endpoint and no date
-   * policy: the product is a climatology, and the sliders index it directly.
-   * `kind: 'tile'` is what tells the engine to go through atmo/tiles.js.
-   */
-  'tile-heat': {
-    id: 'tile-heat',
-    kind: 'tile',
-    product: 'heat',
-    label: 'Surface heat',
-    note: 'Surface heat is Landsat 8/9 (100 m thermal band, kept at 90 m), a per-pixel median of clear mid-morning overpasses since 2018, by month: what the roofs and streets typically read, not the air. From afar it is shown coarser.',
-  },
-  'tile-wind': {
-    id: 'tile-wind',
-    kind: 'tile',
-    product: 'wind',
-    label: 'Buildings',
-    note: 'Where a tile has been built, the wind is threaded between the OpenStreetMap buildings by a potential-flow model solved in the browser: channelling, shelter and corner gusts, but no wakes — a picture, not a measurement.',
-  },
-  'tile-air-street': {
-    id: 'tile-air-street',
-    kind: 'tile',
-    product: 'air_street',
-    label: 'Street air',
-    note: 'Street air is that climatology at 50 m: NO₂ and PM10 corrected by a land-use regression fitted to the EEA monitoring stations (roads, buildings, green, terrain), ozone from NO₂ by titration, PM2.5 left as CAMS — a statistical model of where the stations are, not a measurement where you are.',
-  },
 };
+
+/**
+ * Precomputed tiles (pipeline/, data/tiles/), one source per product of the
+ * catalog (atmo/catalog.js). No endpoint and no date policy: the product is
+ * a climatology, and the sliders index it directly. `kind: 'tile'` is what
+ * tells the engine to go through atmo/tiles.js; `dataKind` how to read it.
+ * Called again when the real catalog arrives; returns the ids it added.
+ */
+export function registerTileSources(cat = catalog()) {
+  const added = [];
+  for (const [name, card] of Object.entries(cat.products)) {
+    if (!KNOWN_KINDS.has(card.kind)) continue;
+    const id = tileSourceId(name);
+    if (!SOURCES[id]) added.push(id);
+    SOURCES[id] = { id, kind: 'tile', product: name, dataKind: card.kind, label: card.title, note: card.note };
+  }
+  return added;
+}
+registerTileSources();
 
 /**
  * Decide which day to ask a source for.

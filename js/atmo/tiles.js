@@ -15,6 +15,7 @@
 import { cachedFetch } from './cache.js';
 import { TILES_BASE, TILES_REMOTE } from '../config.js';
 import { profile } from '../device.js';
+import { cardOf } from './catalog.js';
 
 const STEP = 0.25;
 
@@ -119,6 +120,12 @@ async function getIndex() {
   return index;
 }
 
+/** The pipeline's catalog of products (atmo/catalog.js), from wherever the index came from; null if none. */
+export async function getCatalog() {
+  await getIndex();
+  return fetch(`${BASE}/catalog.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+}
+
 /** The tile's meta.json, or null when no tile has been computed there. */
 export async function tileMeta(tileId) {
   if (metas.has(tileId)) return metas.get(tileId);
@@ -147,15 +154,18 @@ async function load(tileId, product, level) {
   const meta = await tileMeta(tileId);
   const info = meta?.products?.[product];
   if (!info) return null;
-  if (product === 'air') return loadClimatology(tileId, info);
-  if (product === 'heat') return loadRaster(tileId, info, level);
-  if (product === 'wind') return loadMask(tileId, info);
-  if (product === 'air_street') return loadStreet(tileId, info);
-  throw new Error(`unknown tile product ${product}`);
+  // How to read a product is its kind's business (atmo/catalog.js), not its name's.
+  switch (cardOf(product)?.kind) {
+    case 'climatology': return loadClimatology(tileId, info, product);
+    case 'raster-months': return loadRaster(tileId, info, level, product);
+    case 'building-mask': return loadMask(tileId, info, product);
+    case 'street-air': return loadStreet(tileId, info, product);
+    default: throw new Error(`no reader for tile product ${product}`);
+  }
 }
 
-async function loadClimatology(tileId, info) {
-  const data = await cachedFetch(productUrl(tileId, info.file, info, 'air')).then(r => r.json());
+async function loadClimatology(tileId, info, product) {
+  const data = await cachedFetch(productUrl(tileId, info.file, info, product)).then(r => r.json());
   const { lats, lons, nodes, step } = data;
   const rows = lats.length;
   const cols = lons.length;
@@ -195,7 +205,7 @@ async function loadClimatology(tileId, info) {
  * data. Both are normalised here into a `values` byte per pixel, 0 for no
  * data, and one `decode` — so that nothing downstream knows there were two.
  */
-async function loadRaster(tileId, info, level = 1) {
+async function loadRaster(tileId, info, level = 1, product = 'heat') {
   const enc = info.encoding || {};
   const v2 = enc.version === 2;
   const decode = v2
@@ -215,14 +225,14 @@ async function loadRaster(tileId, info, level = 1) {
     tileMedian: m => info.months[String(m + 1).padStart(2, '0')]?.tile_median_c ?? null,
     scenes: m => info.months[String(m + 1).padStart(2, '0')]?.scenes ?? 0,
     meta: info,
-    key: `tile-heat|${tileId}`,
+    key: `${product}|${tileId}`,
   };
   const meta = await tileMeta(tileId);
   raster.bounds = meta.bounds;
   // Decode every month up front: the date slider would otherwise stall on
   // each new month it reaches.
   const fetchChecked = async (file, width, height) => {
-    const url = productUrl(tileId, file, info, 'heat');
+    const url = productUrl(tileId, file, info, product);
     let img = await loadImage(url);
     // The cache key is the product's stamp; a file rewritten without a new
     // stamp would come back at the old size and be read with the wrong
@@ -272,8 +282,8 @@ async function loadRaster(tileId, info, level = 1) {
  * Uint8Array of 0/1; at 2784² that is 7.7 MB, kept for as long as the pin
  * stays in the tile.
  */
-async function loadMask(tileId, info) {
-  const img = await loadImage(productUrl(tileId, info.heights_png.file, info, 'wind'));
+async function loadMask(tileId, info, product) {
+  const img = await loadImage(productUrl(tileId, info.heights_png.file, info, product));
   const cv = document.createElement('canvas');
   cv.width = img.width;
   cv.height = img.height;
@@ -296,13 +306,13 @@ async function loadMask(tileId, info) {
  * pipeline modelled (NO₂ and PM10), a byte per 50 m cell encoding the
  * log-ratio to CAMS, decoded once into a 256-entry table of ratios.
  */
-async function loadStreet(tileId, info) {
+async function loadStreet(tileId, info, product) {
   const enc = info.encoding;
   const ratioOf = new Float32Array(256).fill(NaN);
   for (let b = 1; b < 256; b++) ratioOf[b] = Math.exp(enc.byte1_ln_ratio + (b - 1) * enc.step_ln_ratio);
   const bytes = {};
   await Promise.all(Object.entries(info.files).map(async ([name, file]) => {
-    const img = await loadImage(productUrl(tileId, file, info, 'air_street'));
+    const img = await loadImage(productUrl(tileId, file, info, product));
     if (img.width !== info.cols || img.height !== info.rows) throw new Error(`${file} is ${img.width}×${img.height}`);
     const cv = document.createElement('canvas');
     cv.width = img.width;
@@ -315,7 +325,7 @@ async function loadStreet(tileId, info) {
     bytes[name] = v;
   }));
   const meta = await tileMeta(tileId);
-  return { kind: 'street', bounds: meta.bounds, rows: info.rows, cols: info.cols, bytes, ratioOf, meta: info, key: `tile-air-street|${tileId}` };
+  return { kind: 'street', bounds: meta.bounds, rows: info.rows, cols: info.cols, bytes, ratioOf, meta: info, key: `${product}|${tileId}` };
 }
 
 /**
@@ -324,19 +334,20 @@ async function loadStreet(tileId, info) {
  * multiply. `centre` is the tile under the point. Null when that tile has
  * no street product.
  */
-export async function streetSetAround(lat, lon) {
+export async function streetSetAround(lat, lon, product = 'air_street') {
+  const base = cardOf(product)?.base || 'air';
   const pair = id => Promise.all([
-    tileProduct(id, 'air_street').catch(() => null),
-    tileProduct(id, 'air').catch(() => null),
+    tileProduct(id, product).catch(() => null),
+    tileProduct(id, base).catch(() => null),
   ]).then(([street, clim]) => (street && clim ? { ...street, clim } : null));
   const centreId = tileIdFor(lat, lon);
   const all = await Promise.all(tileIdsAround(lat, lon).map(pair));
   const tiles = all.filter(Boolean);
-  const centre = tiles.find(t => t.key === `tile-air-street|${centreId}`);
+  const centre = tiles.find(t => t.key === `${product}|${centreId}`);
   if (!centre) return null;
   const [w, south, e, n] = centre.bounds;
   const rect = [w - STEP, south - STEP, e + STEP, n + STEP];
-  return { kind: 'street-set', rect, tiles, centre, meta: centre.meta, key: `tile-air-street|${centreId}` };
+  return { kind: 'street-set', rect, tiles, centre, meta: centre.meta, key: `${product}|${centreId}` };
 }
 
 /**

@@ -13,6 +13,13 @@ from ..product import Context, Product
 
 class Wind(Product):
     name, version, subdir = "wind", 1, "wind"
+    card = {
+        "kind": "building-mask", "title": "Buildings for the street-level wind", "resolution_m": 10,
+        "source": "OpenStreetMap buildings via Geofabrik extracts", "licence": "ODbL",
+        "note": "Where a tile has been built, the wind is threaded between the OpenStreetMap buildings by a "
+                "potential-flow model solved in the browser: channelling, shelter and corner gusts, but no "
+                "wakes — a picture, not a measurement.",
+    }
     refresh_days = 365          # OSM keeps growing; a year-old mask is worth redoing
 
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:

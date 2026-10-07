@@ -99,6 +99,10 @@ class Remote:
         p.write_text(json.dumps(merged, indent=2) + "\n")
         self._call(lambda: pt.put(self.s3, self.bucket, "index.json", p))
 
+    def publish_file(self, path: Path) -> None:
+        """A file at the root of the tiles (the catalog), as it is."""
+        self._call(lambda: pt.put(self.s3, self.bucket, path.relative_to(self.data_dir).as_posix(), path))
+
     # -- state ---------------------------------------------------------------
 
     def _state_keys(self) -> tuple[bool, list[str], list[str]]:

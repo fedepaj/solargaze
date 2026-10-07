@@ -1,0 +1,82 @@
+/**
+ * What the pipeline says it builds: catalog.json, beside index.json at the
+ * root of the tiles (pipeline/sg/catalog.py writes it from each product's
+ * card). One entry per product — the theme and variant it is shown under,
+ * the kind of data, which decides how it is read and drawn, and the words
+ * and credits that go with it.
+ *
+ * The themes (layers.js) take their variants from here, so a product of a
+ * kind this app already reads appears as a new variant without a change
+ * here. Until the real catalog arrives — and if it never does — the copy
+ * below stands in: the products as they were when this was written.
+ *
+ * Pure: no fetch, no DOM. tiles.js fetches; layers.js and sources.js read.
+ */
+
+/** The kinds of data this app knows how to read (tiles.js) and draw (layers.js). */
+export const KNOWN_KINDS = new Set(['raster-months', 'street-air', 'climatology', 'building-mask']);
+
+export const FALLBACK = {
+  version: 1,
+  products: {
+    wind: {
+      kind: 'building-mask', title: 'Buildings for the street-level wind', resolution_m: 10,
+      source: 'OpenStreetMap buildings via Geofabrik extracts', licence: 'ODbL',
+      note: 'Where a tile has been built, the wind is threaded between the OpenStreetMap buildings by a potential-flow model solved in the browser: channelling, shelter and corner gusts, but no wakes — a picture, not a measurement.',
+    },
+    heat: {
+      theme: 'heat', variant: 'morning', order: 10, kind: 'raster-months',
+      label: 'Morning', title: 'Surface heat on clear mornings', when: 'mornings', resolution_m: 90,
+      source: 'Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer',
+      licence: 'public domain',
+      note: 'A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by month: what the roofs and streets typically read, not the air. From afar it is shown coarser.',
+    },
+    air: {
+      kind: 'climatology', title: 'CAMS air quality by month and hour', resolution_m: 10000,
+      source: 'Copernicus Atmosphere Monitoring Service (CAMS) European reanalysis 2020–2024',
+      licence: 'Copernicus licence',
+      note: "The five-year habit of the air for each month and hour, on CAMS's ~10 km grid; the street layer is built on it.",
+    },
+    air_street: {
+      theme: 'air', variant: 'street', order: 10, kind: 'street-air', base: 'air',
+      label: 'Street', title: 'Air quality street by street', resolution_m: 50,
+      source: 'CAMS (Copernicus) corrected by a land-use regression fitted to monitoring stations (EEA in Europe); OpenStreetMap, ESA WorldCover, Copernicus DEM',
+      licence: 'Copernicus licence; EEA re-use policy; ODbL; CC-BY 4.0',
+      note: 'The CAMS climatology at 50 m: NO₂ and PM10 corrected by a land-use regression fitted to the monitoring stations (roads, buildings, green, terrain), ozone from NO₂ by titration, PM2.5 left as CAMS — a statistical model of where the stations are, not a measurement where you are.',
+    },
+  },
+};
+
+let current = FALLBACK;
+
+export const catalog = () => current;
+
+/** A product's card, or null. */
+export const cardOf = name => current.products[name] || null;
+
+/** The source id the engine knows a tile product by: `air_street` → `tile-air-street`. */
+export const tileSourceId = name => `tile-${name.replace(/_/g, '-')}`;
+
+/**
+ * The variants of a theme, best first: every product shown under it whose
+ * kind this app can read. A kind it cannot read is a newer app's business
+ * and is left out rather than drawn wrong.
+ */
+export function variantsOf(theme, cat = current) {
+  return Object.entries(cat.products)
+    .filter(([, c]) => c.theme === theme && KNOWN_KINDS.has(c.kind))
+    .sort(([, a], [, b]) => (a.order ?? 99) - (b.order ?? 99))
+    .map(([name, card]) => ({ name, card }));
+}
+
+/**
+ * Take a catalog fetched from the tiles. A shape that is not one — an older
+ * format, a half-written file — is ignored and the current one kept.
+ * Returns true when it changed anything.
+ */
+export function setCatalog(cat) {
+  if (!cat || cat.version !== 1 || typeof cat.products !== 'object') return false;
+  const same = JSON.stringify(cat.products) === JSON.stringify(current.products);
+  current = cat;
+  return !same;
+}

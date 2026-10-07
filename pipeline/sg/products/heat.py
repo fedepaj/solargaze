@@ -13,6 +13,15 @@ from ..product import Context, Product
 
 class Heat(Product):
     name, version, subdir = "heat", 3, "heat"   # 3: one-channel 90 m, packed months, overviews
+    card = {
+        "theme": "heat", "variant": "morning", "order": 10, "kind": "raster-months",
+        "label": "Morning", "title": "Surface heat on clear mornings",
+        "when": "mornings", "resolution_m": 90,
+        "source": "Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer",
+        "licence": "public domain",
+        "note": "A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by "
+                "month: what the roofs and streets typically read, not the air. From afar it is shown coarser.",
+    }
     depends = ("wind",)
     min_buildings = 2000
 

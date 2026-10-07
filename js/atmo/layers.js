@@ -1,13 +1,16 @@
 /**
  * The layers, as data.
  *
- * A layer is a way of looking at one source: which number to pull out of it,
- * how to colour that number, how to say it in the pane, and which renderer
- * puts it in the scene. Everything the engine and the pane do is driven from
- * this list — the rail button, the row in the AIR tab, the legend, the fetch
- * that has to happen first. Adding a layer is adding an entry; adding a kind
- * of picture (contours, columns, a volume) is adding a renderer to
- * RENDERERS in ../atmo.js and naming it here.
+ * A layer is a *theme* — heat, air, wind — with one switch, one rail button
+ * and one row in ANALYZE. A theme drawn from the precomputed tiles has
+ * *variants*, one per product the pipeline's catalog shows under it (surface
+ * heat in the morning, at night …; atmo/catalog.js): the variants are the
+ * layer's `modes`, and what a variant draws and says is decided by its kind
+ * of data (KINDS below), worded by its catalog card. So a new product of a
+ * kind already here is a new variant with no change to this file; a new kind
+ * of data is an entry in KINDS and a loader in tiles.js; a new kind of
+ * picture (contours, columns, a volume) is a renderer in RENDERERS in
+ * ../atmo.js, named here.
  *
  * Two renderers exist today. `drape` paints a scalar field onto the ground
  * and the buildings, and only one drape can be on at a time — they share the
@@ -26,6 +29,7 @@ import {
 import {
   HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops,
 } from './scales.js';
+import { FALLBACK, cardOf, tileSourceId, variantsOf, catalog } from './catalog.js';
 
 const ICONS = {
   heat: '<path d="M10 4.5a2 2 0 0 1 4 0v9.2a3.6 3.6 0 1 1-4 0Z"/><path d="M12 9v6.2"/><circle cx="12" cy="16.9" r="1.3" class="fill"/>',
@@ -78,28 +82,13 @@ const airLegend = ([lo, hi], { option }) => {
 const metricChoices = keys => keys.map(key => ({ key, label: AIR_METRICS[key].label, title: AIR_METRICS[key].long }));
 
 /**
- * The registry.
- *
- * The map shows habits, which are what a place is like: the surface heat
- * Landsat sees by month, the air by month and hour at 50 m, the wind
- * threaded between the buildings. What a particular day was like — its
- * weather, its air — is read at the pin instead (the weather chip, and the
- * reading-only `dayair` entry, which has no renderer and no rail button).
- *
- * A layer may still have `modes` — one switch, several sources, `ctx.mode`
- * saying which is live — and the engine and the pane support them; none
- * needs them now.
+ * What each kind of data draws and says. Every function takes the variant's
+ * catalog card last, for the words: `card.when` ("mornings", "nights") says
+ * which part of the day a surface reading stands for.
  */
-export const LAYERS = [
-  {
-    id: 'temperature',
-    label: 'Surface heat',
-    tip: 'Surface heat<em>What the roofs and streets read on a clear morning, by month, at 90 m</em>',
-    icon: ICONS.heat,
-    source: 'tile-heat',
-    render: 'drape',
-    slot: 'ground',
-    alpha: 0.5,
+export const KINDS = {
+  /** Twelve months of a raster, blended between months like the pixels are (Landsat, ECOSTRESS). */
+  'raster-months': {
     field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, ctx.monthFrac),
     /** An anomaly around the tile's median for the month: "hotter than the rest of the city" is the question. */
     domain(s, ctx) {
@@ -108,7 +97,7 @@ export const LAYERS = [
     },
     stops: () => heatStops(),
     legend: ([lo, hi]) => ({ lo: `${lo.toFixed(0)} °C`, hi: `${hi.toFixed(0)} °C` }),
-    reading(s, lat, lon, t, ctx) {
+    reading(s, lat, lon, t, ctx, card) {
       const v = readSurface(s, lat, lon, ctx.monthFrac);
       if (Number.isNaN(v)) return null;
       const med = blendedMedian(s, ctx.monthFrac);
@@ -116,25 +105,12 @@ export const LAYERS = [
       return {
         value: v,
         text: `${v.toFixed(1)} °C`,
-        sub: `${delta === null ? '' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} °C vs the area · `}${monthName(ctx.monthFrac)} mornings`,
+        sub: `${delta === null ? '' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} °C vs the area · `}${monthName(ctx.monthFrac)} ${card?.when || ''}`.trim(),
       };
     },
   },
-  {
-    id: 'air',
-    label: 'Air',
-    tip: 'Air quality<em>The five-year habit for this month and hour, street by street at 50 m</em>',
-    icon: ICONS.air,
-    source: 'tile-air-street',
-    /** Which pollutant the ground is tinted by. */
-    options: () => ({
-      pref: 'airMetric',
-      fallback: 'nitrogen_dioxide',
-      choices: metricChoices(['nitrogen_dioxide', 'pm10', 'pm2_5', 'ozone']),
-    }),
-    render: 'drape',
-    slot: 'ground',
-    alpha: 0.55,
+  /** CAMS by month and hour, times a 50 m ratio per pollutant. */
+  'street-air': {
     field: (s, lat, lon, t, ctx) => sampleStreet(s, ctx.option, lat, lon, ctx.monthFrac, ctx.hourFrac),
     domain: (s, { option }) => [0, AIR_METRICS[option].top],
     stops: ({ option }) => airStops(option),
@@ -158,6 +134,67 @@ export const LAYERS = [
       };
     },
   },
+};
+
+/**
+ * A theme drawn from the tiles. Its variants come from the catalog
+ * (applyCatalog); each call goes to the kind of the variant in use, which
+ * the engine passes as `ctx.mode` — the product's name.
+ */
+function theme(spec) {
+  const kindOf = ctx => KINDS[cardOf(ctx.mode)?.kind] || null;
+  return {
+    ...spec,
+    field: (s, lat, lon, t, ctx) => kindOf(ctx)?.field(s, lat, lon, t, ctx) ?? NaN,
+    domain: (s, ctx) => kindOf(ctx)?.domain(s, ctx) ?? null,
+    stops: ctx => (kindOf(ctx) || KINDS[spec.defaultKind]).stops(ctx),
+    legend: (domain, ctx) => (kindOf(ctx) || KINDS[spec.defaultKind]).legend(domain, ctx),
+    reading: (s, lat, lon, t, ctx) => kindOf(ctx)?.reading(s, lat, lon, t, ctx, cardOf(ctx.mode)) ?? null,
+  };
+}
+
+/**
+ * The registry.
+ *
+ * The map shows habits, which are what a place is like: the surface heat
+ * Landsat sees by month, the air by month and hour at 50 m, the wind
+ * threaded between the buildings. What a particular day was like — its
+ * weather, its air — is read at the pin instead (the weather chip, and the
+ * reading-only `dayair` entry, which has no renderer and no rail button).
+ *
+ * A layer may still have `modes` — one switch, several sources, `ctx.mode`
+ * saying which is live — and the engine and the pane support them; none
+ * needs them now.
+ */
+export const LAYERS = [
+  theme({
+    id: 'temperature',
+    theme: 'heat',
+    label: 'Heat',
+    tip: 'Surface heat<em>What the roofs and streets read, by month — in the morning, and wherever it is computed at night</em>',
+    icon: ICONS.heat,
+    defaultKind: 'raster-months',
+    render: 'drape',
+    slot: 'ground',
+    alpha: 0.5,
+  }),
+  theme({
+    id: 'air',
+    theme: 'air',
+    label: 'Air',
+    tip: 'Air quality<em>The five-year habit for this month and hour, street by street at 50 m</em>',
+    icon: ICONS.air,
+    defaultKind: 'street-air',
+    /** Which pollutant the ground is tinted by. */
+    options: () => ({
+      pref: 'airMetric',
+      fallback: 'nitrogen_dioxide',
+      choices: metricChoices(['nitrogen_dioxide', 'pm10', 'pm2_5', 'ozone']),
+    }),
+    render: 'drape',
+    slot: 'ground',
+    alpha: 0.55,
+  }),
   {
     /**
      * Not a layer of the scene: the air on the selected day and hour, from
@@ -209,6 +246,30 @@ export const LAYERS = [
     },
   },
 ];
+
+/**
+ * Give each theme its variants from a catalog: the products shown under it,
+ * best first, as modes `{ key: product, label, title, source }` with the
+ * preference `<theme>Variant`. A theme with no variant this app can read is
+ * left without modes and without a source, and the rail and the pane skip it.
+ */
+export function applyCatalog(cat = catalog()) {
+  for (const layer of LAYERS.filter(l => l.theme)) {
+    const variants = variantsOf(layer.theme, cat);
+    layer.modes = variants.length ? {
+      pref: `${layer.theme}Variant`,
+      fallback: variants[0].name,
+      choices: variants.map(({ name, card }) => ({
+        key: name, label: card.label, title: card.title, source: tileSourceId(name),
+      })),
+    } : null;
+    layer.source = variants.length ? tileSourceId(variants[0].name) : null;
+  }
+}
+applyCatalog(FALLBACK);
+
+/** Is there anything for this layer to show — a source, or a variant with one? */
+export const available = layer => !!(layer.source || layer.modes);
 
 /** The mode a layer is in, from its preference, or null for a single-source layer. */
 export function modeOf(layer, prefs) {
