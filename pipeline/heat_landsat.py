@@ -162,8 +162,9 @@ def run(tile: Tile) -> None:
 
 def build(tile: Tile, out_dir: Path) -> dict:
     """The packed months into out_dir; returns the meta entry, writes nothing
-    else. NoData where no scene covers the tile; Transient when too many
-    scenes would not read (the network, not the tile)."""
+    else. NoData where no scene covers the tile or none carries surface
+    temperature; Transient when too many scenes would not read (the network,
+    not the tile)."""
     shape = tile.shape(DEG_PER_PX)
     print(f"{tile.id}: {shape[0]}×{shape[1]} px at {DEG_PER_PX}°")
     cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
@@ -172,6 +173,13 @@ def build(tile: Tile, out_dir: Path) -> dict:
         query={"eo:cloud_cover": {"lt": MAX_CLOUD}, "platform": {"in": ["landsat-8", "landsat-9"]}},
     ).items())
     print(f"  {len(items)} scenes under {MAX_CLOUD}% cloud")
+    # Where the USGS lacks the ancillary data for surface temperature (the
+    # Azores, ocean islands) it publishes reflectance only (L2SR, no lwir11):
+    # nothing to read there, however often it is asked.
+    with_st = [it for it in items if "lwir11" in it.assets]
+    if items and not with_st:
+        raise NoData(f"{tile.id}: Landsat has no surface temperature here ({len(items)} scenes, reflectance only)")
+    items = with_st
 
     by_month: dict[int, list[np.ndarray]] = {m: [] for m in range(1, 13)}
     t0 = time.time()
