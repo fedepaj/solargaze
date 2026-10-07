@@ -2,7 +2,10 @@
 OpenAQ (api.openaq.org v3 and its public S3 archive) for the countries where
 its providers are national networks that allow redistribution. Today: Japan,
 whose Ministry of the Environment network (Soramame / AEROS) OpenAQ carries
-from 2023-07-14 under the Government Standard Terms of Use v2.0.
+from 2023-07-14 under the Government Standard Terms of Use v2.0; and Mexico,
+whose national SINAICA network (INECC) and the US embassy monitors (AirNow) it
+carries under Libre Uso MX and US Public Domain. Low-cost sensor providers
+(AirGradient, Clarity: isMonitor false) and providers with no licence are left out.
 
 Licence is a property of the provider, not of OpenAQ: a location is used only
 if its licence has ``redistributionAllowed`` (read from /v3/licenses), and
@@ -45,7 +48,7 @@ ARCHIVE = "https://openaq-data-archive.s3.amazonaws.com/records/csv.gz"
 CACHE = Path(__file__).resolve().parents[1] / "cache" / "stations" / "openaq"
 # Countries whose OpenAQ providers were read and found to be national networks
 # with a licence that allows redistribution (checked again per location).
-COUNTRIES = {"JP"}
+COUNTRIES = {"JP", "MX"}
 # OpenAQ's parameter names → the app's; and µg/m³ per unit of the reported one
 # (ppb → µg/m³ at 20 °C: NO₂ × 1.88, O₃ × 1.96; ppm is a thousand ppb).
 PARAM = {"no2": "nitrogen_dioxide", "pm10": "pm10", "pm25": "pm2_5", "o3": "ozone"}
@@ -88,8 +91,8 @@ def _date(stamp: str) -> date:
 
 class OpenAQ(Importer):
     name = "openaq"
-    source = "https://api.openaq.org/v3 and https://openaq-data-archive.s3.amazonaws.com (OpenAQ, provider japan-soramame: Ministry of the Environment, Japan)"
-    licence = "per provider, as listed by OpenAQ; Japan: Government Standard Terms of Use v2.0 (CC BY 4.0 compatible)"
+    source = "https://api.openaq.org/v3 and https://openaq-data-archive.s3.amazonaws.com (OpenAQ; Japan: japan-soramame, Ministry of the Environment; Mexico: SINAICA, INECC, and AirNow)"
+    licence = "per provider, as listed by OpenAQ; Japan: Government Standard Terms of Use v2.0 (CC BY 4.0 compatible); Mexico: Libre Uso MX (SINAICA), US Public Domain (AirNow)"
     MIN_CAPTURE = 0.25   # of the period; a point with less is left out
     MIN_CELL = 10        # hours in a month × hour cell for it to count
     workers = 64
@@ -187,14 +190,18 @@ class OpenAQ(Importer):
             text = self._day(loc["id"], day)
             if not text:
                 continue
-            df = pd.read_csv(io.StringIO(text), usecols=["datetime", "parameter", "value"])
+            df = pd.read_csv(io.StringIO(text), usecols=["datetime", "parameter", "units", "value"])
             for var in sensors:
                 part = df[df["parameter"].map(PARAM) == var]
                 if len(part):
-                    per_var[var].append(part)
+                    # a location can report one gas in two units: convert each row by its own
+                    f = part["units"].map(lambda u: FACTOR.get((var, u)))
+                    if f.isna().any():
+                        raise Upstream(f"{var} in unit {part['units'][f.isna()].iloc[0]!r}: no conversion to µg/m³")
+                    per_var[var].append(part.assign(value=pd.to_numeric(part["value"], errors="coerce") * f))
         rows = []
         for var, frames in per_var.items():
-            f = self.fold(frames, years, var, sensors[var], loc["timezone"], start, end)
+            f = self.fold(frames, years, var, "µg/m³", loc["timezone"], start, end)
             if f is None or f["annual_mean"] is None:
                 continue
             c = loc["coordinates"]
@@ -234,4 +241,32 @@ class OpenAQ(Importer):
                     log.info("  %d/%d locations", i, len(futures))
         if not rows:
             raise NoData(f"{country}: no OpenAQ location with usable data in {years[0]}–{years[-1]}")
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        kept = dedupe(df)
+        if len(kept) < len(df):
+            log.info("%s: %d points that another provider relays dropped as duplicates", country, len(df) - len(kept))
+        return kept
+
+
+DUPLICATE_M = 200   # two providers' points of one gas this close are one monitor
+
+
+def dedupe(df: pd.DataFrame, metres: float = DUPLICATE_M) -> pd.DataFrame:
+    """One point per monitor and gas. OpenAQ can carry the same monitor from
+    two providers (Mexico's SINAICA stations, relayed by AirNow too); fitted
+    twice, it would count twice. Of points of the same gas within `metres`,
+    the one with the best capture is kept."""
+    keep = []
+    for _, group in df.groupby("var", sort=False):
+        group = group.sort_values("capture", ascending=False)
+        lat, lon = np.radians(group["lat"].to_numpy()), np.radians(group["lon"].to_numpy())
+        taken: list[int] = []
+        for i in range(len(group)):
+            if taken:
+                j = np.array(taken)
+                dlat, dlon = lat[j] - lat[i], (lon[j] - lon[i]) * np.cos(lat[i])
+                if (6_371_000 * np.hypot(dlat, dlon) < metres).any():
+                    continue
+            taken.append(i)
+        keep += list(group.index[taken])
+    return df.loc[sorted(keep)].reset_index(drop=True)
