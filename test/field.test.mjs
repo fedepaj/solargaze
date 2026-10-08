@@ -12,7 +12,7 @@ import {
 } from '../js/atmo/field.js';
 import { bandOf, rampLut, airStops, heatStops } from '../js/atmo/scales.js';
 import { SOURCES, resolveDate, lastYear, shiftDate } from '../js/atmo/sources.js';
-import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS } from '../js/atmo/layers.js';
+import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS, setDaylight } from '../js/atmo/layers.js';
 import { FALLBACK, setCatalog, variantsOf, KNOWN_KINDS } from '../js/atmo/catalog.js';
 import { registerTileSources } from '../js/atmo/sources.js';
 
@@ -169,7 +169,7 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
 
 test('a theme takes its variants from the catalog, and only of kinds it can draw', () => {
   const night = {
-    theme: 'heat', variant: 'night', order: 20, kind: 'raster-months', label: 'Night',
+    theme: 'heat', variant: 'night', order: 20, kind: 'raster-months', label: 'Night', daypart: 'night', scale_c: [-30, 35],
     title: 'Surface heat at night', when: 'nights', resolution_m: 70, source: 'ECOSTRESS', licence: 'public domain', note: 'n',
   };
   const cat = { version: 1, products: { ...FALLBACK.products, heat_night: night,
@@ -180,8 +180,13 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     applyCatalog();
     const heat = LAYERS.find(l => l.id === 'temperature');
     assert.deepEqual(heat.modes.choices.map(c => [c.key, c.source]), [['heat', 'tile-heat'], ['heat_night', 'tile-heat-night']]);
-    assert.equal(modeOf(heat, { heatVariant: 'heat_night' }), 'heat_night');
-    assert.equal(modeOf(heat, { heatVariant: 'nonsense' }), 'heat');
+    // The heat follows the sun at the point, not a preference.
+    setDaylight(true);
+    assert.equal(modeOf(heat, { heatVariant: 'heat_night' }), 'heat');
+    setDaylight(false);
+    assert.equal(modeOf(heat, {}), 'heat_night');
+    assert.equal(sourceOf(heat, {}), 'tile-heat-night');
+    setDaylight(true);
     assert.equal(SOURCES['tile-heat-night'].dataKind, 'raster-months');
     // A kind this app cannot draw is left out, not drawn wrong.
     assert.deepEqual(variantsOf('noise'), []);
@@ -192,6 +197,8 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
       tileMedian: () => 18 };
     const r = heat.reading(raster, 0.5, 0.5, 0, { mode: 'heat_night', monthFrac: 6.5 });
     assert.match(r.sub, /nights$/);
+    // One colour is one temperature: the night's scale is fixed, not the area's.
+    assert.deepEqual(heat.domain(raster, { mode: 'heat_night', monthFrac: 6.5 }), [-30, 35]);
     // A catalog with no heat at all leaves the theme with nothing to show.
     setCatalog({ version: 1, products: { air: FALLBACK.products.air, air_street: FALLBACK.products.air_street } });
     applyCatalog();

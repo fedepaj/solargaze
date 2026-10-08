@@ -23,7 +23,7 @@ import {
 import { loadTzDatabase } from './timezone.js';
 import { escapeHtml } from './util.js';
 import * as ionAuth from './ion-auth.js';
-import { initSunPath, refreshSunPath, groundTaken } from './sunpath.js';
+import { initSunPath, refreshSunPath } from './sunpath.js';
 import { initTimePanel, stopPlayback } from './ui/timepanel.js';
 import { initCompass } from './ui/compass.js';
 import { initSearch } from './ui/search.js';
@@ -430,10 +430,8 @@ function wireDock() {
       : 'Point follows the centre of the view');
   });
 
-  $('btn-shadows').addEventListener('click', () => setPref('shadows', !state.prefs.shadows));
-  $('btn-sunpath').addEventListener('click', () => setPref('sunPath', !state.prefs.sunPath));
-
-  $('btn-basemap').addEventListener('click', () => {
+  // The 3D world or the flat map: a setting now (the switch is in Settings).
+  on('basemap-toggle', () => {
     if (!hasTileset()) {
       openGate();
       return;
@@ -452,19 +450,6 @@ function paintDock() {
   $('btn-pin').dataset.tip = locked
     ? 'Point locked<em>Drag it on the map to move it</em>'
     : 'Point follows the view<em>Click to lock it in place</em>';
-
-  $('btn-shadows').classList.toggle('is-on', state.prefs.shadows);
-  $('btn-shadows').setAttribute('aria-pressed', String(state.prefs.shadows));
-
-  $('btn-sunpath').classList.toggle('is-on', state.prefs.sunPath);
-  $('btn-sunpath').classList.toggle('is-muted', state.prefs.sunPath && groundTaken());
-  $('btn-sunpath').dataset.tip = state.prefs.sunPath && groundTaken()
-    ? 'Sun path overlay<em>Hidden while a layer colours the ground; it comes back when you switch that off</em>'
-    : 'Sun path overlay<em>Compass card, day arc and readouts</em>';
-  $('btn-sunpath').setAttribute('aria-pressed', String(state.prefs.sunPath));
-
-  $('btn-basemap').classList.toggle('is-on', tilesetVisible());
-  $('btn-basemap').setAttribute('aria-pressed', String(tilesetVisible()));
 
   // Altitude only means something once the point has stopped chasing the view.
   const altitude = $('btn-altitude');

@@ -23,7 +23,7 @@ import { rampLut } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
 import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
-import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available } from './atmo/layers.js';
+import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight } from './atmo/layers.js';
 import { setCatalog } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape } from './atmo/drape.js';
@@ -58,13 +58,18 @@ export function initAtmo() {
   RENDERERS.drape = drapeRenderer(createDrape(viewer.scene));
   RENDERERS.particles = particlesRenderer(createWind(viewer.scene, { count: profile.windParticles }));
 
-  on('location', () => { scheduleFetch(); schedulePaint(); });
+  // Sunrise and sunset at the point switch the heat between its morning and
+  // its night; anything else the clock does is a repaint from memory.
+  const daypart = () => {
+    if (setDaylight(state.sun.elevation > 0)) { apply(); scheduleFetch(true); emit('atmo', { source: 'daypart' }); }
+  };
+  setDaylight(state.sun.elevation > 0);
+  on('location', () => { daypart(); scheduleFetch(); schedulePaint(); });
   // The surface mosaic follows the view: a new row of tiles in sight, or a
   // zoom across a level boundary, is a new fetch (cheap, mostly cached).
   on('camera', () => { if (needsView()) scheduleFetch(); });
-  on('date', () => { scheduleFetch(); schedulePaint(); });
-  on('time', schedulePaint);
-  on('tab', () => scheduleFetch(true));
+  on('date', () => { daypart(); scheduleFetch(); schedulePaint(); });
+  on('time', () => { daypart(); schedulePaint(); });
   on('pref', ({ key }) => {
     if (key === 'layers' || layerPrefs().has(key)) {
       apply();
@@ -135,10 +140,9 @@ export const currentSource = layer => sourceOf(layer, state.prefs);
 
 const enabledLayers = () => LAYERS.filter(l => available(l) && isOn(l.id));
 
-/** Sources to have in hand: every enabled layer's, and every layer's while ANALYZE shows their numbers. */
+/** Sources to have in hand: every layer's, since the panel reads them all at the point, drawn or not. */
 function neededSources() {
-  if (state.tab === 'analyze') return [...new Set(LAYERS.filter(available).flatMap(l => [currentSource(l), ...(l.also || [])]))];
-  return [...new Set(enabledLayers().flatMap(l => [currentSource(l), ...(l.also || [])]))];
+  return [...new Set(LAYERS.filter(available).flatMap(l => [currentSource(l), ...(l.also || [])]))];
 }
 
 const todayHere = () => {
@@ -147,7 +151,7 @@ const todayHere = () => {
 };
 
 /** Does any enabled layer want the view-driven raster set right now? */
-const needsView = () => enabledLayers().some(l => SOURCES[currentSource(l)]?.dataKind === 'raster-months') || state.tab === 'analyze';
+const needsView = () => enabledLayers().some(l => SOURCES[currentSource(l)]?.dataKind === 'raster-months');
 
 /**
  * The ground the camera sees, snapped to tile edges and never wider than a

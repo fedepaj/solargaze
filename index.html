@@ -34,8 +34,10 @@
 
 <div id="scene" role="region" aria-label="3D map"></div>
 
-<!-- ═══════════════ top left: identity ═══════════════ -->
-<a class="wordmark" id="wordmark" href="https://github.com/fedepaj/solargaze"
+<!-- ═══════════════ top left: who, where, when ═══════════════ -->
+<div id="topleft" class="topleft">
+  <div class="brandrow">
+    <a class="wordmark" id="wordmark" href="https://github.com/fedepaj/solargaze"
    target="_blank" rel="noopener"
    data-tip="Open the source on GitHub">
   <svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true">
@@ -44,77 +46,8 @@
   </svg>
   <span>solargaze</span>
 </a>
-
-<!-- ═══════════════ left rail: what you see ═══════════════ -->
-<div id="leftrail" class="leftrail">
-
-  <section class="group" aria-label="Scene">
-    <h2 class="group-label">Scene</h2>
-    <div class="group-body">
-      <button class="icon-btn" id="btn-shadows" aria-pressed="true"
-              data-tip="Cast shadows from the sun<em>Turn off for a flat-lit, faster view</em>">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>
-      </button>
-      <button class="icon-btn" id="btn-sunpath" aria-pressed="true"
-              data-tip="Sun path overlay<em>Compass card, day arc and readouts</em>">
-        <svg viewBox="0 0 24 24"><path d="M3 18a9 9 0 0 1 18 0"/><circle cx="16.5" cy="9.7" r="2.4"/><path d="M2 18h20"/></svg>
-      </button>
-      <button class="icon-btn" id="btn-basemap"
-              data-tip="Photorealistic 3D mesh<em>Switch to a plain 2D map</em>">
-        <svg viewBox="0 0 24 24"><path d="m3 7 6-3 6 3 6-3v13l-6 3-6-3-6 3Z"/><path d="M9 4v13M15 7v13"/></svg>
-      </button>
-    </div>
-  </section>
-
-  <section class="group" aria-label="Layers">
-    <h2 class="group-label">Layers</h2>
-    <!-- One button per entry in js/atmo/layers.js, built by js/ui/airpane.js. -->
-    <div class="group-body" id="layers-group"></div>
-  </section>
-
-  <section class="group" aria-label="Point">
-    <h2 class="group-label">Point</h2>
-    <!-- Two stacked rows sharing one surface: closed it is a rounded rectangle,
-         open the lower row grows to the right and the pair becomes a rounded L. -->
-    <div class="point-card">
-      <div class="card-row card-row-top">
-        <button class="icon-btn" id="btn-pin" aria-pressed="false"
-                data-tip="Point follows the view<em>Click to lock it in place</em>">
-          <svg viewBox="0 0 24 24" class="pinlock">
-            <path class="pin-body" d="M12 21.5s6.6-6.1 6.6-10.6a6.6 6.6 0 1 0-13.2 0c0 4.5 6.6 10.6 6.6 10.6Z"/>
-            <!-- Grouped so the pair can be seated in the head as one; the
-                 shackle keeps its own transform for the unlocked state. -->
-            <g class="lock">
-              <path class="lock-shackle" d="M10 10.3V9.2a2 2 0 0 1 4 0v1.1"/>
-              <rect class="lock-body" x="9.2" y="10.3" width="5.6" height="4.4" rx="1"/>
-            </g>
-          </svg>
-        </button>
-      </div>
-
-      <div class="card-row card-row-alt" id="alt-row">
-        <button class="icon-btn" id="btn-altitude" aria-expanded="false"
-                data-tip="Height above the ground<em>Lock the point first</em>">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 3.2v13"/><path d="m8.6 6.6 3.4-3.4 3.4 3.4"/><path d="m8.6 12.8 3.4 3.4 3.4-3.4"/>
-            <path d="M4 20.3h16"/>
-          </svg>
-        </button>
-        <div class="alt-arm" id="altitude-ctl">
-          <button id="alt-down" data-tip="One metre down" aria-label="Lower the point">−</button>
-          <label class="alt-value">
-            <input id="alt-input" type="number" step="1" min="-50" max="500" value="0" aria-label="Height above ground in metres">
-            <span>m</span>
-          </label>
-          <button id="alt-up" data-tip="One metre up" aria-label="Raise the point">+</button>
-        </div>
-      </div>
-    </div>
-  </section>
-</div>
-
-<!-- ═══════════════ top right: when ═══════════════ -->
-<div id="topright" class="topright">
+    <button class="round accent" id="btn-help" data-tip="Guide &amp; shortcuts" aria-label="Help">?</button>
+  </div>
 
   <div class="searchrow">
     <div class="search">
@@ -126,27 +59,12 @@
         <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.4 10.8 15.6 6.4M8.4 13.2l7.2 4.4"/></svg>
       </button>
     </div>
-    <button class="round accent" id="btn-help" data-tip="Guide &amp; shortcuts" aria-label="Help">?</button>
     <ul id="search-results" class="results" hidden></ul>
   </div>
 
-  <section class="panel" id="panel">
-    <!-- Phones only: the panel is a bottom sheet, and this is its grab bar. -->
-    <button class="sheet-handle" id="sheet-handle" aria-expanded="true" aria-label="Collapse the panel"><i></i></button>
-    <div class="tabs" role="tablist">
-      <button class="tab is-active" id="tab-visualize" role="tab" aria-selected="true"
-              aria-controls="pane-visualize">
-        <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
-        DATE
-      </button>
-      <button class="tab" id="tab-analyze" role="tab" aria-selected="false"
-              aria-controls="pane-analyze">
-        <svg viewBox="0 0 24 24"><path d="M4 20h16M7 20v-5M12 20v-9M17 20v-13"/></svg>
-        ANALYZE
-      </button>
-    </div>
-
-    <div class="tabpane" id="pane-visualize" role="tabpanel" aria-labelledby="tab-visualize">
+  <!-- The one selector of the day and the hour: the sun, the shadows and every
+       layer read from it. -->
+  <section class="panel datepanel" id="datepanel" aria-label="Date and time">
       <div class="clockrow">
         <button class="clock" id="clock-btn" data-tip="Type an exact time">
           <span id="clock-time">12:00</span>
@@ -194,43 +112,44 @@
         </div>
         <span class="endlabel" id="label-year-to">2026</span>
       </div>
-    </div>
+    </section>
+</div>
 
-    <div class="tabpane" id="pane-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden>
-      <!-- What the place is like at the pin, for the date and hour on the
-           DATE tab. One row per entry of js/atmo/layers.js: a switch where
-           the entry can be drawn on the map, then its number. The numbers
-           show whether or not the layer is drawn. -->
-      <h3 class="pane-h">Here</h3>
-      <div id="layer-rows"></div>
-      <p class="hint atmo-err" id="atmo-status" hidden></p>
-      <p class="hint" id="atmo-note" hidden></p>
-
-      <h3 class="pane-h">Sun</h3>
-      <p class="hint">Direct-sunlight hours for the point, sampled against the 3D geometry that is
-        currently loaded. Zoom in until the buildings around it are sharp, then run it.</p>
-      <button class="cta" id="btn-run-analyze">Compute sun hours</button>
-      <div id="analyze-out" hidden>
-        <div class="bigstat"><b id="an-hours">–</b><span>h of direct sun</span></div>
-        <div id="an-strip" class="strip"></div>
-        <div class="striplabels"><span id="an-from">–</span><span id="an-to">–</span></div>
-        <p class="hint" id="an-note"></p>
+<!-- ═══════════════ right: what to see, and what it reads here ═══════════════ -->
+<section class="panel layerpanel" id="panel" aria-label="Layers">
+  <!-- Phones only: the panel is a bottom sheet, and this is its grab bar. -->
+  <button class="sheet-handle" id="sheet-handle" aria-expanded="true" aria-label="Collapse the panel"><i></i></button>
+  <div class="layerpane" id="pane-analyze">
+    <!-- One card per theme, each a switch: tap it and the map shows it. The
+         sun's card draws the ray and the compass and computes the hours of
+         sun; the others colour the ground or fill the air, and read their
+         number at the point whether drawn or not. Built by js/ui/airpane.js. -->
+    <div class="lcard" id="card-sun">
+      <button class="lcard-head" id="chip-sun" aria-pressed="false">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/></svg>
+        <span class="lcard-name">Sun</span>
+        <i class="lcard-switch" aria-hidden="true"></i>
+      </button>
+      <div class="lcard-read"><b id="sun-elev">–</b><span id="sun-sub"></span></div>
+      <div class="lcard-more">
+        <button class="ghost-cta" id="btn-run-analyze">Count the hours of direct sun</button>
+        <div id="analyze-out" hidden>
+          <div class="bigstat"><b id="an-hours">–</b><span>h of direct sun</span></div>
+          <div id="an-strip" class="strip"></div>
+          <div class="striplabels"><span id="an-from">–</span><span id="an-to">–</span></div>
+          <p class="hint" id="an-note"></p>
+        </div>
       </div>
-      <details class="fineprint">
-        <summary>How to read these numbers</summary>
-        <p class="hint atmo-fine" id="atmo-fine"></p>
-      </details>
     </div>
-  </section>
-</div>
-
-<!-- ═══════════════ the legend of the layer on the ground ═══════════════ -->
-<!-- Filled by js/ui/airpane.js; hidden while nothing colours the ground. -->
-<div id="maplegend" class="maplegend" hidden>
-  <div class="ml-title"></div>
-  <div class="legend"><i class="legend-mark"></i></div>
-  <div class="legend-lbl"><span class="ml-lo">–</span><span class="ml-hi">–</span></div>
-</div>
+    <div id="layer-rows"></div>
+    <p class="hint atmo-err" id="atmo-status" hidden></p>
+    <p class="hint" id="atmo-note" hidden></p>
+    <details class="fineprint">
+      <summary>How to read these numbers</summary>
+      <p class="hint atmo-fine" id="atmo-fine"></p>
+    </details>
+  </div>
+</section>
 
 <!-- ═══════════════ bottom left: status ═══════════════ -->
 <div id="bottomleft" class="bottomleft">
@@ -292,6 +211,41 @@
   </section>
 
   <div class="toolrow">
+  <!-- The studied point: lock it to drag it somewhere exact, then lift it. -->
+  <div class="point-card">
+      <div class="card-row card-row-top">
+        <button class="icon-btn" id="btn-pin" aria-pressed="false"
+                data-tip="Point follows the view<em>Click to lock it in place</em>">
+          <svg viewBox="0 0 24 24" class="pinlock">
+            <path class="pin-body" d="M12 21.5s6.6-6.1 6.6-10.6a6.6 6.6 0 1 0-13.2 0c0 4.5 6.6 10.6 6.6 10.6Z"/>
+            <!-- Grouped so the pair can be seated in the head as one; the
+                 shackle keeps its own transform for the unlocked state. -->
+            <g class="lock">
+              <path class="lock-shackle" d="M10 10.3V9.2a2 2 0 0 1 4 0v1.1"/>
+              <rect class="lock-body" x="9.2" y="10.3" width="5.6" height="4.4" rx="1"/>
+            </g>
+          </svg>
+        </button>
+      </div>
+
+      <div class="card-row card-row-alt" id="alt-row">
+        <button class="icon-btn" id="btn-altitude" aria-expanded="false"
+                data-tip="Height above the ground<em>Lock the point first</em>">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3.2v13"/><path d="m8.6 6.6 3.4-3.4 3.4 3.4"/><path d="m8.6 12.8 3.4 3.4 3.4-3.4"/>
+            <path d="M4 20.3h16"/>
+          </svg>
+        </button>
+        <div class="alt-arm" id="altitude-ctl">
+          <button id="alt-down" data-tip="One metre down" aria-label="Lower the point">−</button>
+          <label class="alt-value">
+            <input id="alt-input" type="number" step="1" min="-50" max="500" value="0" aria-label="Height above ground in metres">
+            <span>m</span>
+          </label>
+          <button id="alt-up" data-tip="One metre up" aria-label="Raise the point">+</button>
+        </div>
+      </div>
+    </div>
   <button class="round" id="btn-locate" data-tip="Use my location">
     <svg viewBox="0 0 24 24"><path d="m21 3-9 18-2-7-7-2Z"/></svg>
   </button>

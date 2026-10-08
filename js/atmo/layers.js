@@ -42,7 +42,7 @@ const ICONS = {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthName = mf => MONTHS[((Math.round(mf) % 12) + 12) % 12];
 
-/** Anomaly span of a surface-heat legend, °C either side of the tile median, unless the card says (`span_c`). */
+/** Anomaly span of a surface-heat legend, °C either side of the tile median, for a card with no fixed scale. */
 const HEAT_SPAN = 6;
 
 /** A raster or the centre tile of a raster-set, for medians and meta. */
@@ -91,14 +91,15 @@ export const KINDS = {
   'raster-months': {
     field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, ctx.monthFrac),
     /**
-     * An anomaly around the tile's median for the month: "hotter than the rest
-     * of the city" is the question. Nights spread less than mornings, so the
-     * card can narrow the span.
+     * A fixed scale (the card's `scale_c`), so that one colour is one
+     * temperature everywhere — Seville and Helsinki, July and January — and
+     * the readout says how a place stands against its area. Without one, an
+     * anomaly around the tile's median.
      */
     domain(s, ctx, card) {
+      if (card?.scale_c) return card.scale_c;
       const med = blendedMedian(s, ctx.monthFrac);
-      const span = card?.span_c ?? HEAT_SPAN;
-      return med === null ? null : [med - span, med + span];
+      return med === null ? null : [med - HEAT_SPAN, med + HEAT_SPAN];
     },
     stops: () => heatStops(),
     legend: ([lo, hi]) => ({ lo: `${lo.toFixed(0)} °C`, hi: `${hi.toFixed(0)} °C` }),
@@ -176,9 +177,11 @@ export const LAYERS = [
     id: 'temperature',
     theme: 'heat',
     label: 'Heat',
-    tip: 'Surface heat<em>What the roofs and streets read, by month — in the morning, and wherever it is computed at night</em>',
+    tip: 'Surface heat<em>What the ground reads by month: a clear morning while the sun is up, a clear night once it is down</em>',
     icon: ICONS.heat,
     defaultKind: 'raster-months',
+    /** Morning or night by the sun at the point, not by a switch. */
+    byDaypart: true,
     render: 'drape',
     slot: 'ground',
     alpha: 0.5,
@@ -207,7 +210,9 @@ export const LAYERS = [
      * shows the habit; this says what that day was (or is forecast) like.
      */
     id: 'dayair',
-    label: 'Air on the day',
+    label: 'On the day',
+    /** Read inside the Air card. */
+    attachTo: 'air',
     tip: 'Air quality on the selected day and hour, CAMS forecast or archive',
     icon: ICONS.air,
     source: 'air',
@@ -276,9 +281,23 @@ applyCatalog(FALLBACK);
 /** Is there anything for this layer to show — a source, or a variant with one? */
 export const available = layer => !!(layer.source || layer.modes);
 
-/** The mode a layer is in, from its preference, or null for a single-source layer. */
+/**
+ * Is the sun up at the point? Set by the engine as the clock moves; a theme
+ * whose variants are parts of the day (heat: morning, night) follows it
+ * rather than a preference — the date and time are the one selector.
+ */
+let daylight = true;
+export const setDaylight = up => { const changed = up !== daylight; daylight = up; return changed; };
+
+/** The mode a layer is in, from the hour or its preference, or null for a single-source layer. */
 export function modeOf(layer, prefs) {
   if (!layer.modes) return null;
+  if (layer.byDaypart) {
+    const want = daylight ? 'day' : 'night';
+    // A catalog older than `daypart` says it in words (`when`: mornings, nights).
+    const part = key => { const c = cardOf(key); return c?.daypart ?? (c?.when === 'nights' ? 'night' : 'day'); };
+    return layer.modes.choices.find(c => part(c.key) === want)?.key ?? layer.modes.fallback;
+  }
   const value = prefs[layer.modes.pref];
   return layer.modes.choices.some(c => c.key === value) ? value : layer.modes.fallback;
 }

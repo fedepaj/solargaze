@@ -1,7 +1,7 @@
 /** Help, settings and the first-run key prompt — all in one sheet element. */
 
-import { state, setPref, setIonToken } from '../state.js';
-import { applyShadowSettings } from '../scene.js';
+import { state, setPref, setIonToken, emit } from '../state.js';
+import { applyShadowSettings, tilesetVisible } from '../scene.js';
 import { ION_CLIENT_ID, resetAll } from '../config.js';
 import * as ionAuth from '../ion-auth.js';
 import { toast } from './toast.js';
@@ -334,6 +334,10 @@ function openSettings() {
 
     <h3>MESH</h3>
     <div class="rowopt">
+      <div>3D world<small>Off, a flat street map: lighter, and no shadows.</small></div>
+      <button class="switch" id="set-basemap" aria-pressed="${tilesetVisible()}"></button>
+    </div>
+    <div class="rowopt">
       <div>Tile detail<small>Finer tiles are sharper and spend the ion quota faster.</small></div>
       <div class="seg" id="seg-mesh">
         ${[['Fine', 16], ['Balanced', 24], ['Light', 32]].map(([label, v]) =>
@@ -343,7 +347,7 @@ function openSettings() {
 
     <h3>OVERLAY</h3>
     <div class="rowopt">
-      <div>Sun path &amp; compass<small>The ring, the day arc and the readouts.</small></div>
+      <div>Sun path &amp; compass<small>The beam, the ring, the day arc and the readouts — the Sun card's switch.</small></div>
       <button class="switch" data-pref="sunPath" aria-pressed="${p.sunPath}"></button>
     </div>
     <div class="rowopt">
@@ -404,6 +408,10 @@ function openSettings() {
         applyShadowSettings();
       });
 
+      root.querySelector('#set-basemap').addEventListener('click', e => {
+        emit('basemap-toggle');
+        e.currentTarget.setAttribute('aria-pressed', String(tilesetVisible()));
+      });
       root.querySelector('#seg-mesh').addEventListener('click', e => {
         const btn = e.target.closest('button[data-sse]');
         if (!btn) return;
@@ -491,7 +499,7 @@ const CLIPS = [
   {
     id: 'guide-analyze',
     heading: 'How many hours of sun',
-    body: 'The ANALYZE tab ray-casts against the buildings actually around the point and ' +
+    body: 'The Sun card ray-casts against the buildings actually around the point and ' +
           'counts the hours of direct sun it gets on the selected day, sampling every ten ' +
           'minutes. It can only test geometry that is loaded, so zoom in until the ' +
           'surroundings are sharp before you trust the number.',
@@ -500,11 +508,11 @@ const CLIPS = [
   {
     id: 'guide-heat',
     heading: 'Heat by morning and by night',
-    body: 'Switch on Heat in the rail and the ground takes the colour of its surface ' +
-          'temperature against the rest of the area, with the legend on the map. In ANALYZE, ' +
-          'Morning is a clear 10:30 from Landsat; Night is a clear night from ECOSTRESS on the ' +
-          'Space Station, when the stone of a city gives back the day\'s heat and the parks ' +
-          'and fields cool.',
+    body: 'Switch on the Heat card and the ground takes the colour of its surface ' +
+          'temperature, one colour one temperature everywhere. The clock decides which: while ' +
+          'the sun is up, a clear 10:30 from Landsat; once it is down, a clear night from ' +
+          'ECOSTRESS on the Space Station, when the stone of a city gives back the day\'s heat ' +
+          'and the parks and fields cool.',
     caption: 'A July morning, then a July night, around the Colosseum.',
   },
 ];
@@ -584,18 +592,19 @@ function openHelp() {
     ${keyTable(TOUCH_KEYS)}
 
     <h3>HEAT, AIR AND WIND</h3>
-    <p>The map shows what a place is <b>like</b>: switch a layer on in the rail on the left, and
-       its legend appears on the map; the ANALYZE tab reads every one of them at the pin.
-       <b>Surface heat</b> is the temperature of roofs, streets, fields and rock, coloured against
-       the rest of the area: <b>Morning</b> from Landsat, a median of clear passes at about 10:30
-       for the month on the date slider, and <b>Night</b> from ECOSTRESS on the Space Station,
-       clear passes between 21:00 and 05:00 — when a city gives back the day's heat. <b>Air</b> is the five-year habit for that month and
+    <p>The map shows what a place is <b>like</b>. The cards on the right are the layers: tap one
+       to draw it, and it carries its legend; every card reads its number at the point, drawn or
+       not, for the date and hour on the left. <b>Heat</b> is the temperature of roofs, streets,
+       fields and rock, on a fixed scale: while the sun is up at the point, the <b>morning</b>
+       from Landsat, a median of clear passes at about 10:30 for the month; once it is down, the
+       <b>night</b> from ECOSTRESS on the Space Station, clear passes between 21:00 and 05:00 —
+       when a city gives back the day's heat. <b>Air</b> is the five-year habit for that month and
        hour, street by street at 50 m: CAMS corrected for the roads, buildings and green around
        each street by a model fitted to the monitoring stations, ozone from NO₂ by titration.
        <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>
     <p>What a particular day was like sits beside them: the weather chip in the corner gives
-       the temperature at the hour on the clock and the day's sky, and <b>Air on the day</b> in
-       ANALYZE the air from the CAMS forecast or archive. A day beyond the forecast horizon is
+       the temperature at the hour on the clock and the day's sky, and <b>On the day</b> in the
+       Air card the air from the CAMS forecast or archive. A day beyond the forecast horizon is
        shown with the same date a year earlier, as a stand-in for the season. Where no tile has
        been computed yet the map is greyed; read the fine print under the numbers for what each
        source can and cannot say.</p>

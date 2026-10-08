@@ -117,9 +117,6 @@ export function initTimePanel() {
   });
   $('btn-play').addEventListener('click', togglePlayback);
 
-  /* ── tabs ─────────────────────────────────────────────────────── */
-  for (const tab of TABS) $(`tab-${tab}`).addEventListener('click', () => setTab(tab));
-
   /* ── keyboard ─────────────────────────────────────────────────── */
   window.addEventListener('keydown', onKey);
 
@@ -131,20 +128,8 @@ export function initTimePanel() {
   render();
 }
 
-const TABS = ['visualize', 'analyze'];
 /** Where the year slider starts: the air-quality archive begins in 2013. */
 const YEAR_FROM = 2013;
-
-function setTab(tab) {
-  state.tab = tab;
-  for (const name of TABS) {
-    const active = name === tab;
-    $(`tab-${name}`).classList.toggle('is-active', active);
-    $(`tab-${name}`).setAttribute('aria-selected', String(active));
-    $(`pane-${name}`).hidden = !active;
-  }
-  emit('tab', tab);
-}
 
 /** Equinox and solstice marks under the year slider. Only the year moves them. */
 function buildSeasonTicks() {

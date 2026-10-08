@@ -1,32 +1,35 @@
 /**
- * The waiting state, as a sun.
+ * The waiting state, as the mark in motion.
  *
- * Every spinner in here is the same mark: a disc that breathes and eight rays
- * that retract into it and stretch back out while the whole card turns. It is
- * the favicon and the wordmark in motion, which is the point — a generic ring
- * would say "something is loading", and this says "SolarGaze is loading".
+ * The logo is a sun over two contour lines; here the sun rises and sets
+ * behind the nearer one while the lines flow past, like hills seen from a
+ * moving train or water in a light wind. The same mark as the wordmark and
+ * the favicon, which is the point: a generic ring would say "something is
+ * loading", and this says "SolarGaze is loading".
  *
  * The SVG carries no size of its own. It fills its host, and the host is sized
  * with `font-size`, so the same markup serves the 16 px slot in the search bar
  * and the 34 px one in the middle of a pane. See `.sunload` in app.css.
  */
 
-/** Eight rays on the 45° marks, each 3.4 units long, from r=6.3 out to r=9.7. */
-const RAYS = [
-  'M12 5.7V2.3',
-  'M16.46 7.55 18.86 5.14',
-  'M18.3 12h3.4',
-  'M16.46 16.46 18.86 18.86',
-  'M12 18.3v3.4',
-  'M7.55 16.46 5.14 18.86',
-  'M5.7 12H2.3',
-  'M7.55 7.55 5.14 5.14',
-];
+/**
+ * Two contour lines long enough to slide by one period without showing an
+ * end: half-waves of 13 units (the near line) and 10 (the far one), as in
+ * the logo, repeated.
+ */
+const wave = (x0, y, half, amp, n) => {
+  let d = `M${x0} ${y}c${half / 3} ${-amp} ${(2 * half) / 3} ${-amp} ${half} 0`;
+  for (let i = 1; i < n; i++) d += `s${(2 * half) / 3} ${i % 2 ? amp : -amp} ${half} 0`;
+  return d;
+};
 
 const SVG =
-  '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-  '<circle class="sl-core" cx="12" cy="12" r="4.4"/>' +
-  `<g class="sl-rays">${RAYS.map(d => `<path d="${d}"/>`).join('')}</g>` +
+  '<svg viewBox="0 0 32 32" aria-hidden="true">' +
+  // The sun sinks below the near line, not through it.
+  '<clipPath id="sl-sky"><rect x="-4" y="-12" width="40" height="33.5"/></clipPath>' +
+  '<g clip-path="url(#sl-sky)"><circle class="sl-sun" cx="16" cy="12.5" r="7"/></g>' +
+  `<g class="sl-waves"><path class="sl-w1" d="${wave(-49, 21.5, 13, 3.2, 8)}"/>` +
+  `<path class="sl-w2" d="${wave(-14, 27.5, 10, 2.4, 7)}"/></g>` +
   '</svg>';
 
 /** Loader markup, for templates that build their HTML as a string. */

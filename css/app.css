@@ -85,7 +85,7 @@ button,input,select,.tab{touch-action:manipulation}
 
 /* ══════════════════ top left: wordmark ══════════════════ */
 .wordmark{
-  position:fixed;left:var(--gutter);top:var(--gutter);z-index:12;
+  position:relative;z-index:12;
   display:flex;align-items:center;gap:9px;height:44px;padding:0 18px 0 15px;
   border-radius:22px;text-decoration:none;color:#fff;
   background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
@@ -891,10 +891,13 @@ body.is-gated .maplegend{display:none}
 .wordmark{z-index:41}
 
 /* Hide the cockpit while there is no world under it. */
-body.is-gated .leftrail,
-body.is-gated .topright,
+body.is-gated .topleft > :not(.brandrow),
+body.is-gated #btn-help,
+body.is-gated .layerpanel,
 body.is-gated .tools,
 body.is-gated .bottomleft{display:none}
+/* The wordmark stays over the gate, as it always has. */
+body.is-gated .topleft{z-index:60}
 
 .gate-hero{
   margin:-8px -8px 20px;border-radius:var(--r-md);overflow:hidden;
@@ -928,44 +931,29 @@ body.is-gated .bottomleft{display:none}
 .gate-alt summary:hover{color:#fff}
 .gate-alt p{margin-top:10px}
 
-/* ══════════════════ the sun loader ══════════════════
-   A waiting state that belongs to this app rather than a generic ring: the
-   disc holds still, the rays breathe in and out of it, and the whole card
-   turns slowly. Sized by `font-size` on the host so one rule serves a 16px
-   slot in the search bar and a 34px one in the middle of a panel. */
+/* ══════════════════ the loader: the mark in motion ══════════════════
+   The sun rising and setting behind the contour lines as they flow past.
+   Sized by `font-size` on the host so one rule serves a 16px slot in the
+   search bar and a 34px one in the middle of a panel. */
 .sunload{
   display:inline-block;width:1em;height:1em;flex:none;
   color:var(--accent);vertical-align:-.15em;
 }
-.sunload svg{display:block;width:100%;height:100%;overflow:visible}
-.sunload .sl-core{
-  fill:currentColor;
-  transform-box:view-box;transform-origin:12px 12px;
-  animation:sl-breathe 1.5s ease-in-out infinite;
+.sunload svg{display:block;width:100%;height:100%;overflow:hidden}
+/* The sun rises and sets behind the near line; the lines flow by one period. */
+.sunload .sl-sun{
+  fill:var(--accent);
+  animation:sl-rise 2.8s cubic-bezier(.45,0,.55,1) infinite;
 }
-.sunload .sl-rays{
-  fill:none;stroke:currentColor;stroke-width:2.1;stroke-linecap:round;
-  transform-box:view-box;transform-origin:12px 12px;
-  animation:sl-turn 3.6s linear infinite;
+.sunload .sl-waves{fill:none;stroke:var(--cool);stroke-width:2.6;stroke-linecap:round}
+.sunload .sl-w1{animation:sl-flow1 3.2s linear infinite}
+.sunload .sl-w2{opacity:.55;animation:sl-flow2 4.4s linear infinite}
+@keyframes sl-rise{0%,100%{transform:translateY(0)}50%{transform:translateY(8.5px)}}
+@keyframes sl-flow1{to{transform:translateX(26px)}}
+@keyframes sl-flow2{to{transform:translateX(-20px)}}
+@media (prefers-reduced-motion:reduce){
+  .sunload .sl-sun,.sunload .sl-w1,.sunload .sl-w2{animation-duration:12s}
 }
-/* Each ray is 3.4 units long; walking the dash offset out to its full length
-   retracts it into the disc and back. Staggering the eight makes the light
-   look like it is travelling round rather than pulsing all at once. */
-.sunload .sl-rays path{
-  stroke-dasharray:3.4;
-  animation:sl-ray 1.5s ease-in-out infinite;
-}
-.sunload .sl-rays path:nth-child(1){animation-delay:0s}
-.sunload .sl-rays path:nth-child(2){animation-delay:.09s}
-.sunload .sl-rays path:nth-child(3){animation-delay:.18s}
-.sunload .sl-rays path:nth-child(4){animation-delay:.27s}
-.sunload .sl-rays path:nth-child(5){animation-delay:.36s}
-.sunload .sl-rays path:nth-child(6){animation-delay:.45s}
-.sunload .sl-rays path:nth-child(7){animation-delay:.54s}
-.sunload .sl-rays path:nth-child(8){animation-delay:.63s}
-@keyframes sl-turn{to{transform:rotate(360deg)}}
-@keyframes sl-ray{0%,100%{stroke-dashoffset:3.1}50%{stroke-dashoffset:0}}
-@keyframes sl-breathe{0%,100%{transform:scale(.86)}50%{transform:scale(1)}}
 
 /* Inside a button, standing in for the label while the work runs. */
 .is-working{display:inline-flex;align-items:center;justify-content:center;gap:9px}
@@ -1028,9 +1016,8 @@ body.is-demo #clock-btn,
 body.is-demo #date-pill,
 body.is-demo #btn-now,
 body.is-demo #btn-play,
-body.is-demo #tab-analyze,
+body.is-demo .layerpanel,
 body.is-demo .sliderrow:last-child,
-body.is-demo .leftrail,
 body.is-demo .tools,
 body.is-demo .bottomleft{
   pointer-events:none;opacity:.32;filter:grayscale(1);
@@ -1050,3 +1037,138 @@ body.is-gated #meshload{display:none}
   box-shadow:0 0 0 3px rgba(var(--accent-rgb),.16),0 2px 10px rgba(0,0,0,.35);
 }
 .shot-wrap.is-missing .markbox{display:none}
+
+
+/* ══════════════════ layout: who, where, when on the left; what to see on the right ══════════════════
+   The left column is the identity (with the guide beside it), the search
+   and the one selector of date and time that everything reads from. The
+   right panel is a stack of cards, one per theme, each a switch. The point's
+   own controls join the view tools at the bottom right. */
+.topleft{
+  position:fixed;left:var(--gutter);top:var(--gutter);z-index:11;
+  width:min(380px,calc(100vw - 2*var(--gutter)));
+  display:flex;flex-direction:column;gap:10px;
+}
+.brandrow{display:flex;align-items:center;gap:8px}
+.brandrow .round{width:44px;height:44px;font-size:19px}
+.topleft .results{right:0}
+.datepanel{padding:14px 18px 16px}
+
+.layerpanel{
+  position:fixed;right:var(--gutter);top:var(--gutter);z-index:11;
+  width:min(372px,calc(100vw - 2*var(--gutter)));
+  max-height:calc(100vh - 2*var(--gutter) - 72px);
+  display:flex;flex-direction:column;
+}
+.layerpane{padding:12px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:8px}
+#layer-rows{display:flex;flex-direction:column;gap:8px}
+/* Clear of the mouse card while it is open (a first visit's reminder). */
+body:has(.mousecard[data-open="true"]) .layerpanel{max-height:calc(100vh - 2*var(--gutter) - 230px)}
+
+/* A card: its head is the switch, and looks like one. */
+.lcard{
+  border-radius:var(--r-md);border:1px solid var(--stroke);background:rgba(255,245,235,.03);
+  padding:4px 12px 10px;transition:border-color .15s,background .15s;
+}
+.lcard.is-on{border-color:rgba(var(--accent-rgb),.65);background:rgba(var(--accent-rgb),.07)}
+.lcard-head{
+  display:flex;align-items:center;gap:9px;width:100%;height:40px;padding:0;
+  font-size:14px;font-weight:600;color:var(--text);text-align:left;cursor:pointer;
+}
+.lcard-head svg{width:19px;height:19px;flex:none;fill:none;stroke:var(--muted);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:stroke .15s}
+.lcard-head svg .fill{fill:currentColor;stroke:none}
+.lcard.is-on .lcard-head svg{stroke:var(--accent)}
+.lcard-name{flex:none}
+.lcard-tag{
+  font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  padding:2px 7px;border-radius:7px;background:rgba(255,245,235,.08);color:var(--muted);
+}
+.lcard-switch{
+  margin-left:auto;flex:none;position:relative;width:34px;height:20px;border-radius:10px;
+  background:rgba(255,245,235,.16);transition:background .18s;
+}
+.lcard-switch::after{
+  content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;transition:transform .18s;
+}
+.lcard.is-on .lcard-switch{background:var(--accent)}
+.lcard.is-on .lcard-switch::after{transform:translateX(14px)}
+.lcard-head:hover .lcard-switch{background:rgba(255,245,235,.26)}
+.lcard.is-on .lcard-head:hover .lcard-switch{background:var(--accent)}
+.lcard-read{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
+.lcard-read b{font-size:20px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.lcard-read span{font-size:11.5px;color:var(--muted)}
+.lcard-read .band,.lcard-sub .band{
+  font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  padding:2px 7px;border-radius:7px;background:var(--c,#888);color:#111;align-self:center;
+}
+.lcard .seg-metric{margin:8px 0 0}
+.lcard-legend{margin-top:2px}
+.lcard-subs:empty{display:none}
+.lcard-sub{
+  display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;margin-top:8px;padding-top:8px;
+  border-top:1px solid var(--stroke);font-size:12px;
+}
+.lcard-sub-name{color:var(--muted);font-weight:600}
+.lcard-sub b{font-size:14px;font-weight:600}
+.lcard-sub span:last-child{font-size:11px;color:var(--muted);flex-basis:100%}
+.lcard-more{margin-top:8px}
+.lcard-more .ghost-cta{margin:0;width:100%;height:38px;font-size:13px}
+.lcard-more .bigstat{margin-top:10px}
+
+/* The point's controls in the tools row: lock, then the height arm. */
+.toolrow .point-card{flex-direction:row;align-items:center}
+.toolrow .card-row{padding:4px}
+.toolrow .card-row-top{border-radius:26px 0 0 26px}
+.toolrow .card-row-alt{width:52px;border-radius:0 26px 26px 0}
+.toolrow .card-row-alt.is-open{width:166px;border-radius:0 26px 26px 0}
+.toolrow .icon-btn{width:44px;height:44px}
+
+@media (max-width:940px){
+  .topleft{width:min(340px,calc(50vw - var(--gutter)))}
+  .layerpanel{width:min(330px,calc(50vw - 2*var(--gutter)))}
+  .datepanel{padding:12px 14px 14px}
+}
+@media (max-width:640px){
+  /* The phone rules above were written for a panel docked at the bottom;
+     the date panel is not, and the layer panel docks itself. */
+  .datepanel,.layerpanel{margin:0}
+  .datepanel{border-radius:var(--r-md)}
+  /* A phone: identity and search on top, the date under them as a compact
+     strip, the cards as the bottom sheet, the tools on the right. */
+  .topleft{
+    top:calc(var(--gutter) + var(--top-inset));left:var(--gutter);right:var(--gutter);width:auto;gap:8px;
+  }
+  .brandrow .round{width:40px;height:40px;font-size:17px}
+  .topleft .search{height:42px;padding-left:14px}
+  .topleft .search input{font-size:16px}
+  .datepanel{padding:8px 12px 10px}
+  .datepanel .sliderrow{margin-top:6px}
+  .datepanel .clock{font-size:22px}
+  /* The hour stays a slider; the day and the year are the date pill's (a
+     calendar), so the map keeps its middle. */
+  .datepanel .sliderrow + .sliderrow{display:none}
+  /* The credits are a strip across the top of the sheet, the tools above them. */
+  #scene .cesium-viewer-bottom{
+    top:auto!important;bottom:calc(var(--panel-h) + 4px)!important;
+    left:var(--gutter)!important;right:var(--gutter)!important;
+  }
+  .layerpanel{
+    top:auto;bottom:0;left:0;right:0;width:auto;max-height:46vh;
+    border-radius:var(--r-md) var(--r-md) 0 0;
+  }
+  .layerpanel .sheet-handle{display:grid}
+  .layerpanel.is-collapsed .layerpane{display:none}
+  .layerpane{padding:8px 10px calc(10px + var(--bottom-inset))}
+  .lcard{padding:2px 10px 8px}
+  .lcard-head{height:36px;font-size:13.5px}
+  .lcard-read b{font-size:18px}
+  .tools{
+    right:var(--gutter);bottom:calc(var(--panel-h) + 58px);top:auto;
+  }
+  .toolrow{flex-direction:row;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+  .toolrow .round,.toolrow .compass{width:42px;height:42px}
+  .toolrow .icon-btn{width:36px;height:36px}
+  .toolrow .card-row-alt{width:44px}
+  .toolrow .card-row-alt.is-open{width:150px}
+}

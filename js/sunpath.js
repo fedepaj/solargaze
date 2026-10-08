@@ -6,7 +6,6 @@
  * elevation 42.6°" turns into a world position with no map-projection fudging.
  */
 
-import { LAYERS } from './atmo/layers.js';
 import { state, on, pointHeight } from './state.js';
 import { viewer, distanceTo, requestRender } from './scene.js';
 import { daySampler } from './solar.js';
@@ -303,13 +302,14 @@ export function initSunPath() {
       },
     }),
 
+    // The studied point, always shown: the place every number is read at.
     pin: e.add({
       position: anchorCartesian(),
       point: {
-        pixelSize: 9,
+        pixelSize: 11,
         color: C.Color.WHITE,
-        outlineColor: C.Color.BLACK.withAlpha(0.6),
-        outlineWidth: 2,
+        outlineColor: C.Color.fromCssColorString('#e2673f'),
+        outlineWidth: 3,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
     }),
@@ -377,7 +377,7 @@ export function initSunPath() {
   on('altitude', () => schedule({ sun: true, arc: true, frame: true }));
   on('camera', () => schedule({ frame: true }));
   on('pref', ({ key }) => {
-    if (key === 'sunPath' || key === 'layers') schedule({ sun: true, arc: true, frame: true });
+    if (key === 'sunPath') schedule({ sun: true, arc: true, frame: true });
   });
 
   // Cesium rasterises label text immediately; redo it once Inter is available.
@@ -516,12 +516,10 @@ let lastAnchorZ = NaN;
 let lastRadius = NaN;
 
 /**
- * The compass card and the day's arc, unless a layer is colouring the
- * ground: then they would sit on the very data being read, and they step
- * aside until it is switched off. The preference is left as it was.
+ * The point is always marked; the Sun card adds to it the beam arriving from
+ * the sun, the compass card, the day's arc and the readouts.
  */
-export const groundTaken = () => LAYERS.some(l => l.render === 'drape' && state.prefs.layers?.[l.id]);
-export const sunPathShown = () => state.prefs.sunPath && !groundTaken();
+export const sunPathShown = () => state.prefs.sunPath;
 
 export function update(parts = { sun: true, arc: true, frame: true }) {
   if (!ents || !viewer) return;
@@ -531,13 +529,26 @@ export function update(parts = { sun: true, arc: true, frame: true }) {
     lastVisible = visible;
     // Writing `show` raises a definitionChanged on every entity it touches, so
     // do it when the answer changes — not on all eight, sixty times a second.
-    for (const key of entKeys) ents[key].show = visible;
+    for (const key of entKeys) if (key !== 'pin') ents[key].show = visible;
+    ents.pin.show = true;
     if (rosePrimitive) rosePrimitive.show = visible;
     requestRender();
   }
-  if (!visible) return;
 
   const anchor = updateAnchor();
+  if (!visible) {
+    // The marker alone, wherever the point goes.
+    if (anchor.x !== lastAnchorX || anchor.y !== lastAnchorY || anchor.z !== lastAnchorZ) {
+      lastAnchorX = anchor.x;
+      lastAnchorY = anchor.y;
+      lastAnchorZ = anchor.z;
+      // The card and the arc were left where they were: rebuild them on show.
+      lastRadius = NaN;
+      ents.pin.position.setValue(C.Cartesian3.clone(anchor, new C.Cartesian3()));
+      requestRender();
+    }
+    return;
+  }
   const frame = C.Transforms.eastNorthUpToFixedFrame(anchor, C.Ellipsoid.WGS84, frameMatrix);
 
   // Resize only in steps: rebuilding for every pixel of zoom was pure waste.
