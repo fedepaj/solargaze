@@ -207,7 +207,7 @@ export const LAYERS = [
      * shows the habit; this says what that day was (or is forecast) like.
      */
     id: 'dayair',
-    label: 'That day',
+    label: 'Air on the day',
     tip: 'Air quality on the selected day and hour, CAMS forecast or archive',
     icon: ICONS.air,
     source: 'air',

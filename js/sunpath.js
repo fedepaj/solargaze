@@ -6,6 +6,7 @@
  * elevation 42.6°" turns into a world position with no map-projection fudging.
  */
 
+import { LAYERS } from './atmo/layers.js';
 import { state, on, pointHeight } from './state.js';
 import { viewer, distanceTo, requestRender } from './scene.js';
 import { daySampler } from './solar.js';
@@ -376,7 +377,7 @@ export function initSunPath() {
   on('altitude', () => schedule({ sun: true, arc: true, frame: true }));
   on('camera', () => schedule({ frame: true }));
   on('pref', ({ key }) => {
-    if (key === 'sunPath') schedule({ sun: true, arc: true, frame: true });
+    if (key === 'sunPath' || key === 'layers') schedule({ sun: true, arc: true, frame: true });
   });
 
   // Cesium rasterises label text immediately; redo it once Inter is available.
@@ -514,10 +515,18 @@ let lastAnchorY = NaN;
 let lastAnchorZ = NaN;
 let lastRadius = NaN;
 
+/**
+ * The compass card and the day's arc, unless a layer is colouring the
+ * ground: then they would sit on the very data being read, and they step
+ * aside until it is switched off. The preference is left as it was.
+ */
+export const groundTaken = () => LAYERS.some(l => l.render === 'drape' && state.prefs.layers?.[l.id]);
+export const sunPathShown = () => state.prefs.sunPath && !groundTaken();
+
 export function update(parts = { sun: true, arc: true, frame: true }) {
   if (!ents || !viewer) return;
 
-  const visible = state.prefs.sunPath;
+  const visible = sunPathShown();
   if (visible !== lastVisible) {
     lastVisible = visible;
     // Writing `show` raises a definitionChanged on every entity it touches, so

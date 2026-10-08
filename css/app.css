@@ -119,6 +119,8 @@ button,input,select,.tab{touch-action:manipulation}
 .icon-btn[aria-pressed="false"]{color:rgba(255,255,255,.4)}
 .icon-btn.is-on{background:var(--accent);color:var(--accent-ink)}
 .icon-btn.is-on:hover{background:var(--accent);filter:brightness(1.06)}
+/* On, but stepping aside for now (the sun path while a layer colours the ground). */
+.icon-btn.is-on.is-muted{background:rgba(246,208,47,.16);color:var(--accent)}
 
 /* the pin-and-padlock: the shackle lifts and tilts when unlocked */
 /* Seat the lock lower in the head. Centring it on the circle leaves the glyph
@@ -194,7 +196,9 @@ button,input,select,.tab{touch-action:manipulation}
 }
 .searchrow{position:relative;display:flex;gap:10px;align-items:center}
 .search{
-  flex:1;display:flex;align-items:center;gap:10px;height:52px;padding:0 8px 0 18px;
+  /* min-width:0 or the bar keeps its content's width and pushes the help
+     button off a phone's edge. */
+  flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:52px;padding:0 8px 0 18px;
   border-radius:var(--r-lg);border:1px solid transparent;transition:border-color .15s;
 }
 .search:focus-within{border-color:rgba(246,208,47,.5)}
@@ -363,6 +367,34 @@ button,input,select,.tab{touch-action:manipulation}
   background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.55);transition:left .25s ease;
 }
 .legend-lbl{display:flex;justify-content:space-between;margin-top:4px;font-size:10.5px;color:var(--muted-2)}
+.atmo-label{
+  display:flex;align-items:center;gap:7px;flex:none;min-width:96px;height:36px;padding:0 13px;
+  border-radius:18px;background:rgba(255,255,255,.06);color:var(--muted);font-size:12.5px;font-weight:600;
+}
+.atmo-label svg{width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.atmo-label svg .fill{fill:currentColor;stroke:none}
+/* Drawn on the map right now: said, not offered — the switch is the rail's. */
+.atmo-label.is-on{color:var(--accent);background:rgba(246,208,47,.12)}
+.fineprint{margin-top:12px}
+.fineprint summary{cursor:pointer;font-size:11.5px;color:var(--muted);list-style:none}
+.fineprint summary::-webkit-details-marker{display:none}
+.fineprint summary::before{content:'›';display:inline-block;margin-right:6px;transition:transform .15s}
+.fineprint[open] summary::before{transform:rotate(90deg)}
+.fineprint .atmo-fine{margin-top:8px}
+
+/* The legend of the layer colouring the ground, over the map, above the
+   weather chip; on narrower screens above the rail row. */
+.maplegend{
+  position:fixed;left:var(--gutter);bottom:calc(var(--gutter) + 46px + 10px);z-index:10;
+  width:250px;padding:10px 14px 9px;border-radius:var(--r-md);
+  background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  box-shadow:0 8px 28px rgba(0,0,0,.35);
+}
+.maplegend .ml-title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#fff}
+.maplegend .ml-title svg{width:15px;height:15px;flex:none;fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.maplegend .ml-title svg .fill{fill:var(--accent);stroke:none}
+.maplegend .legend{margin-top:8px}
+body.is-gated .maplegend{display:none}
 .atmo-err{color:#ffb4b4}
 .atmo-fine{margin:12px 0 0;font-size:11px;color:var(--muted-2)}
 
@@ -595,6 +627,7 @@ button,input,select,.tab{touch-action:manipulation}
   .group-label{display:none}
   .bottomleft{display:none}
   .mousecard{display:none}
+  .maplegend{bottom:var(--gutter)}
   .clock{font-size:25px}
   .cesium-viewer-bottom .cesium-widget-credits{max-width:calc(100% - 260px)}
 }
@@ -676,6 +709,11 @@ button,input,select,.tab{touch-action:manipulation}
   #scene .cesium-viewer-bottom img{height:12px;width:auto;vertical-align:middle}
   .atmo-fine{font-size:10px;margin-top:8px}
   .atmo-item + .atmo-item{margin-top:8px}
+  .atmo-label{min-width:0;padding:0 11px;font-size:12px}
+  .maplegend{
+    left:var(--gutter);width:min(250px,calc(100vw - 2*var(--gutter) - 60px));padding:8px 12px 7px;
+    bottom:calc(var(--panel-h) + var(--gutter) + var(--bottom-inset) + 54px);
+  }
 
   .toast{top:calc(var(--gutter) + var(--top-inset) + 66px);bottom:auto;font-size:12.5px;padding:10px 16px}
   @keyframes rise{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}

@@ -216,9 +216,20 @@
         <div class="striplabels"><span id="an-from">–</span><span id="an-to">–</span></div>
         <p class="hint" id="an-note"></p>
       </div>
-      <p class="hint atmo-fine" id="atmo-fine"></p>
+      <details class="fineprint">
+        <summary>How to read these numbers</summary>
+        <p class="hint atmo-fine" id="atmo-fine"></p>
+      </details>
     </div>
   </section>
+</div>
+
+<!-- ═══════════════ the legend of the layer on the ground ═══════════════ -->
+<!-- Filled by js/ui/airpane.js; hidden while nothing colours the ground. -->
+<div id="maplegend" class="maplegend" hidden>
+  <div class="ml-title"></div>
+  <div class="legend"><i class="legend-mark"></i></div>
+  <div class="legend-lbl"><span class="ml-lo">–</span><span class="ml-hi">–</span></div>
 </div>
 
 <!-- ═══════════════ bottom left: status ═══════════════ -->

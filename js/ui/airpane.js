@@ -1,15 +1,17 @@
 /**
- * The readings in the ANALYZE tab and the rail's Layers group, both
- * generated from the layer registry: a switch per theme, the number at the
- * point, a strip of variants where the catalog gives the theme more than
- * one (morning, night …), an option strip where it has one, and a legend
- * where it paints the ground. Nothing in here knows what a layer *is*; add
- * one to atmo/layers.js, or a product to the pipeline's catalog, and it
- * appears. Both are rebuilt when the catalog lands.
+ * The rail's Layers group, the readings in the ANALYZE tab and the legend on
+ * the map, all generated from the layer registry. A layer is switched on in
+ * one place only, the rail; ANALYZE reads every theme at the point whether
+ * it is drawn or not, with a strip of variants where the catalog gives the
+ * theme more than one (morning, night …) and an option strip where it has
+ * one; the legend sits on the map, for the layer colouring the ground, with
+ * the point's value marked on it. Nothing in here knows what a layer *is*;
+ * add one to atmo/layers.js, or a product to the pipeline's catalog, and it
+ * appears. All of it is rebuilt when the catalog lands.
  */
 
 import { state, on, setPref } from '../state.js';
-import { atmo, readings, dateNote, sourceNotes, toggleLayer, isOn, optionOf, layerPrefs, currentSource } from '../atmo.js';
+import { atmo, readings, dateNote, sourceNotes, toggleLayer, isOn, optionOf, layerPrefs, currentSource, contextFor } from '../atmo.js';
 import { LAYERS, modeOf, optionsOf, available } from '../atmo/layers.js';
 import { cssGradient } from '../atmo/scales.js';
 
@@ -40,10 +42,12 @@ export function initAirPane() {
   on('location', schedule);
   on('date', schedule);
   on('tab', schedule);
+  on('camera', schedule);
 
   $('atmo-fine').textContent = sourceNotes();
   paintToggles();
   render();
+  renderLegend();
 }
 
 function buildRail() {
@@ -72,9 +76,7 @@ function buildRows() {
     el.className = 'atmo-item';
     el.innerHTML = `
       <div class="atmo-row">
-        ${layer.render
-          ? `<button class="atmo-toggle" id="chip-${layer.id}" aria-pressed="false" title="Draw it on the map">${svg(layer.icon)}<span>${layer.label}</span></button>`
-          : `<span class="atmo-label">${svg(layer.icon)}<span>${layer.label}</span></span>`}
+        <span class="atmo-label" id="chip-${layer.id}">${svg(layer.icon)}<span>${layer.label}</span></span>
         <div class="atmo-read">
           <svg class="wind-arrow" hidden viewBox="0 0 24 24"><path d="M12 3v18M6 9l6-6 6 6"/></svg>
           <b>…</b>
@@ -84,19 +86,15 @@ function buildRows() {
       </div>
       ${layer.modes?.choices.length > 1 ? `<div class="seg seg-mode">${layer.modes.choices.map(c =>
         `<button data-mode="${c.key}" title="${c.title}">${c.label}</button>`).join('')}</div>` : ''}
-      ${optionsOf(layer, layer.modes?.fallback ?? null) ? '<div class="seg seg-metric"></div>' : ''}
-      ${layer.render === 'drape' ? `<div class="legend"><i class="legend-mark"></i></div>
-        <div class="legend-lbl"><span>–</span><span>–</span></div>` : ''}`;
+      ${optionsOf(layer, layer.modes?.fallback ?? null) ? '<div class="seg seg-metric"></div>' : ''}`;
     host.appendChild(el);
 
     const q = sel => el.querySelector(sel);
     rows.set(layer.id, {
-      chip: q('.atmo-toggle'), value: q('.atmo-read b'), band: q('.band'), sub: q('.atmo-read span'),
-      arrow: q('.wind-arrow'), seg: q('.seg-metric'), modes: q('.seg-mode'), bar: q('.legend'), mark: q('.legend-mark'),
-      lo: q('.legend-lbl span:first-child'), hi: q('.legend-lbl span:last-child'),
+      chip: q('.atmo-label'), value: q('.atmo-read b'), band: q('.band'), sub: q('.atmo-read span'),
+      arrow: q('.wind-arrow'), seg: q('.seg-metric'), modes: q('.seg-mode'),
     });
 
-    q('.atmo-toggle')?.addEventListener('click', () => toggleLayer(layer.id));
     q('.seg-mode')?.addEventListener('click', e => {
       const btn = e.target.closest('button[data-mode]');
       if (btn) setPref(layer.modes.pref, btn.dataset.mode);
@@ -122,7 +120,34 @@ function paintToggles() {
 /** Playback fires `time` every frame; the pane reads fine at four a second. */
 function schedule() {
   if (renderTimer) return;
-  renderTimer = setTimeout(() => { renderTimer = null; render(); }, 250);
+  renderTimer = setTimeout(() => { renderTimer = null; render(); renderLegend(); }, 250);
+}
+
+/**
+ * The legend of the layer colouring the ground, on the map: what it is, the
+ * ramp it is painted with, its ends, and the value at the point marked on
+ * it. Hidden when nothing colours the ground.
+ */
+function renderLegend() {
+  const box = $('maplegend');
+  if (!box) return;
+  const layer = LAYERS.find(l => available(l) && l.render === 'drape' && isOn(l.id));
+  const series = layer && atmo.series[currentSource(layer)];
+  const ctx = layer && contextFor(layer);
+  const domain = series ? layer.domain(series, ctx) : null;
+  box.hidden = !domain;
+  if (!domain) return;
+  const variant = layer.modes?.choices.length > 1 ? layer.modes.choices.find(c => c.key === ctx.mode)?.label : '';
+  const option = optionsOf(layer, ctx.mode)?.choices.find(c => c.key === ctx.option)?.label || '';
+  box.querySelector('.ml-title').innerHTML = `${svg(layer.icon)}<span>${[layer.label, variant, option].filter(Boolean).join(' · ')}</span>`;
+  box.querySelector('.legend').style.setProperty('--ramp', cssGradient(layer.stops(ctx)));
+  const { lo, hi } = layer.legend(domain, ctx);
+  box.querySelector('.ml-lo').textContent = lo;
+  box.querySelector('.ml-hi').textContent = hi;
+  const r = layer.reading(series, state.lat, state.lon, state.utc.getTime(), ctx);
+  const mark = box.querySelector('.legend-mark');
+  mark.hidden = !r;
+  if (r) mark.style.left = pct(r.value, domain[0], domain[1]);
 }
 
 const pct = (v, lo, hi) => `${(Math.min(Math.max((v - lo) / (hi - lo || 1), 0), 1) * 100).toFixed(1)}%`;
@@ -150,16 +175,6 @@ function render() {
           `<button data-option="${c.key}" title="${c.title}">${c.label}</button>`).join('');
       }
       for (const btn of el.seg.querySelectorAll('button')) btn.classList.toggle('is-on', btn.dataset.option === ctx.option);
-    }
-    if (el.bar) {
-      el.bar.style.setProperty('--ramp', cssGradient(layer.stops(ctx)));
-      const domain = r?.domain;
-      if (domain) {
-        const { lo, hi } = layer.legend(domain, ctx);
-        el.lo.textContent = lo;
-        el.hi.textContent = hi;
-        el.mark.style.left = pct(r.value, domain[0], domain[1]);
-      }
     }
 
     if (r) {
