@@ -1103,7 +1103,9 @@ body:has(.mousecard[data-open="true"]) .layerpanel{max-height:calc(100vh - 2*var
 .lcard.is-on .lcard-head:hover .lcard-switch{background:var(--accent)}
 .lcard-read{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
 .lcard-read b{font-size:20px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
-.lcard-read span{font-size:11.5px;color:var(--muted)}
+/* The detail always on its own line under the number: whether it fitted
+   beside it depended on the text, and the card jumped between two layouts. */
+.lcard-read span{font-size:11.5px;color:var(--muted);flex-basis:100%;margin-top:1px}
 .lcard-read .band,.lcard-sub .band{
   font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
   padding:2px 7px;border-radius:7px;background:var(--c,#888);color:#111;align-self:center;
