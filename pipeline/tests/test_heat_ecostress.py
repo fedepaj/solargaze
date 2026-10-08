@@ -50,5 +50,41 @@ class Night(unittest.TestCase):
                 he.token()
 
 
+
+class Isolated(unittest.TestCase):
+    """The night product builds each tile in a process of its own."""
+
+    def setUp(self):
+        import tempfile
+        from sg.products.heat_night import HeatNight
+        self.product = HeatNight()
+        self.stage = Path(tempfile.mkdtemp()) / ".heat_night.stage-test"
+        self.stage.mkdir()
+
+    def test_beyond_reach_comes_back_as_empty(self):
+        with self.assertRaises(NoData):
+            self.product.build("N59.75E10.50", self.stage, None)   # a real child process
+
+    def test_a_reader_that_dies_costs_one_tile_as_transient(self):
+        from sg.errors import Transient
+        with mock.patch("subprocess.run", return_value=mock.Mock(returncode=-6)):
+            with self.assertRaises(Transient) as cm:
+                self.product.build("N41.75E12.25", self.stage, None)
+        self.assertIn("signal 6", str(cm.exception))
+
+    def test_the_childs_own_classification_is_kept(self):
+        import json
+        from sg.errors import Transient
+        info = self.stage.parent / f".{self.stage.name}.info.json"
+
+        def child(*a, **k):
+            info.write_text(json.dumps({"kind": "transient", "per_tile": False, "msg": "ConnectionError: reset"}))
+            return mock.Mock(returncode=0)
+        with mock.patch("subprocess.run", side_effect=child):
+            with self.assertRaises(Transient):
+                self.product.build("N41.75E12.25", self.stage, None)
+        self.assertFalse(info.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

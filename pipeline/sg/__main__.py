@@ -578,6 +578,10 @@ def cmd_doctor(args) -> int:
 
 
 def main(argv=None) -> int:
+    # pipeline/.env first, whatever the command: a credential a product needs
+    # (Earthdata) must not depend on whether R2's are wanted (--no-publish).
+    import publish_tiles
+    publish_tiles.load_env()
     ap = argparse.ArgumentParser(prog="python -m sg", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 

@@ -205,10 +205,34 @@ def passes(tile: Tile) -> list[dict]:
     return sorted(found.values(), key=lambda p: p["time"])
 
 
+def _signed(url: str) -> str:
+    """The archive's url → the CDN url it redirects to, signed for an hour:
+    readable by GDAL's own HTTP reader without the token."""
+    r = _session().get(url, headers={"Range": "bytes=0-0"}, timeout=60)
+    if r.status_code in (401, 403):
+        raise Upstream(f"Earthdata: HTTP {r.status_code} for {url.rsplit('/', 1)[-1]} (token expired or not authorised)")
+    r.raise_for_status()
+    return r.url
+
+
+# GDAL reads the signed urls itself, which is safe from several threads; the
+# Python opener (RangeFile) is kept for a machine whose system resolver drops
+# names (SG_ECOSTRESS_READER=python), since only Python has the DNS fallback.
+# Under eight threads on the runners it aborted the process in GDAL
+# (std::length_error) every few tiles.
+PYTHON_READER = os.environ.get("SG_ECOSTRESS_READER") == "python"
+GDAL_ENV = {"CPL_VSIL_CURL_USE_HEAD": "NO", "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+            "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif", "GDAL_HTTP_MAX_RETRY": "4", "GDAL_HTTP_RETRY_DELAY": "2"}
+
+
 def _read(url: str, tile: Tile, shape, resampling) -> np.ndarray:
     w, s, e, n = tile.bounds
     transform = from_bounds(w, s, e, n, shape[1], shape[0])
-    with rasterio.open(url, opener=_opener) as src:
+    if PYTHON_READER:
+        ctx, path, kw = rasterio.Env(), url, {"opener": _opener}
+    else:
+        ctx, path, kw = rasterio.Env(**GDAL_ENV), "/vsicurl/" + _signed(url), {}
+    with ctx, rasterio.open(path, **kw) as src:
         with WarpedVRT(src, crs="EPSG:4326", transform=transform, width=shape[1], height=shape[0],
                        resampling=resampling, src_nodata=src.nodata, nodata=np.nan if src.dtypes[0].startswith("float") else 255) as vrt:
             return vrt.read(1)
@@ -319,10 +343,34 @@ def build(tile: Tile, out_dir: Path) -> dict:
     }
 
 
-if __name__ == "__main__":
+def _main(argv: list[str]) -> int:
+    """One tile, in a process of its own (sg/products/heat_night.py runs it
+    so): the meta entry, or the error's class and message, go to --info as
+    JSON; a crash in a native library takes only this process with it."""
+    import argparse
+    import json
     import publish_tiles
     import netdns  # noqa: F401
+    from sg.errors import NotCovered, PipelineError, classify
+    ap = argparse.ArgumentParser()
+    ap.add_argument("tile")
+    ap.add_argument("out")
+    ap.add_argument("--info", help="write the meta entry, or the error, here as JSON")
+    args = ap.parse_args(argv)
     publish_tiles.load_env()
-    t = Tile.parse(sys.argv[1]) if len(sys.argv) > 1 else Tile.containing(41.8905, 12.4924)
-    info = build(t, Path(sys.argv[2]) if len(sys.argv) > 2 else t.path / SUBDIR)
-    print({k: v for k, v in info.items() if k != "months"})
+    t = Tile.parse(args.tile)
+    try:
+        info = build(t, Path(args.out))
+        result = {"info": info}
+    except Exception as exc:  # noqa: BLE001 — classified here, where the type is known
+        result = {"kind": classify(exc), "per_tile": isinstance(exc, NotCovered),
+                  "msg": str(exc) if isinstance(exc, PipelineError) else f"{type(exc).__name__}: {exc}"}
+    if args.info:
+        Path(args.info).write_text(json.dumps(result))
+    else:
+        print(result.get("info") and {k: v for k, v in result["info"].items() if k != "months"} or result)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv[1:]))

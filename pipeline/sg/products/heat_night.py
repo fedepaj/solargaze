@@ -34,6 +34,28 @@ class HeatNight(Heat):
         return "no Earthdata credentials (EARTHDATA_TOKEN, or EARTHDATA_USERNAME and EARTHDATA_PASSWORD)"
 
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:
-        import heat_ecostress
-        from tiles import Tile
-        return heat_ecostress.build(Tile.parse(tile), stage)
+        """In a process of its own: a native library that aborts (GDAL did,
+        on the runners) takes that tile with it, recorded as a failure, and
+        not the run, its other tiles and its summary."""
+        import json
+        import subprocess
+        import sys
+        from .. import errors
+        script = Path(__file__).resolve().parents[2] / "heat_ecostress.py"
+        info_path = stage.parent / f".{stage.name}.info.json"
+        try:
+            proc = subprocess.run([sys.executable, str(script), tile, str(stage), "--info", str(info_path)],
+                                  timeout=3 * 3600)
+            if proc.returncode != 0 or not info_path.exists():
+                how = f"signal {-proc.returncode}" if proc.returncode < 0 else f"exit code {proc.returncode}"
+                raise errors.Transient(f"{tile}: the night-heat reader died ({how}); tile not written")
+            result = json.loads(info_path.read_text())
+        finally:
+            info_path.unlink(missing_ok=True)
+        if "info" in result:
+            return result["info"]
+        if result.get("per_tile"):
+            raise errors.NotCovered(result["msg"])
+        cls = {errors.TRANSIENT: errors.Transient, errors.NODATA: errors.NoData,
+               errors.UPSTREAM: errors.Upstream}.get(result["kind"], errors.PipelineError)
+        raise cls(result["msg"])
