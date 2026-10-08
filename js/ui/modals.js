@@ -497,6 +497,16 @@ const CLIPS = [
           'surroundings are sharp before you trust the number.',
     caption: 'A day\'s worth of direct sun, in about a second.',
   },
+  {
+    id: 'guide-heat',
+    heading: 'Heat by morning and by night',
+    body: 'Switch on Heat in the rail and the ground takes the colour of its surface ' +
+          'temperature against the rest of the area, with the legend on the map. In ANALYZE, ' +
+          'Morning is a clear 10:30 from Landsat; Night is a clear night from ECOSTRESS on the ' +
+          'Space Station, when the stone of a city gives back the day\'s heat and the parks ' +
+          'and fields cool.',
+    caption: 'A July morning, then a July night, around the Colosseum.',
+  },
 ];
 
 const clipFigure = clip => `

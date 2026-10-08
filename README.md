@@ -4,7 +4,7 @@
 
 <img src="docs/logo.svg" width="84" height="84" alt="">
 
-<p><strong>Sun and shadow, cast across Google's photorealistic 3D tiles.</strong></p>
+<p><strong>Explore the climate of any place.</strong></p>
 
 <p>
   <a href="https://fedepaj.github.io/solargaze/">Live</a> ·
@@ -18,20 +18,24 @@
 
 ---
 
-Pick a place, drag two sliders — time of day and day of year — and watch real
-shadows move across the same mesh Google Earth renders. No build step, no
+Go anywhere — a square, a village, a vineyard, a valley, a mountain ridge — and
+see what it is like to stand there. Drag two sliders, time of day and day of
+year, and real shadows move across the same 3D world Google Earth draws; switch
+on a layer and the ground shows which surfaces bake on a clear morning and stay
+warm on a clear night, how the air sits street by street, how the wind threads
+between the buildings. Hour by hour, season by season. No build step, no
 server: a folder of static files that runs on GitHub Pages.
 
 [![A day of light and shadow over the Colosseum](https://raw.githubusercontent.com/fedepaj/solargaze/assets/colosseum-day.gif)](https://fedepaj.github.io/solargaze/)
 
-<sub>Sunrise to sunset over the Colosseum, 8 September — <a href="https://fedepaj.github.io/solargaze/">try
+<sub>Sunrise to sunset over the Colosseum — <a href="https://fedepaj.github.io/solargaze/">try
 it live</a>. The ring is a compass card lying on the ground, the glowing arc is the sun's track
 for that day, and the beam arrives from the sun's direction into the studied point.</sub>
 
 ## What it does
 
 - **Google Photorealistic 3D Tiles** as the world, via Cesium ion — real
-  buildings, real geometry, shadows cast by the actual mesh.
+  buildings, terrain and trees, shadows cast by the actual mesh.
 - **Two sliders**: time of day (sunrise→sunset, or a full 24 h) and day of
   year, plus a date picker and a playback that sweeps the span in about half a
   minute.
@@ -40,11 +44,18 @@ for that day, and the beam arrives from the sun's direction into the studied poi
 - **Local wall clock** at the place you are looking at, DST included.
 - **Sun-hours probe** (ANALYZE tab): ray-casts against the loaded geometry to
   estimate hours of direct sun at the pin.
-- **Surface heat, street-scale air and wind** (ANALYZE tab, drawable on the
-  map), from products precomputed by [`pipeline/`](pipeline/): Landsat surface
-  temperature by month, the five-year air-quality habit by month and hour at
-  50 m, and the buildings the wind has to thread between; and the selected
-  day's weather and air, read at the pin.
+- **Layers, by theme** — switched on in the rail, read at the pin in the
+  ANALYZE tab, with their legend on the map — from products precomputed by
+  [`pipeline/`](pipeline/) over Europe and growing:
+  - **Heat**: the surface temperature of roofs, streets, fields and rock by
+    month, on a clear **morning** (Landsat, 90 m) and a clear **night**
+    (ECOSTRESS from the Space Station, 70 m) — when a city gives back the
+    day's heat;
+  - **Air**: the five-year habit of NO₂, PM10, PM2.5 and ozone by month and
+    hour, street by street at 50 m;
+  - **Wind**: the 10 m wind as drifting particles, threaded between the
+    buildings where a tile carries them;
+  - and the selected day's weather and air, read at the pin.
 - **Shareable links** that restore the exact view, date and time.
 - **Works on a phone**: the panel becomes a bottom sheet, the camera answers
   to fingers, and the shadow and tile budgets start lower.
@@ -94,11 +105,14 @@ until the surroundings are sharp before you trust the number.
 
 ### Heat, air and wind
 
-The map shows habits — what a place is like — and the ANALYZE tab reads them
-at the pin, with a switch on each row to draw one. **Surface heat** is the
-Landsat 8/9 temperature of roofs and streets, a per-pixel median of clear
-mid-morning scenes for the month on the date slider, coloured as an anomaly
-against the rest of the area. **Air** is the five-year CAMS habit for that
+The map shows habits — what a place is like. Switch a layer on in the rail and
+its legend appears on the map, the point's value marked on it; the ANALYZE tab
+reads every layer at the pin, drawn or not. **Heat** is the temperature of the
+surface — roofs, streets, fields, rock — for the month on the date slider,
+coloured as an anomaly against the rest of the area, in two variants: the
+**Morning**, a per-pixel median of clear Landsat 8/9 scenes at about 10:30,
+and the **Night**, a median of clear ECOSTRESS passes between 21:00 and 05:00,
+when dense blocks stay warm and parks and fields cool. **Air** is the five-year CAMS habit for that
 month and hour, corrected street by street at 50 m by a land-use regression
 fitted to the EEA monitoring stations (NO₂ and PM10; ozone from NO₂ by
 titration; PM2.5 left as CAMS, where the model found nothing to add). Both are
@@ -107,9 +121,11 @@ particles with the model's 10 m wind; where the tile carries the building mask
 they drop to street level and thread between the buildings — a potential-flow
 model solved in a worker, channelling, shelter and corner gusts, no wakes.
 
+<img src="https://raw.githubusercontent.com/fedepaj/solargaze/assets/guide-heat.gif" width="440" alt="Surface heat around the Colosseum, from a July morning to a July night">
+
 What a given day was like is read rather than drawn: the weather chip gives
 the temperature at the hour on the clock and the day's sky, from the forecast
-or, back to 1940, the archive; **That day** in ANALYZE gives the CAMS air
+or, back to 1940, the archive; **Air on the day** in ANALYZE gives the CAMS air
 quality for the date and hour. Where no tile has been computed yet the map is
 greyed rather than guessed.
 See [`pipeline/README.md`](pipeline/README.md) for what exists and how to
@@ -226,7 +242,7 @@ nothing to build.
 ```
 index.html            overlay markup
 css/app.css           the whole visual design
-docs/                 logo, the loop the connect screen plays, the four
+docs/                 logo, the loop the connect screen plays, the five
                       clips the guide explains itself with, and the
                       screenshots the in-app ion walkthrough loads
 test/                 node --test over solar.js and atmo/field.js
@@ -244,8 +260,11 @@ js/
   atmo.js             the engine: fetches what the enabled layers need and
                       hands each layer to its renderer
   atmo/
-    layers.js         the registry — a layer is an entry here: source,
-                      field, scale, reading, renderer
+    layers.js         the themes (heat, air, wind) and what each kind of
+                      data draws and says; a theme's variants come from
+                      the catalog
+    catalog.js        the pipeline's catalog of products (catalog.json),
+                      with a built-in copy until it arrives
     sources.js        where the numbers come from: grid spacing, variables,
                       which endpoint serves which day
     field.js          the grid and its sampling, live and precomputed —
