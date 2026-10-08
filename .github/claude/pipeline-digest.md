@@ -12,4 +12,6 @@ When you are done, post exactly one comment on issue #LOG, in Italian, starting 
 Each job in the summary says the commit it ran at ("at <sha>"): before calling a failure
 open, read `git log --oneline <sha>..origin/main` (HEAD is the run's own commit, not main) — a fix may already be on main, and then say
 which commit fixed it and that the next run will show it.
+When a job failed or left no summary, read its log before guessing: `gh run view <run id>
+--log-failed` (or `--log --job <id>`) shows the last lines, where a crash says what it was.
 Numbers, not adjectives. Use `gh issue comment LOG --body-file <file>`.

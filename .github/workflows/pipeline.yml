@@ -330,4 +330,4 @@ jobs:
           prompt: ${{ steps.prompt.outputs.text }}
           claude_args: >-
             --max-turns 40
-            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(gh issue:*),Bash(gh pr:*),Bash(git:*),Bash(python:*),Bash(cd:*)"
+            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(gh issue:*),Bash(gh pr:*),Bash(gh run view:*),Bash(git:*),Bash(python:*),Bash(cd:*),Bash(grep:*),Bash(tail:*)"
