@@ -78,7 +78,11 @@ export const SOURCES = {
     resolve(date, today) {
       const delta = dayNumber(date) - dayNumber(today);
       if (delta > 14) return { date: lastYear(date), endpoint: 'archive', proxy: 'last-year' };
-      if (delta >= -85) return { date, endpoint: 'forecast', proxy: null };
+      // The forecast endpoint answers for past days with nulls once they are
+      // more than about two months old (measured: data at -60, none at -75),
+      // while the archive has a day from about five days on: so anything
+      // older than a week goes to the archive, the better record anyway.
+      if (delta >= -7) return { date, endpoint: 'forecast', proxy: null };
       return { date, endpoint: 'archive', proxy: null };
     },
     derive: deriveWindComponents,

@@ -128,8 +128,10 @@ test('the day to fetch follows the forecast horizons and falls back a year', () 
   assert.equal(far.endpoint, 'archive');
   assert.equal(far.proxy, 'last-year');
   assert.deepEqual(far.date, { y: 2025, m: 10, d: 10 });
-  assert.equal(resolveDate(W, shiftDate(today, -85), today).endpoint, 'forecast');
-  assert.equal(resolveDate(W, shiftDate(today, -86), today).endpoint, 'archive');
+  assert.equal(resolveDate(W, shiftDate(today, -7), today).endpoint, 'forecast');
+  // Older than a week: the archive, which has it — the forecast answers nulls.
+  assert.equal(resolveDate(W, shiftDate(today, -8), today).endpoint, 'archive');
+  assert.equal(resolveDate(W, shiftDate(today, -85), today).endpoint, 'archive');
   assert.equal(resolveDate(A, shiftDate(today, 4), today).proxy, null);
   assert.equal(resolveDate(A, shiftDate(today, 5), today).proxy, 'last-year');
   assert.equal(resolveDate(A, { y: 2012, m: 6, d: 1 }, today), null);
