@@ -82,6 +82,30 @@ export function pollenStops(taxon) {
   return POLLEN_BANDS.map((band, i) => [Math.min(edges[i] / top, 1), band.colour]);
 }
 
+/**
+ * Noise, Lden in dB, in the 5 dB bands the END noise maps are drawn in, on
+ * a fixed scale: a decibel is a decibel anywhere. The WHO's guideline for
+ * road traffic is 53 dB Lden.
+ */
+export const NOISE_BANDS = [
+  { name: 'Quiet', colour: '#5aa469', from: 0 },
+  { name: 'Moderate', colour: '#c8d65a', from: 45 },
+  { name: 'Noisy', colour: '#f2b13a', from: 55 },
+  { name: 'Loud', colour: '#e5603b', from: 60 },
+  { name: 'Very loud', colour: '#b01f45', from: 65 },
+  { name: 'Extreme', colour: '#5b1a6e', from: 70 },
+];
+export const WHO_ROAD_LDEN = 53;
+
+export function noiseBand(db) {
+  let i = 0;
+  while (i < NOISE_BANDS.length - 1 && db >= NOISE_BANDS[i + 1].from) i++;
+  return { index: i, ...NOISE_BANDS[i] };
+}
+
+/** Noise: the band colours pinned at their edges on a fixed [lo, hi] dB scale. */
+export const noiseStops = ([lo, hi]) => NOISE_BANDS.map(b => [Math.min(Math.max((b.from - lo) / (hi - lo), 0), 1), b.colour]);
+
 const hexToRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 /**

@@ -53,6 +53,10 @@ for that day, and the beam arrives from the sun's direction into the studied poi
     day's heat;
   - **Air**: the five-year habit of NO₂, PM10, PM2.5 and ozone by month and
     hour, street by street at 50 m;
+  - **Noise**: road traffic as a day–evening–night level (Lden) at 10 m,
+    modelled from the class of every OpenStreetMap road and screened by the
+    buildings, calibrated on Berlin's official END noise map and checked on
+    Hamburg's — within one 5 dB band on nine cells in ten;
   - **Pollen**: grass, birch, alder, olive, mugwort and ragweed on the
     selected day, from the CAMS forecast or archive, each on its own bands;
   - **Wind**: the 10 m wind as drifting particles, threaded between the

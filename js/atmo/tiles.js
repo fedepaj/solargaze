@@ -158,6 +158,7 @@ async function load(tileId, product, level) {
   switch (cardOf(product)?.kind) {
     case 'climatology': return loadClimatology(tileId, info, product);
     case 'raster-months': return loadRaster(tileId, info, level, product);
+    case 'raster-static': return loadStatic(tileId, info, level, product);
     case 'building-mask': return loadMask(tileId, info, product);
     case 'street-air': return loadStreet(tileId, info, product);
     default: throw new Error(`no reader for tile product ${product}`);
@@ -273,6 +274,36 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
     raster.months[m] = { values, cols: raster.cols, rows: raster.rows };
   }));
   return raster;
+}
+
+/**
+ * One raster with no months (noise): read like a month raster whose every
+ * month is the same image, so the samplers and the mosaic need nothing new.
+ * Byte 0 is no level (inside a building); the rest climb `step_db` from
+ * `byte1_db`.
+ */
+async function loadStatic(tileId, info, level = 1, product = 'noise') {
+  const enc = info.encoding;
+  const suffix = level > 1 && (info.overviews || []).includes(level) ? `.o${level}` : '';
+  const factor = suffix ? level : 1;
+  const meta = await tileMeta(tileId);
+  const file = info.files[`lden${suffix}`] || info.files.lden;
+  const img = await loadImage(productUrl(tileId, file, info, product));
+  const cv = document.createElement('canvas');
+  cv.width = img.width;
+  cv.height = img.height;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+  const values = new Uint8Array(cv.width * cv.height);
+  for (let i = 0, o = 0; i < values.length; i++, o += 4) values[i] = px[o];
+  const image = { values, cols: cv.width, rows: cv.height };
+  return {
+    kind: 'raster', level: factor, bounds: meta.bounds, rows: cv.height, cols: cv.width,
+    months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])),
+    decode: byte => enc.byte1_db + (byte - 1) * enc.step_db,
+    tileMedian: () => null, scenes: () => 0, meta: info, key: `${product}|${tileId}`,
+  };
 }
 
 /**

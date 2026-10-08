@@ -14,7 +14,7 @@
  */
 
 /** The kinds of data this app knows how to read (tiles.js) and draw (layers.js). */
-export const KNOWN_KINDS = new Set(['raster-months', 'street-air', 'climatology', 'building-mask']);
+export const KNOWN_KINDS = new Set(['raster-months', 'raster-static', 'street-air', 'climatology', 'building-mask']);
 
 export const FALLBACK = {
   version: 1,
@@ -23,6 +23,13 @@ export const FALLBACK = {
       kind: 'building-mask', title: 'Buildings for the street-level wind', resolution_m: 10,
       source: 'OpenStreetMap buildings via Geofabrik extracts', licence: 'ODbL',
       note: 'Where a tile has been built, the wind is threaded between the OpenStreetMap buildings by a potential-flow model solved in the browser: channelling, shelter and corner gusts, but no wakes — a picture, not a measurement.',
+    },
+    noise: {
+      theme: 'noise', variant: 'roads', order: 10, kind: 'raster-static',
+      label: 'Roads', title: 'Road traffic noise, Lden', unit: 'dB', scale_c: [40, 80], resolution_m: 10,
+      source: 'OpenStreetMap roads and buildings; calibrated on EEA END strategic noise maps (Berlin, checked on Hamburg)',
+      licence: 'ODbL',
+      note: "Road traffic noise as a day–evening–night level (Lden), modelled from the class of every road and the buildings that screen it, calibrated on the official END noise maps of Berlin and checked on Hamburg's: within one 5 dB band of the official map on nine cells in ten. No traffic counts, speeds, barriers, railways or aircraft; where a city has an official noise map, that is the better source.",
     },
     heat: {
       theme: 'heat', variant: 'morning', order: 10, kind: 'raster-months',

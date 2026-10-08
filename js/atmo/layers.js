@@ -28,12 +28,14 @@ import {
 } from './field.js';
 import {
   HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
+  noiseBand, noiseStops, WHO_ROAD_LDEN,
 } from './scales.js';
 import { FALLBACK, cardOf, tileSourceId, variantsOf, catalog } from './catalog.js';
 
 const ICONS = {
   heat: '<path d="M10 4.5a2 2 0 0 1 4 0v9.2a3.6 3.6 0 1 1-4 0Z"/><path d="M12 9v6.2"/><circle cx="12" cy="16.9" r="1.3" class="fill"/>',
   air: '<path d="M7.5 17h9.2a3.8 3.8 0 0 0 .3-7.6 5.5 5.5 0 0 0-10.5-1A3.8 3.8 0 0 0 7.5 17Z"/><circle cx="8" cy="20.6" r=".9" class="fill"/><circle cx="12" cy="20.6" r=".9" class="fill"/><circle cx="16" cy="20.6" r=".9" class="fill"/>',
+  noise: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4Z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.5a8 8 0 0 1 0 11"/>',
   pollen: '<circle cx="12" cy="9.2" r="2"/><path d="M12 7.2c-.3-2.6.6-4 1.9-4s1.9 1.7.3 3.7M14 9.2c2.6-.3 4 .6 4 1.9s-1.7 1.9-3.7.3M12 11.2c.3 2.6-.6 4-1.9 4s-1.9-1.7-.3-3.7M10 9.2c-2.6.3-4-.6-4-1.9s1.7-1.9 3.7-.3"/><path d="M12 11.2V21M12 17.5c1.5-1.7 3.3-2.2 4.6-1.7"/>',
   wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 12.5h14.5a2.5 2.5 0 1 1-2.5 2.5"/><path d="M3 16.5h7a2 2 0 1 1-2 2"/>',
 };
@@ -149,6 +151,24 @@ export const KINDS = {
       };
     },
   },
+  /** One raster, no months (noise): a fixed scale, read in its own unit. */
+  'raster-static': {
+    field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, 0),
+    domain: (s, ctx, card) => card?.scale_c ?? [40, 80],
+    stops: (ctx, card) => noiseStops(card?.scale_c ?? [40, 80]),
+    legend: ([lo, hi], ctx, card) => ({ lo: `${lo} ${card?.unit || ''}`.trim(), hi: `${hi} ${card?.unit || ''}`.trim() }),
+    reading(s, lat, lon, t, ctx) {
+      const v = readSurface(s, lat, lon, 0);
+      if (Number.isNaN(v)) return null;
+      const over = v - WHO_ROAD_LDEN;
+      return {
+        value: v,
+        text: `${v.toFixed(0)} dB`,
+        sub: `day–evening–night level · ${Math.abs(over).toFixed(0)} dB ${over >= 0 ? 'above' : 'below'} the WHO guideline for road traffic (${WHO_ROAD_LDEN})`,
+        band: noiseBand(v),
+      };
+    },
+  },
   /** CAMS by month and hour, times a 50 m ratio per pollutant. */
   'street-air': {
     field: (s, lat, lon, t, ctx) => sampleStreet(s, ctx.option, lat, lon, ctx.monthFrac, ctx.hourFrac),
@@ -187,8 +207,8 @@ function theme(spec) {
     ...spec,
     field: (s, lat, lon, t, ctx) => kindOf(ctx)?.field(s, lat, lon, t, ctx) ?? NaN,
     domain: (s, ctx) => kindOf(ctx)?.domain(s, ctx, cardOf(ctx.mode)) ?? null,
-    stops: ctx => (kindOf(ctx) || KINDS[spec.defaultKind]).stops(ctx),
-    legend: (domain, ctx) => (kindOf(ctx) || KINDS[spec.defaultKind]).legend(domain, ctx),
+    stops: ctx => (kindOf(ctx) || KINDS[spec.defaultKind]).stops(ctx, cardOf(ctx.mode)),
+    legend: (domain, ctx) => (kindOf(ctx) || KINDS[spec.defaultKind]).legend(domain, ctx, cardOf(ctx.mode)),
     reading: (s, lat, lon, t, ctx) => kindOf(ctx)?.reading(s, lat, lon, t, ctx, cardOf(ctx.mode)) ?? null,
   };
 }
@@ -266,6 +286,17 @@ export const LAYERS = [
       };
     },
   },
+  theme({
+    id: 'noise',
+    theme: 'noise',
+    label: 'Noise',
+    tip: 'Road noise<em>The day–evening–night level of road traffic, at 10 m, screened by the buildings</em>',
+    icon: ICONS.noise,
+    defaultKind: 'raster-static',
+    render: 'drape',
+    slot: 'ground',
+    alpha: 0.55,
+  }),
   {
     /**
      * Pollen on the selected day and hour, CAMS forecast or archive: a tint

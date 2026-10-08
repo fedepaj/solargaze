@@ -163,7 +163,7 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
   assert.equal(sourceOf(temperature, {}), 'tile-heat');
   assert.equal(sourceOf(LAYERS.find(l => l.id === 'air'), {}), 'tile-air-street');
   assert.equal(optionsOf(LAYERS.find(l => l.id === 'air'), null).fallback, 'nitrogen_dioxide');
-  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'pollen']);
+  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'noise', 'pollen']);
   assert.deepEqual(rivalsOf(LAYERS.find(l => l.id === 'wind')), []);
 });
 
@@ -173,7 +173,7 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     title: 'Surface heat at night', when: 'nights', resolution_m: 70, source: 'ECOSTRESS', licence: 'public domain', note: 'n',
   };
   const cat = { version: 1, products: { ...FALLBACK.products, heat_night: night,
-    noise: { theme: 'noise', variant: 'lden', kind: 'contours-3d', label: 'Lden', title: 't', note: 'n' } } };
+    skyglow: { theme: 'light', variant: 'sky', kind: 'contours-3d', label: 'Sky', title: 't', note: 'n' } } };
   try {
     assert.ok(setCatalog(cat));
     registerTileSources();
@@ -189,8 +189,8 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     setDaylight(true);
     assert.equal(SOURCES['tile-heat-night'].dataKind, 'raster-months');
     // A kind this app cannot draw is left out, not drawn wrong.
-    assert.deepEqual(variantsOf('noise'), []);
-    assert.equal(SOURCES['tile-noise'], undefined);
+    assert.deepEqual(variantsOf('light'), []);
+    assert.equal(SOURCES['tile-skyglow'], undefined);
     // The night variant reads in nights.
     const raster = { kind: 'raster', rows: 1, cols: 1, bounds: [0, 0, 1, 1], decode: b => b, decLut: null,
       months: Object.fromEntries([...Array(12)].map((_, m) => [m, { values: Uint8Array.of(20), cols: 1, rows: 1 }])),
@@ -211,6 +211,18 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     applyCatalog();
   }
   for (const kind of Object.keys(KINDS)) assert.ok(KNOWN_KINDS.has(kind), kind);
+});
+
+test('noise reads in dB against the WHO guideline, on fixed 5 dB bands', () => {
+  const noise = LAYERS.find(l => l.id === 'noise');
+  const image = { values: Uint8Array.of(0, 71), cols: 2, rows: 1 };   // a building, then 60 dB
+  const r = { kind: 'raster', rows: 1, cols: 2, bounds: [0, 0, 2, 1], decode: b => 25 + (b - 1) * 0.5, decLut: null,
+    months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])), tileMedian: () => null };
+  const ctx = { mode: 'noise', monthFrac: 3 };
+  const read = noise.reading(r, 0.5, 1.75, 0, ctx);
+  assert.equal(read.band.name, 'Loud');
+  assert.match(read.sub, /7 dB above the WHO guideline/);
+  assert.deepEqual(noise.domain(r, ctx), [40, 80]);
 });
 
 test('pollen bands differ by taxon, and under a grain there is none', () => {

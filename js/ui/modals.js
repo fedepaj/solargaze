@@ -601,6 +601,11 @@ function openHelp() {
        when a city gives back the day's heat. <b>Air</b> is the five-year habit for that month and
        hour, street by street at 50 m: CAMS corrected for the roads, buildings and green around
        each street by a model fitted to the monitoring stations, ozone from NO₂ by titration.
+       <b>Noise</b> is road traffic as a day–evening–night level (Lden), at 10 m: a model from the
+       class of every road and the buildings that screen it, calibrated on Berlin's official noise
+       map and checked on Hamburg's, where it falls within one 5 dB band nine times in ten. It knows no
+       traffic counts, barriers, trains or planes; the reading says how far the point is from the
+       WHO's 53 dB for road traffic.
        <b>Pollen</b> is the day's: grass, birch, alder, olive, mugwort and ragweed in grains per cubic
        metre from the CAMS forecast or archive, banded as the pollen services band them — each taxon
        on its own scale, since forty grains of olive is a quiet day and forty of ragweed a bad one.

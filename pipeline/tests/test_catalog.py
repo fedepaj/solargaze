@@ -6,7 +6,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).res
 from sg import catalog  # noqa: E402
 
 # The kinds of data the app knows how to read and draw (js/atmo/kinds.js).
-APP_KINDS = {"raster-months", "street-air", "climatology", "building-mask"}
+APP_KINDS = {"raster-months", "raster-static", "street-air", "climatology", "building-mask"}
 
 
 class Catalog(unittest.TestCase):

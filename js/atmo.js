@@ -161,7 +161,8 @@ const todayHere = () => {
 };
 
 /** Does any enabled layer want the view-driven raster set right now? */
-const needsView = () => enabledLayers().some(l => SOURCES[currentSource(l)]?.dataKind === 'raster-months');
+const VIEW_KINDS = new Set(['raster-months', 'raster-static']);
+const needsView = () => enabledLayers().some(l => VIEW_KINDS.has(SOURCES[currentSource(l)]?.dataKind));
 
 /**
  * The ground the camera sees, snapped to tile edges and never wider than a
@@ -185,7 +186,7 @@ function viewRect() {
 }
 
 function wantFor(source) {
-  if (source.kind === 'tile' && source.dataKind === 'raster-months') {
+  if (source.kind === 'tile' && VIEW_KINDS.has(source.dataKind)) {
     const rect = viewRect();
     return { source, rect, lat: state.lat, lon: state.lon, key: `${source.id}|${levelFor(rect)}|${rect.join(',')}` };
   }
@@ -204,7 +205,7 @@ function fetchWant(want) {
   if (want.source.kind === 'tile') {
     // Rasters come as a mosaic of the tile and its neighbours, so a drape
     // does not end at a tile edge; the tables and the mask are per tile.
-    if (want.source.dataKind === 'raster-months') return tileProductsInView(want.rect, want.lat, want.lon, want.source.product);
+    if (VIEW_KINDS.has(want.source.dataKind)) return tileProductsInView(want.rect, want.lat, want.lon, want.source.product);
     // Street air reads the tile under the pin and its neighbours, each with
     // the CAMS table its ratios multiply.
     if (want.source.dataKind === 'street-air') return streetSetAround(want.lat, want.lon, want.source.product);

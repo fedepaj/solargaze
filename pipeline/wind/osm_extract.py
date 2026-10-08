@@ -29,12 +29,14 @@ when every bit of land in it lies inside some indexed extract, and only a
 covered tile is answered from here. Buildings in two extracts near a shared
 border are written twice and read once.
 
-Roads come out of the same pass, for the street-scale air layer: every way
-tagged with a carriageway ``highway`` value, as a line with one of three
-classes (major: motorway, trunk, primary; secondary: secondary, tertiary;
-local: residential, unclassified, living street), under ``roads/<id>.jsonl``.
-Service roads, tracks and footways are left out: they carry little traffic
-and would swamp the local class.
+Roads come out of the same pass, for the street-scale air layer and the
+noise model: every way tagged with a carriageway ``highway`` value, as a line
+with one of three air classes (major: motorway, trunk, primary; secondary:
+secondary, tertiary; local: residential, unclassified, living street), its
+OSM value (``h``) for the noise model's finer classes, and a tunnel flag,
+under ``roads/<id>.jsonl``. Service roads are kept for noise with the class
+``service``, which the air model does not read; tracks and footways are left
+out.
 
 Memory stays flat whatever the extract: buildings are buffered per tile and
 appended to disk as the buffers fill. osmium assembles multipolygon
@@ -125,7 +127,8 @@ class Buildings(osmium.SimpleHandler):
         self.road_count = 0
 
     def way(self, w):
-        cls = ROAD_CLASSES.get(w.tags.get("highway"))
+        highway = w.tags.get("highway")
+        cls = ROAD_CLASSES.get(highway) or ("service" if highway == "service" else None)
         if not cls:
             return
         try:
@@ -134,7 +137,13 @@ class Buildings(osmium.SimpleHandler):
             return
         if len(coords) < 2:
             return
-        line = json.dumps({"id": f"w{w.id}", "c": cls, "coordinates": coords}, separators=(",", ":")) + "\n"
+        # `c` is the air model's class (service roads are only noise's); `h`
+        # the OSM highway value, for the noise model's finer classes; `t` a
+        # road in a tunnel, which the noise model leaves out.
+        rec = {"id": f"w{w.id}", "c": cls, "h": highway, "coordinates": coords}
+        if w.tags.get("tunnel") in ("yes", "building_passage", "covered"):
+            rec["t"] = 1
+        line = json.dumps(rec, separators=(",", ":")) + "\n"
         for tid in tiles_of([x for x, _ in coords], [y for _, y in coords]):
             self.roads.add(tid, line)
         self.road_count += 1
