@@ -601,6 +601,9 @@ function openHelp() {
        when a city gives back the day's heat. <b>Air</b> is the five-year habit for that month and
        hour, street by street at 50 m: CAMS corrected for the roads, buildings and green around
        each street by a model fitted to the monitoring stations, ozone from NO₂ by titration.
+       <b>Pollen</b> is the day's: grass, birch, alder, olive, mugwort and ragweed in grains per cubic
+       metre from the CAMS forecast or archive, banded as the pollen services band them — each taxon
+       on its own scale, since forty grains of olive is a quiet day and forty of ragweed a bad one.
        <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>
     <p>What a particular day was like sits beside them: the weather chip in the corner gives
        the temperature at the hour on the clock and the day's sky, and <b>On the day</b> in the
@@ -626,7 +629,7 @@ function openHelp() {
     <p>The heat, air and wind tiles are derived from these sources. They are our processing, not the
        providers' products, and none of the providers endorses them.</p>
     <ul class="sources">
-      <li><b>Weather, and the air on a given day</b>: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0), with air quality from the Copernicus Atmosphere Monitoring Service.</li>
+      <li><b>Weather, and the air and pollen on a given day</b>: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0), with air quality and pollen from the Copernicus Atmosphere Monitoring Service.</li>
       <li><b>Surface heat</b>: Landsat 8–9 Collection 2 Level-2, courtesy of the <a href="https://www.usgs.gov/landsat-missions" target="_blank" rel="noopener">U.S. Geological Survey</a> (public domain), read through Microsoft Planetary Computer.</li>
       <li><b>Air, background</b>: generated using Copernicus Atmosphere Monitoring Service information, 2020–2024 (<a href="https://atmosphere.copernicus.eu" target="_blank" rel="noopener">CAMS</a>, Copernicus licence). Neither the European Commission nor ECMWF is responsible for any use of it.</li>
       <li><b>Air, monitoring stations</b>: Europe from the <a href="https://www.eea.europa.eu/en/datahub" target="_blank" rel="noopener">European Environment Agency</a> (free re-use with attribution). Japan from the Ministry of the Environment's <a href="https://soramame.env.go.jp/" target="_blank" rel="noopener">Atmospheric Environmental Regional Observation System (Soramame)</a>, prefectural and municipal governments and NIES, through <a href="https://openaq.org" target="_blank" rel="noopener">OpenAQ</a>, under the Government of Japan Standard Terms of Use 2.0.</li>

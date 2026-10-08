@@ -93,7 +93,11 @@ export const SOURCES = {
     label: 'Air quality',
     /** CAMS European ensemble, 0.1°; the global model is coarser still. */
     step: 0.1,
-    vars: ['pm2_5', 'pm10', 'nitrogen_dioxide', 'ozone', 'european_aqi'],
+    // Pollen comes with the air, from the same CAMS model and the same call:
+    // forecast about four days out, archived from 2022 (mugwort and ragweed
+    // from 2024).
+    vars: ['pm2_5', 'pm10', 'nitrogen_dioxide', 'ozone', 'european_aqi',
+      'grass_pollen', 'birch_pollen', 'alder_pollen', 'olive_pollen', 'mugwort_pollen', 'ragweed_pollen'],
     params: {},
     endpoints: {
       air: 'https://air-quality-api.open-meteo.com/v1/air-quality',
@@ -105,7 +109,7 @@ export const SOURCES = {
       return { date, endpoint: 'air', proxy: null };
     },
     derive: null,
-    note: 'Air quality on a ~11 km grid (CAMS).',
+    note: 'Air quality and pollen on a ~11 km grid (CAMS); the pollen bands are those most European pollen services use, a guide rather than a diagnosis.',
   },
 };
 

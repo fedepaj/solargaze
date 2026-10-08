@@ -10,7 +10,7 @@ import {
   streetValue,
   gridFor, buildSeries, sampleAt, windAt, rangeOf, compassName, sampleClimatology, monthFraction, sampleRaster,
 } from '../js/atmo/field.js';
-import { bandOf, rampLut, airStops, heatStops } from '../js/atmo/scales.js';
+import { bandOf, rampLut, airStops, heatStops, pollenBand, POLLEN } from '../js/atmo/scales.js';
 import { SOURCES, resolveDate, lastYear, shiftDate } from '../js/atmo/sources.js';
 import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS, setDaylight } from '../js/atmo/layers.js';
 import { FALLBACK, setCatalog, variantsOf, KNOWN_KINDS } from '../js/atmo/catalog.js';
@@ -163,7 +163,7 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
   assert.equal(sourceOf(temperature, {}), 'tile-heat');
   assert.equal(sourceOf(LAYERS.find(l => l.id === 'air'), {}), 'tile-air-street');
   assert.equal(optionsOf(LAYERS.find(l => l.id === 'air'), null).fallback, 'nitrogen_dioxide');
-  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air']);
+  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'pollen']);
   assert.deepEqual(rivalsOf(LAYERS.find(l => l.id === 'wind')), []);
 });
 
@@ -211,6 +211,25 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     applyCatalog();
   }
   for (const kind of Object.keys(KINDS)) assert.ok(KNOWN_KINDS.has(kind), kind);
+});
+
+test('pollen bands differ by taxon, and under a grain there is none', () => {
+  assert.equal(pollenBand('grass_pollen', 0.4), null);
+  assert.equal(pollenBand('grass_pollen', 60).name, 'High');
+  // Forty grains of olive is a quiet day; forty of ragweed a bad one.
+  assert.equal(pollenBand('olive_pollen', 40).name, 'Low');
+  assert.equal(pollenBand('ragweed_pollen', 40).name, 'High');
+  assert.equal(pollenBand('birch_pollen', 5000).name, 'Very high');
+  const pollen = LAYERS.find(l => l.id === 'pollen');
+  // A one-node, one-hour series: grass 40, olive 37, everything else nothing.
+  const grid = { rows: 2, cols: 2, step: 0.1, south: 41.8, west: 12.4, north: 41.9, east: 12.5 };
+  const vars = Object.fromEntries(Object.keys(POLLEN).map(k => [k, new Float32Array(4).fill(k === 'grass_pollen' ? 40 : k === 'olive_pollen' ? 37 : 0)]));
+  const s = { grid, t0: 0, hours: 1, vars };
+  const r = pollen.reading(s, 41.85, 12.45, 0, { option: 'grass_pollen' });
+  assert.equal(r.text, '40 grains/m³');
+  assert.equal(r.band.name, 'Moderate');
+  assert.equal(r.sub, 'also Olive 37');
+  assert.ok(Number.isNaN(pollen.field(s, 41.85, 12.45, 0, { option: 'birch_pollen' })), 'no birch: the ground is left bare');
 });
 
 test('a climatology wraps December into January and 23:30 into midnight', () => {

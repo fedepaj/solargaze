@@ -53,6 +53,8 @@ for that day, and the beam arrives from the sun's direction into the studied poi
     day's heat;
   - **Air**: the five-year habit of NO₂, PM10, PM2.5 and ozone by month and
     hour, street by street at 50 m;
+  - **Pollen**: grass, birch, alder, olive, mugwort and ragweed on the
+    selected day, from the CAMS forecast or archive, each on its own bands;
   - **Wind**: the 10 m wind as drifting particles, threaded between the
     buildings where a tile carries them;
   - and the selected day's weather and air, read at the pin.

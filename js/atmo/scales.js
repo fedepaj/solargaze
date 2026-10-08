@@ -44,6 +44,44 @@ export function bandOf(metric, value) {
   return { index: i, ...EAQI_BANDS[i] };
 }
 
+/**
+ * Pollen, in grains per cubic metre of air, with the bands most European
+ * pollen services use. Each taxon has its own edges, because the dose that
+ * sets off an allergy differs by an order of magnitude: forty grains of olive
+ * is a quiet day, forty of ragweed a bad one. Below one grain there is none
+ * in the air, and the ground is left uncoloured.
+ */
+export const POLLEN_BANDS = [
+  { name: 'Low', colour: '#8fd694' },
+  { name: 'Moderate', colour: '#f0e641' },
+  { name: 'High', colour: '#ff8a3c' },
+  { name: 'Very high', colour: '#c8253a' },
+];
+
+export const POLLEN = {
+  grass_pollen: { label: 'Grass', long: 'Grasses (Poaceae)', edges: [1, 10, 50, 150], top: 200 },
+  birch_pollen: { label: 'Birch', long: 'Birch (Betula)', edges: [1, 10, 100, 1000], top: 1200 },
+  alder_pollen: { label: 'Alder', long: 'Alder (Alnus)', edges: [1, 10, 100, 1000], top: 1200 },
+  olive_pollen: { label: 'Olive', long: 'Olive (Olea)', edges: [1, 50, 200, 400], top: 500 },
+  mugwort_pollen: { label: 'Mugwort', long: 'Mugwort (Artemisia)', edges: [1, 10, 50, 100], top: 120 },
+  ragweed_pollen: { label: 'Ragweed', long: 'Ragweed (Ambrosia)', edges: [1, 5, 20, 50], top: 80 },
+};
+
+/** Which pollen band a count falls in, or null below one grain. */
+export function pollenBand(taxon, value) {
+  const { edges } = POLLEN[taxon];
+  if (!(value >= edges[0])) return null;
+  let i = 0;
+  while (i < edges.length - 1 && value >= edges[i + 1]) i++;
+  return { index: i, ...POLLEN_BANDS[i] };
+}
+
+/** Pollen: the band colours pinned at the taxon's edges. */
+export function pollenStops(taxon) {
+  const { edges, top } = POLLEN[taxon];
+  return POLLEN_BANDS.map((band, i) => [Math.min(edges[i] / top, 1), band.colour]);
+}
+
 const hexToRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 /**

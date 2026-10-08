@@ -27,13 +27,14 @@ import {
   sampleStreet, streetTileAt, streetRatio, STREET_MODELLED,
 } from './field.js';
 import {
-  HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops,
+  HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
 } from './scales.js';
 import { FALLBACK, cardOf, tileSourceId, variantsOf, catalog } from './catalog.js';
 
 const ICONS = {
   heat: '<path d="M10 4.5a2 2 0 0 1 4 0v9.2a3.6 3.6 0 1 1-4 0Z"/><path d="M12 9v6.2"/><circle cx="12" cy="16.9" r="1.3" class="fill"/>',
   air: '<path d="M7.5 17h9.2a3.8 3.8 0 0 0 .3-7.6 5.5 5.5 0 0 0-10.5-1A3.8 3.8 0 0 0 7.5 17Z"/><circle cx="8" cy="20.6" r=".9" class="fill"/><circle cx="12" cy="20.6" r=".9" class="fill"/><circle cx="16" cy="20.6" r=".9" class="fill"/>',
+  pollen: '<circle cx="12" cy="9.2" r="2"/><path d="M12 7.2c-.3-2.6.6-4 1.9-4s1.9 1.7.3 3.7M14 9.2c2.6-.3 4 .6 4 1.9s-1.7 1.9-3.7.3M12 11.2c.3 2.6-.6 4-1.9 4s-1.9-1.7-.3-3.7M10 9.2c-2.6.3-4-.6-4-1.9s1.7-1.9 3.7-.3"/><path d="M12 11.2V21M12 17.5c1.5-1.7 3.3-2.2 4.6-1.7"/>',
   wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 12.5h14.5a2.5 2.5 0 1 1-2.5 2.5"/><path d="M3 16.5h7a2 2 0 1 1-2 2"/>',
 };
 
@@ -262,6 +263,51 @@ export const LAYERS = [
         text: `${aqi.toFixed(0)}`,
         sub: `European AQI · ${parts.join(' · ')} µg/m³`,
         band: bandOf('european_aqi', aqi),
+      };
+    },
+  },
+  {
+    /**
+     * Pollen on the selected day and hour, CAMS forecast or archive: a tint
+     * on the ground for one taxon, the reading at the point with the others
+     * that are in the air. Out of season it is none, and says so.
+     */
+    id: 'pollen',
+    label: 'Pollen',
+    tip: 'Pollen<em>Grains in the air on the selected day and hour, by taxon — CAMS forecast or archive</em>',
+    icon: ICONS.pollen,
+    source: 'air',
+    options: () => ({
+      pref: 'pollenTaxon',
+      fallback: 'grass_pollen',
+      choices: Object.entries(POLLEN).map(([key, p]) => ({ key, label: p.label, title: p.long })),
+    }),
+    render: 'drape',
+    slot: 'ground',
+    alpha: 0.5,
+    field(s, lat, lon, t, ctx) {
+      const v = sampleAt(s, ctx.option, lat, lon, t);
+      return v >= 1 ? v : NaN;
+    },
+    domain: (s, { option }) => [0, POLLEN[option].top],
+    stops: ({ option }) => pollenStops(option),
+    legend: ([, hi]) => ({ lo: '0', hi: `${hi} grains/m³` }),
+    reading(s, lat, lon, t, ctx) {
+      const v = sampleAt(s, ctx.option, lat, lon, t);
+      if (Number.isNaN(v)) return { value: 0, text: '—', sub: 'no pollen record for this day (from 2022 on)' };
+      const others = Object.keys(POLLEN)
+        .filter(k => k !== ctx.option)
+        .map(k => [POLLEN[k].label, sampleAt(s, k, lat, lon, t)])
+        .filter(([, x]) => x >= 1)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, x]) => `${label} ${x.toFixed(0)}`);
+      const band = pollenBand(ctx.option, v);
+      return {
+        value: v,
+        text: `${v < 1 ? 0 : v.toFixed(0)} grains/m³`,
+        sub: v < 1 && !others.length ? 'none in the air'
+          : others.length ? `also ${others.join(' · ')}` : 'no other pollen in the air',
+        band,
       };
     },
   },
