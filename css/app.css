@@ -10,7 +10,7 @@
   --accent-rgb:226,103,63;
   --accent-ink:#1d1410;
   --cool:#45c4b0;
-  --panel:rgba(35,30,27,.9);
+  --panel:rgba(35,30,27,.68);
   --panel-solid:#231e1b;
   --panel-hi:rgba(255,245,235,.08);
   --stroke:rgba(255,245,235,.10);
@@ -22,10 +22,13 @@
   --r-md:18px;
   --r-sm:12px;
   --shadow:0 10px 34px rgba(0,0,0,.42);
-  --blur:saturate(150%) blur(14px);
+  --blur:saturate(165%) blur(22px);
   --gutter:16px;
   --ui-font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --glass:var(--panel);
+  /* The left column and the right panel share one width: the screen reads
+     as a frame round the map, not as two unrelated boxes. */
+  --side-w:min(360px,calc(100vw - 2*var(--gutter)));
 }
 
 *{box-sizing:border-box}
@@ -1046,17 +1049,20 @@ body.is-gated #meshload{display:none}
    own controls join the view tools at the bottom right. */
 .topleft{
   position:fixed;left:var(--gutter);top:var(--gutter);z-index:11;
-  width:min(380px,calc(100vw - 2*var(--gutter)));
+  width:var(--side-w);
   display:flex;flex-direction:column;gap:10px;
 }
 .brandrow{display:flex;align-items:center;gap:8px}
 .brandrow .round{width:44px;height:44px;font-size:19px}
 .topleft .results{right:0}
-.datepanel{padding:14px 18px 16px}
+.datepanel{padding:14px 16px 16px}
+.datepanel .clockrow{gap:9px}
+.datepanel .pill{padding:0 12px}
+.datepanel .stack-btn{min-width:0}
 
 .layerpanel{
   position:fixed;right:var(--gutter);top:var(--gutter);z-index:11;
-  width:min(372px,calc(100vw - 2*var(--gutter)));
+  width:var(--side-w);
   max-height:calc(100vh - 2*var(--gutter) - 72px);
   display:flex;flex-direction:column;
 }
@@ -1067,7 +1073,7 @@ body:has(.mousecard[data-open="true"]) .layerpanel{max-height:calc(100vh - 2*var
 
 /* A card: its head is the switch, and looks like one. */
 .lcard{
-  border-radius:var(--r-md);border:1px solid var(--stroke);background:rgba(255,245,235,.03);
+  border-radius:var(--r-md);border:1px solid rgba(255,245,235,.08);background:rgba(255,245,235,.025);
   padding:4px 12px 10px;transition:border-color .15s,background .15s;
 }
 .lcard.is-on{border-color:rgba(var(--accent-rgb),.65);background:rgba(var(--accent-rgb),.07)}
@@ -1125,8 +1131,7 @@ body:has(.mousecard[data-open="true"]) .layerpanel{max-height:calc(100vh - 2*var
 .toolrow .icon-btn{width:44px;height:44px}
 
 @media (max-width:940px){
-  .topleft{width:min(340px,calc(50vw - var(--gutter)))}
-  .layerpanel{width:min(330px,calc(50vw - 2*var(--gutter)))}
+  :root{--side-w:min(330px,calc(50vw - 2*var(--gutter)))}
   .datepanel{padding:12px 14px 14px}
 }
 @media (max-width:640px){

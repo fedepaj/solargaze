@@ -67,7 +67,17 @@ export function initAtmo() {
   on('location', () => { daypart(); scheduleFetch(); schedulePaint(); });
   // The surface mosaic follows the view: a new row of tiles in sight, or a
   // zoom across a level boundary, is a new fetch (cheap, mostly cached).
-  on('camera', () => { if (needsView()) scheduleFetch(); });
+  // The camera event fires every few pixels of motion; the scale is read
+  // again only once the view has settled, so nothing repaints mid-gesture.
+  let settle = null;
+  on('camera', () => {
+    if (needsView()) scheduleFetch();
+    clearTimeout(settle);
+    settle = setTimeout(() => {
+      cameraRect = readCameraRect();
+      if (needsView()) schedulePaint();
+    }, 300);
+  });
   on('date', () => { daypart(); scheduleFetch(); schedulePaint(); });
   on('time', () => { daypart(); schedulePaint(); });
   on('pref', ({ key }) => {
@@ -266,7 +276,22 @@ function dayBounds() {
  * the climatologies read them — a month fraction from the day of the year
  * and an hour fraction from the wall clock at the pin.
  */
+/**
+ * The ground the camera sees, in degrees, while it is close enough to mean
+ * something (a view of the horizon is not "here"); null otherwise. Updated
+ * when the camera settles.
+ */
+let cameraRect = null;
+function readCameraRect() {
+  const C = window.Cesium;
+  const r = viewer?.camera.computeViewRectangle(C.Ellipsoid.WGS84);
+  if (!r) return null;
+  const rect = [C.Math.toDegrees(r.west), C.Math.toDegrees(r.south), C.Math.toDegrees(r.east), C.Math.toDegrees(r.north)];
+  return rect[2] - rect[0] > 3 || rect[3] - rect[1] > 3 ? null : rect;
+}
+
 export const contextFor = layer => ({
+  viewRect: cameraRect,
   dayBounds: dayBounds(),
   mode: modeOf(layer, state.prefs),
   option: optionOf(layer),

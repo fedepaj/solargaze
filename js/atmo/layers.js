@@ -50,6 +50,35 @@ const centreOf = s => (s.kind === 'raster-set' ? s.centre : s);
 const readSurface = (s, lat, lon, mf) =>
   (s.kind === 'raster-set' ? sampleRasterSet(s, lat, lon, mf) : sampleRaster(s, lat, lon, mf));
 
+/**
+ * The median of the tiles in view for a month fraction: what the colours
+ * are centred on, so that looking at a city the contrast is within the city
+ * rather than between it and the fields of the tile's edges. A single
+ * raster is its own view.
+ */
+function viewMedian(s, monthFrac, viewRect = null) {
+  // What the camera actually sees, sampled on a 40 × 40 lattice: a view of a
+  // city's centre is then read against that centre, not against the fields
+  // its tiles also hold.
+  if (viewRect && s.kind === 'raster-set') {
+    const [w, south, e, n] = viewRect;
+    const vals = [];
+    for (let i = 0; i < 40; i++) {
+      for (let j = 0; j < 40; j++) {
+        const v = sampleRasterSet(s, south + ((i + 0.5) / 40) * (n - south), w + ((j + 0.5) / 40) * (e - w), monthFrac);
+        if (!Number.isNaN(v)) vals.push(v);
+      }
+    }
+    if (vals.length >= 80) {
+      vals.sort((a, b) => a - b);
+      return vals[Math.floor(vals.length / 2)];
+    }
+  }
+  const tiles = s.kind === 'raster-set' && s.tiles?.length ? s.tiles : [centreOf(s)];
+  const meds = tiles.map(t => blendedMedian(t, monthFrac)).filter(v => v !== null).sort((a, b) => a - b);
+  return meds.length ? meds[Math.floor(meds.length / 2)] : null;
+}
+
 /** Tile median for a month fraction, blended like the pixels are. */
 function blendedMedian(s, monthFrac) {
   const r = centreOf(s);
@@ -91,15 +120,19 @@ export const KINDS = {
   'raster-months': {
     field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, ctx.monthFrac),
     /**
-     * A fixed scale (the card's `scale_c`), so that one colour is one
-     * temperature everywhere — Seville and Helsinki, July and January — and
-     * the readout says how a place stands against its area. Without one, an
-     * anomaly around the tile's median.
+     * Around the median of the tiles in view for the month, the card's `span_c` either side
+     * (narrower at night, when the ground spreads less): within a city the
+     * surfaces differ by ten degrees, across a continent and a year by
+     * seventy, and a fixed scale for the second flattens the first. The
+     * centre is a whole degree, so the legend does not twitch as the date
+     * moves; the reading says the temperature itself. A card can still ask
+     * for a fixed scale (`scale_c`).
      */
     domain(s, ctx, card) {
       if (card?.scale_c) return card.scale_c;
-      const med = blendedMedian(s, ctx.monthFrac);
-      return med === null ? null : [med - HEAT_SPAN, med + HEAT_SPAN];
+      const med = viewMedian(s, ctx.monthFrac, ctx.viewRect);
+      const span = card?.span_c ?? HEAT_SPAN;
+      return med === null ? null : [Math.round(med) - span, Math.round(med) + span];
     },
     stops: () => heatStops(),
     legend: ([lo, hi]) => ({ lo: `${lo.toFixed(0)} °C`, hi: `${hi.toFixed(0)} °C` }),

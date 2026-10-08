@@ -15,7 +15,7 @@ class HeatNight(Heat):
     card = {
         "theme": "heat", "variant": "night", "order": 20, "kind": "raster-months",
         "label": "Night", "title": "Surface heat on clear nights",
-        "when": "nights", "daypart": "night", "scale_c": [-30, 35], "resolution_m": 70,
+        "when": "nights", "daypart": "night", "span_c": 4, "resolution_m": 70,
         "source": "ECOSTRESS ECO_L2T_LSTE v002 land surface temperature (NASA LP DAAC)",
         "licence": "public domain",
         "note": "A per-pixel median of clear-night ECOSTRESS passes (21:00–05:00 local) since 2018, by month: the "

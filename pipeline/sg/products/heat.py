@@ -16,7 +16,7 @@ class Heat(Product):
     card = {
         "theme": "heat", "variant": "morning", "order": 10, "kind": "raster-months",
         "label": "Morning", "title": "Surface heat on clear mornings",
-        "when": "mornings", "daypart": "day", "scale_c": [-10, 55], "resolution_m": 90,
+        "when": "mornings", "daypart": "day", "span_c": 6, "resolution_m": 90,
         "source": "Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer",
         "licence": "public domain",
         "note": "A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by "

@@ -43,6 +43,7 @@ export function initAirPane() {
   on('time', schedule);
   on('location', schedule);
   on('date', schedule);
+  on('camera', schedule);   // the heat's scale follows what is in view
 
   $('atmo-fine').textContent = sourceNotes();
   render();

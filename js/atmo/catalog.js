@@ -26,14 +26,14 @@ export const FALLBACK = {
     },
     heat: {
       theme: 'heat', variant: 'morning', order: 10, kind: 'raster-months',
-      label: 'Morning', title: 'Surface heat on clear mornings', when: 'mornings', daypart: 'day', scale_c: [-10, 55], resolution_m: 90,
+      label: 'Morning', title: 'Surface heat on clear mornings', when: 'mornings', daypart: 'day', span_c: 6, resolution_m: 90,
       source: 'Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer',
       licence: 'public domain',
       note: 'A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by month: what the roofs and streets typically read, not the air. From afar it is shown coarser.',
     },
     heat_night: {
       theme: 'heat', variant: 'night', order: 20, kind: 'raster-months',
-      label: 'Night', title: 'Surface heat on clear nights', when: 'nights', daypart: 'night', scale_c: [-30, 35], resolution_m: 70,
+      label: 'Night', title: 'Surface heat on clear nights', when: 'nights', daypart: 'night', span_c: 4, resolution_m: 70,
       source: 'ECOSTRESS ECO_L2T_LSTE v002 land surface temperature (NASA LP DAAC)',
       licence: 'public domain',
       note: 'A per-pixel median of clear-night ECOSTRESS passes (21:00–05:00 local) since 2018, by month: the heat the city gives back at night, when the gap between dense blocks and parks is widest. Only between about 52° south and north, the reach of the Space Station it flies on.',
