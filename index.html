@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>SolarGaze — 3D sun &amp; shadow simulator</title>
-<meta name="description" content="Open-source sun position and shadow simulator on photorealistic 3D tiles. MIT licensed, runs fully in the browser.">
+<title>SolarGaze — explore the climate of any place</title>
+<meta name="description" content="Explore the climate of any place — a street, a village, a valley, a ridge: sun and shadow on the real 3D world, surface heat by day and by night, air and wind. Open source, runs in the browser.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0f1216">
+<meta name="theme-color" content="#14110f">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SolarGaze">
 <link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f6d02f'/%3E%3Cg stroke='%23f6d02f' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M26 6l-3 3M9 23l-3 3'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' role='img' aria-label='SolarGaze'%3E%3Ccircle cx='16' cy='12.5' r='7' fill='%23e2673f'/%3E%3Cg fill='none' stroke='%2345c4b0' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M3 21.5c4.3-3.2 8.7-3.2 13 0s8.7 3.2 13 0'/%3E%3Cpath d='M6 27.5c3.3-2.4 6.7-2.4 10 0s6.7 2.4 10 0' opacity='.55'/%3E%3C/g%3E%3C/svg%3E">
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,9 +38,9 @@
 <a class="wordmark" id="wordmark" href="https://github.com/fedepaj/solargaze"
    target="_blank" rel="noopener"
    data-tip="Open the source on GitHub">
-  <svg class="wordmark-mark" viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="12" cy="12" r="4.6"/>
-    <g class="rays"><path d="M12 1.6v3M12 19.4v3M1.6 12h3M19.4 12h3M4.4 4.4l2.1 2.1M17.5 17.5l2.1 2.1M19.6 4.4l-2.1 2.1M6.5 17.5l-2.1 2.1"/></g>
+  <svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true">
+    <circle class="sun" cx="16" cy="12.5" r="7"/>
+    <g class="contours"><path d="M3 21.5c4.3-3.2 8.7-3.2 13 0s8.7 3.2 13 0"/><path d="M6 27.5c3.3-2.4 6.7-2.4 10 0s6.7 2.4 10 0"/></g>
   </svg>
   <span>solargaze</span>
 </a>

@@ -1,11 +1,11 @@
 {
   "name": "SolarGaze",
   "short_name": "SolarGaze",
-  "description": "Sun, shadow, heat, air and wind over photorealistic 3D tiles.",
+  "description": "Explore the climate of any place: sun and shadow, heat by day and night, air and wind, on the real 3D world.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#0f1216",
-  "theme_color": "#0f1216",
+  "background_color": "#14110f",
+  "theme_color": "#14110f",
   "icons": [
     { "src": "docs/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

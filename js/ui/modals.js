@@ -110,14 +110,16 @@ export function openGate({ reason = '', kind = '' } = {}) {
       </video>
     </figure>`}
 
-    <h2>${failed ? 'The 3D mesh did not load' : 'Connect the 3D mesh to begin'}</h2>
+    <h2>${failed ? 'The 3D world did not load' : 'Explore the climate of any place'}</h2>
 
     ${failed
       ? `<p class="gate-alert">${reason}</p>`
-      : `<p>SolarGaze casts real shadows across the photorealistic 3D mesh that Google Earth
-           renders. That mesh is Google's, and Cesium ion is what hands it to this page — so
-           the one thing it needs from you is a free ion account. No Google Cloud project,
-           no billing details, nothing to pay.</p>`}
+      : `<p>Wander a street, a village, a valley or a ridge on the same 3D world Google Earth
+           draws, and see what it is like to stand there: where the sun falls and the shadow
+           lies, which surfaces bake in the morning and stay warm at night, how the air and the
+           wind move — hour by hour, season by season.</p>
+         <p>The 3D world comes through Cesium ion, and the one thing it needs from you is a free
+           ion account. No Google Cloud project, no card, nothing to pay.</p>`}
 
     ${retryFirst ? retryBtn + signInBtn : signInBtn + retryBtn}
     ${failed || !canSignIn ? '' : `
@@ -549,10 +551,13 @@ const keyTable = rows => `
 function openHelp() {
   openSheet(`
     <h2>Guide &amp; shortcuts</h2>
-    <p>An open sun-and-shadow simulator. Pick a place, drag the two sliders — time of day and
-       day of year — and watch real shadows fall across Google's photorealistic 3D mesh. Sun
-       positions come from the NOAA solar equations; the shadows are cast by CesiumJS's shadow
-       map against the actual building geometry.</p>
+    <p>Explore the climate of any place. Go anywhere — a square, a vineyard, a mountain hut —
+       and read what it is like there: drag the two sliders, time of day and day of year, to
+       watch real shadows move across Google's photorealistic 3D world, and switch on the
+       layers to see the surface heat of a clear morning or a clear night, the air street by
+       street and the wind threading between the buildings. Sun positions come from the NOAA
+       solar equations; the shadows are cast by CesiumJS's shadow map against the actual
+       geometry.</p>
 
     <button class="cta" id="open-guide" style="margin:4px 0 6px">How do I get the 3D buildings?</button>
 
@@ -569,15 +574,17 @@ function openHelp() {
     ${keyTable(TOUCH_KEYS)}
 
     <h3>HEAT, AIR AND WIND</h3>
-    <p>The map shows what a place is <b>like</b>; the ANALYZE tab reads it at the pin, with a
-       switch on each row to draw it. <b>Surface heat</b> is the temperature of roofs and streets
-       from Landsat, a median of clear mid-morning passes for the month on the date slider,
-       coloured against the rest of the area. <b>Air</b> is the five-year habit for that month and
+    <p>The map shows what a place is <b>like</b>: switch a layer on in the rail on the left, and
+       its legend appears on the map; the ANALYZE tab reads every one of them at the pin.
+       <b>Surface heat</b> is the temperature of roofs, streets, fields and rock, coloured against
+       the rest of the area: <b>Morning</b> from Landsat, a median of clear passes at about 10:30
+       for the month on the date slider, and <b>Night</b> from ECOSTRESS on the Space Station,
+       clear passes between 21:00 and 05:00 — when a city gives back the day's heat. <b>Air</b> is the five-year habit for that month and
        hour, street by street at 50 m: CAMS corrected for the roads, buildings and green around
        each street by a model fitted to the monitoring stations, ozone from NO₂ by titration.
        <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>
     <p>What a particular day was like sits beside them: the weather chip in the corner gives
-       the temperature at the hour on the clock and the day's sky, and <b>That day</b> in
+       the temperature at the hour on the clock and the day's sky, and <b>Air on the day</b> in
        ANALYZE the air from the CAMS forecast or archive. A day beyond the forecast horizon is
        shown with the same date a year earlier, as a stand-in for the season. Where no tile has
        been computed yet the map is greyed; read the fine print under the numbers for what each
