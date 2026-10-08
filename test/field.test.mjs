@@ -169,7 +169,7 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
 
 test('a theme takes its variants from the catalog, and only of kinds it can draw', () => {
   const night = {
-    theme: 'heat', variant: 'night', order: 20, kind: 'raster-months', label: 'Night', daypart: 'night', span_c: 4,
+    theme: 'heat', variant: 'night', order: 20, kind: 'raster-months', label: 'Night', daypart: 'night', span_c: 2.5,
     title: 'Surface heat at night', when: 'nights', resolution_m: 70, source: 'ECOSTRESS', licence: 'public domain', note: 'n',
   };
   const cat = { version: 1, products: { ...FALLBACK.products, heat_night: night,
@@ -198,7 +198,7 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     const r = heat.reading(raster, 0.5, 0.5, 0, { mode: 'heat_night', monthFrac: 6.5 });
     assert.match(r.sub, /nights$/);
     // Around the area's median (18 °C), the night's narrower span either side.
-    assert.deepEqual(heat.domain(raster, { mode: 'heat_night', monthFrac: 6.5 }), [14, 22]);
+    assert.deepEqual(heat.domain(raster, { mode: 'heat_night', monthFrac: 6.5 }), [15.5, 20.5]);
     // A catalog with no heat at all leaves the theme with nothing to show.
     setCatalog({ version: 1, products: { air: FALLBACK.products.air, air_street: FALLBACK.products.air_street } });
     applyCatalog();

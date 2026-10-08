@@ -246,6 +246,7 @@ docs/                 logo, the loop the connect screen plays, the five
                       clips the guide explains itself with, and the
                       screenshots the in-app ion walkthrough loads
 test/                 node --test over solar.js and atmo/field.js
+tools/record/         the recorder of the clips and GIFs (see below)
 pipeline/             the offline scripts that fill data/tiles/ (Python)
 data/tiles/           precomputed products per quarter-degree tile
 manifest.webmanifest  so a phone can keep it on the home screen
@@ -300,7 +301,10 @@ GIFs — but the app plays the much smaller WebM versions in `docs/`, and the
 Pages workflow publishes everything committed here. So the GIFs live on the
 orphan [`assets`](https://github.com/fedepaj/solargaze/tree/assets) branch and
 are linked by absolute URL, leaving both `main` and the deployed site without
-them.
+them. All of them — the GIFs, the clips the guide plays and the connect
+screen's loop — are recorded by [`tools/record/`](tools/record/record.mjs)
+frame by frame on the real mesh at the Colosseum, so a change to the
+interface is a re-run rather than a screen capture.
 
 The reasoning behind the less obvious choices lives next to the code that makes
 them, not here.

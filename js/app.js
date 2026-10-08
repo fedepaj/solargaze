@@ -16,7 +16,7 @@ import {
 } from './state.js';
 import {
   createViewer, viewer, loadIonTiles, useFlatBasemap, usePhotorealisticBasemap, lookAtPin,
-  applyShadowSettings, applyMeshDetail, syncClock, zoomBy, pickAt, pickCentre, cartographicOf,
+  applyShadowSettings, followSunForShadows, applyMeshDetail, syncClock, zoomBy, pickAt, pickCentre, cartographicOf,
   resolveGroundAtPin,
   hasTileset, tilesetVisible,
 } from './scene.js';
@@ -94,7 +94,9 @@ async function boot() {
   wireMapClick();
   wireLinks();
 
-  on('time', syncClock);
+  on('time', () => { syncClock(); followSunForShadows(); });
+  on('date', followSunForShadows);
+  on('location', followSunForShadows);
   // Debounced like the camera: in follow mode the pin moves with every
   // camera nudge, and Safari raises a SecurityError past a hundred
   // replaceState calls in thirty seconds — after which the address bar

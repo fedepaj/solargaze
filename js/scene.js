@@ -112,13 +112,24 @@ function tuneShadowDistance() {
 }
 
 /** Push the current shadow preferences into the renderer. */
+/**
+ * Shadows want a sun to cast them. Below the horizon the shadow map still
+ * projects from it, grazing, and splits the scene along an arbitrary line
+ * into a shadowed half and a lit one — which also cut a layer's colours in
+ * two. So with the sun down there are none, and they come back at sunrise.
+ */
+const sunUp = () => state.sun.elevation > -0.833;
+let castingFor = null;
+
 export function applyShadowSettings() {
   if (!viewer) return;
   const { prefs } = state;
-  viewer.shadows = prefs.shadows;
+  const cast = prefs.shadows && sunUp();
+  castingFor = sunUp();
+  viewer.shadows = cast;
 
   const sm = viewer.shadowMap;
-  sm.enabled = prefs.shadows;
+  sm.enabled = cast;
   sm.softShadows = prefs.softShadows;
   sm.size = prefs.shadowQuality;
   sm.darkness = 0.32;
@@ -126,9 +137,14 @@ export function applyShadowSettings() {
   sm.fadingEnabled = false;     // otherwise low-sun shadows wash out — the very
   tuneShadowDistance();         // case a shadow study is about
   if (tileset) {
-    tileset.shadows = prefs.shadows ? C.ShadowMode.ENABLED : C.ShadowMode.DISABLED;
+    tileset.shadows = cast ? C.ShadowMode.ENABLED : C.ShadowMode.DISABLED;
   }
   requestRender();
+}
+
+/** Sunrise and sunset switch the shadows; any other tick of the clock leaves them be. */
+export function followSunForShadows() {
+  if (castingFor !== null && castingFor !== sunUp()) applyShadowSettings();
 }
 
 /**
