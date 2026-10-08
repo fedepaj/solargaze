@@ -105,11 +105,12 @@ def validate(df: pd.DataFrame, name: str = "") -> pd.DataFrame:
 
 from .eea import EEA  # noqa: E402
 from .epa_aqs import EPAAQS  # noqa: E402
+from .monitorar import MonitorAr  # noqa: E402
 from .naps import NAPS  # noqa: E402
 from .openaq import OpenAQ  # noqa: E402
 
 # In order of preference: the first that covers a country is used.
-REGISTRY: list[Importer] = [EEA(), EPAAQS(), NAPS(), OpenAQ()]
+REGISTRY: list[Importer] = [EEA(), EPAAQS(), NAPS(), MonitorAr(), OpenAQ()]
 
 
 def importer_for(country: str) -> Importer | None:
