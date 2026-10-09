@@ -34,18 +34,21 @@ class _OpsStore:
 
 
 class Light(Product):
-    name, version, subdir = "light", 2, "light"
+    name, version, subdir = "light", 3, "light"   # 3: from 1992, DMSP before VIIRS
     card = {
         "theme": "light", "variant": "sky", "order": 10, "kind": "sky-brightness",
         "label": "Night sky", "title": "Night-sky brightness",
         "unit": "mag/arcsec²", "scale_c": [16.5, 22.0], "resolution_m": 460,
-        "source": "NASA Black Marble VNP46A4 (VIIRS night lights, yearly); glow kernel fitted on Falchi et al. 2016",
-        "licence": "public domain (NASA)",
+        "source": "NASA Black Marble VNP46A4 (VIIRS night lights, yearly) from 2012; DMSP-OLS harmonised by Li et al. "
+                  "2020 for 1992–2011; glow kernel fitted on Falchi et al. 2016",
+        "licence": "public domain (NASA); CC BY 4.0 (harmonised DMSP)",
+        "coarse_before": 2012,
         "note": "How bright the sky overhead is on a clear, moonless night, as a Sky Quality Meter reads it: 22 is a "
-                "pristine sky, 17 a city centre, year by year since 2012. Each year's VIIRS night lights spread by a "
+                "pristine sky, 17 a city centre, year by year since 1992. Each year's VIIRS night lights spread by a "
                 "kernel of distance fitted on the World Atlas of Artificial Night Sky Brightness, within a factor of 1.5 of it on 94 cells in "
                 "100 where it was never fitted. VIIRS is blind to blue light, so white LEDs are undercounted; "
-                "altitude and terrain are not modelled.",
+                "altitude and terrain are not modelled. Before 2012 the older DMSP satellites stand in: coarser, "
+                "saturated in city centres, within a factor of 1.5 of the VIIRS sky on about 8 cells in 10.",
     }
 
     def unavailable(self) -> str | None:
@@ -91,6 +94,10 @@ class Light(Product):
         for t in tiles:
             cells.update(lv.cells_for(lv.window(Tile.parse(t).bounds)))
         for y in years:
+            if y <= lv.VIIRS_FROM:      # 2012 in both: the DMSP years are chained to VIIRS there
+                lv.dmsp_file(y, self._cache(ctx), lv._store)
+            if y < lv.VIIRS_FROM:
+                continue
             for h, v in sorted(cells):
                 lv.r30(y, h, v, self._cache(ctx), lv._store)
         ctx.shared["light_last_year"] = years[-1]

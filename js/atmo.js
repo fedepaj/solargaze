@@ -21,9 +21,9 @@ import { profile } from './device.js';
 import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED, yearPair } from './atmo/field.js';
 import { rampLut, GROWTH_MIN } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
-import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, getCatalog } from './atmo/tiles.js';
+import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
-import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight } from './atmo/layers.js';
+import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear } from './atmo/layers.js';
 import { setCatalog, cardOf } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape } from './atmo/drape.js';
@@ -60,10 +60,15 @@ export function initAtmo() {
 
   // Sunrise and sunset at the point switch the heat between its morning and
   // its night; anything else the clock does is a repaint from memory.
+  // So does the year: a theme with earlier decades (the mornings since 1984)
+  // shows the one the year slider is in.
   const daypart = () => {
-    if (setDaylight(state.sun.elevation > 0)) { apply(); scheduleFetch(true); emit('atmo', { source: 'daypart' }); }
+    const sun = setDaylight(state.sun.elevation > 0);
+    const year = setViewYear(state.y);
+    if (sun || year) { apply(); scheduleFetch(true); emit('atmo', { source: 'daypart' }); }
   };
   setDaylight(state.sun.elevation > 0);
+  setViewYear(state.y);
   on('location', () => { daypart(); scheduleFetch(); schedulePaint(); });
   // The surface mosaic follows the view: a new row of tiles in sight, or a
   // zoom across a level boundary, is a new fetch (cheap, mostly cached).
@@ -209,6 +214,8 @@ function fetchWant(want) {
     // Street air reads the tile under the pin and its neighbours, each with
     // the CAMS table its ratios multiply.
     if (want.source.dataKind === 'street-air') return streetSetAround(want.lat, want.lon, want.source.product);
+    // The air of earlier years is one file for Europe, read around the pin.
+    if (want.source.dataKind === 'grid-past') return gridPastAround(want.lat, want.lon, want.source.product);
     return tileProduct(want.tileId, want.source.product);
   }
   return fetchSeries(want);
@@ -300,7 +307,13 @@ export const contextFor = layer => {
     mode,
     /** The kind of data in use, and whether it is coarse enough to be drawn as visible tiles. */
     kind: card?.kind ?? null,
-    coarse: (card?.resolution_m ?? 0) >= COARSE_M,
+    coarse: !!card?.coarse || (card?.resolution_m ?? 0) >= COARSE_M,
+    /**
+     * A card that calls itself coarse at a fine grid (an older satellite
+     * resampled), or a year it marks as from an older source (the night sky
+     * before 2012, from DMSP), is read in blocks.
+     */
+    blocky: !!card?.coarse || (!!card?.coarse_before && state.y < card.coarse_before),
     option: optionOf(layer),
     monthFrac: monthFraction(dayOfYear(state.y, state.m, state.d), daysInYear(state.y)),
     hourFrac: state.minutes / 60,
@@ -309,9 +322,10 @@ export const contextFor = layer => {
 };
 
 /**
- * Data this coarse is drawn as tiles with a fine darker seam between cells,
- * so that a 460 m night sky or a 10 km air field reads as the estimate it
- * is, not as a sharp picture of the street.
+ * Coarse data — this coarse, or a card that says so (the mornings of the
+ * 1980s) — is drawn as visible tiles: a fine seam between cells where they
+ * are large on screen, and cells read in 2 × 2 blocks where they are not,
+ * so that it reads as the estimate it is, not as a sharp picture.
  */
 const COARSE_M = 300;
 
@@ -438,10 +452,11 @@ function fillRaster(raster, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
   // A 256-entry table instead of a call per pixel.
   const dec = raster.decLut ??= Float32Array.from({ length: 256 }, (_, k) => (k ? raster.decode(k) : NaN));
   const span = hi - lo || 1;
-  const rows = pick(raster.rows, P);
-  const cols = pick(raster.cols, P);
-  // Coarse data: the first pixel row and column of each source cell is a seam.
   const seams = ctx.coarse && P >= 4 * raster.cols;
+  const block = ctx.blocky && !seams && raster.level === 1 ? 2 : 1;   // an overview is coarse already
+  const rows = pick(raster.rows, P).map(r => r - (r % block));
+  const cols = pick(raster.cols, P).map(c => c - (c % block));
+  // Coarse data: the first pixel row and column of each source cell is a seam.
   const seamAlpha = Math.round(alpha * 0.45);
   for (let y = 0; y < P; y++) {
     const base = rows[y] * raster.cols;

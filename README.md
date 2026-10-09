@@ -50,9 +50,11 @@ for that day, and the beam arrives from the sun's direction into the studied poi
   - **Heat**: the surface temperature of roofs, streets, fields and rock by
     month, on a clear **morning** (Landsat, 90 m) and a clear **night**
     (ECOSTRESS from the Space Station, 70 m) — when a city gives back the
-    day's heat;
+    day's heat; and the mornings of earlier decades back to 1984 (Landsat 5
+    and 7) on the year slider;
   - **Air**: the five-year habit of NO₂, PM10, PM2.5 and ozone by month and
-    hour, street by street at 50 m;
+    hour, street by street at 50 m; before 2020, that month of that year
+    since 2003 from the CAMS global reanalysis, in its 80 km blocks;
   - **Noise**: road traffic as a day–evening–night level (Lden) at 10 m,
     modelled from the class of every OpenStreetMap road and screened by the
     buildings, calibrated on Berlin's official END noise map and checked on
@@ -61,8 +63,9 @@ for that day, and the beam arrives from the sun's direction into the studied poi
     selected day, from the CAMS forecast or archive, each on its own bands;
   - **Light**: how bright the night sky is overhead, in the magnitudes per
     square arcsecond a Sky Quality Meter reads, with its Bortle class and what
-    is left of the Milky Way, year by year since 2012 on the year slider —
-    each year's VIIRS night lights (NASA Black Marble) spread by a glow kernel fitted on the World Atlas of Artificial
+    is left of the Milky Way, year by year since 1992 on the year slider —
+    each year's VIIRS night lights (NASA Black Marble; the older DMSP
+    satellites before 2012, chained to VIIRS) spread by a glow kernel fitted on the World Atlas of Artificial
     Night Sky Brightness, within a factor of 1.5 of it on 94 cells in 100
     where it was never fitted;
   - **Growth**: what was built after the year on the slider, tinted over the

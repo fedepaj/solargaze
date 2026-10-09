@@ -47,6 +47,23 @@ class Kernel(unittest.TestCase):
         self.assertEqual(round(w * 120), w * 120)                  # on the 30″ grid
 
 
+class Dmsp(unittest.TestCase):
+    def test_dmsp_numbers_become_viirs_radiance_and_dark_stays_dark(self):
+        import rasterio
+        from rasterio.transform import from_origin
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "calDMSP_2000.tif"
+            dn = np.zeros((2400, 2400), np.uint8); dn[1200, 1200] = 63; dn[100, 100] = 10
+            with rasterio.open(path, "w", driver="GTiff", width=2400, height=2400, count=1, dtype="uint8", crs="EPSG:4326",
+                               transform=from_origin(0, 50, 1 / 120, 1 / 120)) as dst:
+                dst.write(dn, 1)
+            r = lv.dmsp_radiance(2000, (0, 30, 20, 50), Path(d))
+        self.assertEqual(r.shape, (2400, 2400))
+        self.assertAlmostEqual(float(r[1200, 1200]), lv.DMSP["a"] * 63 ** lv.DMSP["b"], places=3)
+        self.assertGreater(r[1200, 1200], 20 * r[100, 100])
+        self.assertEqual(float(r[0, 0]), 0.0)
+
+
 class Mosaic(unittest.TestCase):
     def test_a_light_spreads_glow_around_it_year_by_year(self):
         def cell(year, h, v, cache):
@@ -55,7 +72,8 @@ class Mosaic(unittest.TestCase):
             a = np.zeros((1200, 1200), np.float32)
             a[612, 612] = 1000.0 if year == 2013 else 4000.0   # a town at 44.9°N 15.1°E that grew
             return a
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(lv, "_cell", cell):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(lv, "_cell", cell), \
+                mock.patch.object(lv, "dmsp_radiance", lambda y, b, c: np.zeros((round((b[3] - b[1]) * 120), round((b[2] - b[0]) * 120)), np.float32)):
             near, rad = lv.artificial([2012, 2013, 2014], Tile.parse("N44.75E15.00").bounds, Path(d))
             far, _ = lv.artificial([2012, 2013, 2014], Tile.parse("N44.75E16.50").bounds, Path(d))
             info = lv.build(Tile.parse("N44.75E15.00"), Path(d) / "out", Path(d), last_year=2014)
@@ -65,8 +83,9 @@ class Mosaic(unittest.TestCase):
         self.assertAlmostEqual(float(near[2].max() / near[1].max()), 4.0, places=3)   # the glow is linear in the lights
         self.assertGreater(near.max(), 10 * far.max())
         self.assertGreater(far.max(), 0)                          # 110 km away the glow still reaches
-        self.assertEqual(info["years"], [2012, 2013, 2014])
-        self.assertEqual(img.shape, (3 * info["rows"], info["cols"]))
+        self.assertEqual(info["years"], list(range(1992, 2015)))           # DMSP before VIIRS
+        self.assertEqual(img.shape, (23 * info["rows"], info["cols"]))
+        self.assertEqual(info["coarse_before"], 2012)
         self.assertLess(info["mag_median_by_year"]["2014"], info["mag_median_by_year"]["2013"])
 
     def test_the_store_serves_a_cell_once_downloaded_and_the_sea_is_remembered(self):

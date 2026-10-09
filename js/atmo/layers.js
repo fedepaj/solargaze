@@ -108,6 +108,22 @@ function nearestNode(s, lat, lon) {
   return best;
 }
 
+/** The year a grid of earlier years holds nearest the slider's. */
+const pastYear = (s, year) => Math.min(Math.max(year, s.meta.years[0]), s.meta.years[s.meta.years.length - 1]);
+
+/** A pollutant in the grid of earlier years at a point, for the slider's year and month; NaN outside. */
+function pastAt(s, option, lat, lon, ctx) {
+  const { north, west, step, rows, cols } = s.meta.grid;
+  const r = Math.round((north - lat) / step);
+  const c = Math.round((lon - west) / step);
+  const data = s.data[option];
+  if (!data || r < 0 || c < 0 || r >= rows || c >= cols) return NaN;
+  const yi = pastYear(s, ctx.year) - s.meta.years[0];
+  const m = ((Math.round(ctx.monthFrac) % 12) + 12) % 12;   // 0 is mid-January: the calendar month
+  const b = data[((yi * 12 + m) * rows + r) * cols + c];
+  return b ? b - 1 : NaN;
+}
+
 const airLegend = ([lo, hi], { option }) => {
   const { unit } = AIR_METRICS[option];
   return { lo: String(lo), hi: unit ? `${hi} ${unit}` : String(hi) };
@@ -181,7 +197,7 @@ export const KINDS = {
     domain: (s, ctx, card) => card?.scale_c ?? [16.5, 22],
     stops: (ctx, card) => skyStops(card?.scale_c ?? [16.5, 22]),
     legend: ([lo, hi]) => ({ lo: `${lo} city`, hi: `${hi} mag/arcsec²` }),
-    reading(s, lat, lon, t, ctx) {
+    reading(s, lat, lon, t, ctx, card) {
       const v = readSurface(s, lat, lon, 0, ctx.year);
       if (Number.isNaN(v)) return null;
       const band = skyBand(v);
@@ -191,7 +207,8 @@ export const KINDS = {
       return {
         value: v,
         text: `${v.toFixed(2)} mag/arcsec²`,
-        sub: `Bortle ${band.bortle} · Milky Way ${band.milkyWay} · sky ${ratio < 1.1 ? 'as nature made it' : `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× natural`}${year ? ` · ${year} lights${ctx.year > year ? ', the latest' : ctx.year < year ? ', the first' : ''}` : ''}`,
+        sub: `Bortle ${band.bortle} · Milky Way ${band.milkyWay} · sky ${ratio < 1.1 ? 'as nature made it' : `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× natural`}${year ? ` · ${year} lights${ctx.year > year ? ', the latest' : ctx.year < year ? ', the first' : ''}` : ''}` +
+          (year && card?.coarse_before && year < card.coarse_before ? ' · older DMSP satellites, coarser' : ''),
         band,
       };
     },
@@ -236,6 +253,30 @@ export const KINDS = {
         sub: `${pct(then)} of the ground in ${from}, ${pct(now)} in ${last}` +
           (most ? ` · mostly ${most - 5}–${most}` : '') +
           (ctx.year < first ? ` · GHSL begins in ${first}` : ''),
+      };
+    },
+  },
+  /**
+   * The air of earlier years (CAMS global reanalysis, 2003–2019): the month
+   * of the year on the slider, one value an 80 km cell, read from the cell
+   * that holds the point — so the ground shows the blocks it really is.
+   */
+  'grid-past': {
+    field: (s, lat, lon, t, ctx) => pastAt(s, ctx.option, lat, lon, ctx),
+    domain: (s, { option }) => [0, AIR_METRICS[option].top],
+    stops: ({ option }) => airStops(option),
+    legend: airLegend,
+    reading(s, lat, lon, t, ctx) {
+      const { option } = ctx;
+      const v = pastAt(s, option, lat, lon, ctx);
+      if (Number.isNaN(v)) return null;
+      const y = pastYear(s, ctx.year);
+      return {
+        value: v,
+        text: `${v.toFixed(0)} ${AIR_METRICS[option].unit}`,
+        sub: `${monthName(ctx.monthFrac)} ${y} mean · CAMS global reanalysis, an 80 km cell: the region, not the street` +
+          (y !== ctx.year ? ` · ${y < ctx.year ? 'its last year' : 'its first year'}` : ''),
+        band: bandOf(option, v),
       };
     },
   },
@@ -491,14 +532,43 @@ export const available = layer => !!(layer.source || layer.modes);
 let daylight = true;
 export const setDaylight = up => { const changed = up !== daylight; daylight = up; return changed; };
 
-/** The mode a layer is in, from the hour or its preference, or null for a single-source layer. */
+/**
+ * The year on the slider, set by the engine like the daylight: a variant
+ * with `years` on its card (the mornings of an earlier decade) stands for
+ * those years, and is shown while the slider is in them.
+ */
+let viewYear = null;
+export const setViewYear = y => { const changed = y !== viewYear; viewYear = y; return changed; };
+
+/** The mode a layer is in, from the hour, the year or its preference, or null for a single-source layer. */
 export function modeOf(layer, prefs) {
   if (!layer.modes) return null;
   if (layer.byDaypart) {
     const want = daylight ? 'day' : 'night';
     // A catalog older than `daypart` says it in words (`when`: mornings, nights).
     const part = key => { const c = cardOf(key); return c?.daypart ?? (c?.when === 'nights' ? 'night' : 'day'); };
-    return layer.modes.choices.find(c => part(c.key) === want)?.key ?? layer.modes.fallback;
+    const fits = layer.modes.choices.filter(c => part(c.key) === want);
+    // The decade the slider is in; before the first, the first; otherwise
+    // (and between the decades and the present) the present.
+    const span = c => cardOf(c.key)?.years;
+    const past = fits.filter(span).sort((a, b) => span(a)[0] - span(b)[0]);
+    const y = viewYear;
+    const pick = (y !== null && past.find(c => y >= span(c)[0] && y <= span(c)[1]))
+      || (y !== null && past.length && y < span(past[0])[0] && past[0])
+      || fits.find(c => !span(c));
+    return pick?.key ?? layer.modes.fallback;
+  }
+  // A theme with variants for earlier years (the air since 2003) follows
+  // the slider the same way; one without, its preference.
+  const span = c => cardOf(c.key)?.years;
+  const past = layer.modes.choices.filter(span).sort((a, b) => span(a)[0] - span(b)[0]);
+  if (past.length && viewYear !== null) {
+    const y = viewYear;
+    const pick = past.find(c => y >= span(c)[0] && y <= span(c)[1]) || (y < span(past[0])[0] && past[0]);
+    if (pick) return pick.key;
+    const present = layer.modes.choices.filter(c => !span(c));
+    const value = prefs[layer.modes.pref];
+    return present.some(c => c.key === value) ? value : (present[0]?.key ?? layer.modes.fallback);
   }
   const value = prefs[layer.modes.pref];
   return layer.modes.choices.some(c => c.key === value) ? value : layer.modes.fallback;

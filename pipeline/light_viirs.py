@@ -1,5 +1,5 @@
 """
-How dark the night sky is, year by year since 2012, from that year's night
+How dark the night sky is, year by year since 1992, from that year's night
 lights, at 15″ (about 460 m).
 
 What the number is: the brightness of the sky overhead on a clear, moonless
@@ -13,6 +13,16 @@ streetlights.
 The lights: NASA's Black Marble, VNP46A4 v2 — VIIRS day/night band radiance,
 one composite per year, moonlight and the angle of view taken out, snow-free
 nights (LAADS DAAC, Earthdata login).
+
+Before VIIRS, 1992–2011: the DMSP-OLS lights, harmonised across its
+satellites and with VIIRS by Li et al. (2020, Scientific Data 7:168; the
+"calDMSP" years, CC BY 4.0), 30″ digital numbers turned into VIIRS radiance
+by R = 0.00314 · DN^2.11, fitted so that the sky they make matches the
+VIIRS sky of 2013 (within ×1.5 on 84 cells in 100; 77 in 2012, not fitted).
+Coarser and saturated in city centres, so the DMSP years are chained to
+VIIRS: each cell's DMSP sky is scaled by the ratio of the two 2012 skies,
+and DMSP says how the sky changed, VIIRS what it is. The app draws those
+years in blocks.
 
 The glow: the artificial brightness at a point is the year's radiance around
 it seen through a kernel of distance,
@@ -220,6 +230,58 @@ def window(bounds) -> tuple[float, float, float, float]:
     return lo(w - mx), lo(max(s - my, -89.9)), hi(e + mx), hi(min(n + my, 89.9))
 
 
+# ---------------------------------------------------------------- before VIIRS
+
+DMSP = {
+    "a": 0.00314, "b": 2.114,
+    "fit": {"year": 2013, "within_x1.5": 0.835, "rms_dex": 0.148},
+    "check": {"year": 2012, "within_x1.5": 0.771, "rms_dex": 0.172, "bias_dex": 0.027},
+    "source": "Li, Zhou et al. 2020, A harmonized global nighttime light dataset 1992–2018 (figshare 9828827, v10), calDMSP",
+}
+DMSP_FILES = {2012: 17626031, 1992: 17626052, 1993: 17626055, 1994: 17626061, 1995: 17626067, 1996: 17626070, 1997: 17626073,
+              1998: 17626079, 1999: 17626082, 2000: 17626085, 2001: 17626088, 2002: 17626091, 2003: 17626094,
+              2004: 17626097, 2005: 17626100, 2006: 17626103, 2007: 17626109, 2008: 17626016, 2009: 17626019,
+              2010: 17626022, 2011: 17626025}
+
+
+def dmsp_file(year: int, cache: Path, store=None) -> Path:
+    """One year's global calDMSP GeoTIFF (30″, about 35 MB): the local cache,
+    else the ops bucket, else figshare — and then onto the bucket."""
+    import requests
+    from sg.errors import Transient
+    out = cache / f"calDMSP_{year}.tif"
+    key = f"light/dmsp/{out.name}"
+    with _lock:
+        if out.exists():
+            return out
+        cache.mkdir(parents=True, exist_ok=True)
+        raw = store.get(key) if store is not None else None
+        if raw is None:
+            try:
+                r = requests.get(f"https://ndownloader.figshare.com/files/{DMSP_FILES[year]}", timeout=600)
+                r.raise_for_status()
+            except requests.RequestException as e:
+                raise Transient(f"calDMSP {year}: {e}") from e
+            raw = r.content
+            if store is not None:
+                store.put(key, raw)
+        out.with_suffix(".part").write_bytes(raw)
+        os.replace(out.with_suffix(".part"), out)
+        return out
+
+
+def dmsp_radiance(year: int, bounds, cache: Path) -> np.ndarray:
+    """VIIRS-equivalent radiance at 30″ over bounds from that year's DMSP."""
+    import rasterio
+    from rasterio.windows import from_bounds
+    w, s, e, n = bounds
+    shape = (round((n - s) * FIT), round((e - w) * FIT))
+    with rasterio.open(dmsp_file(year, cache, _store)) as src:
+        dn = src.read(1, window=from_bounds(w, s, e, n, src.transform), out_shape=shape,
+                      boundless=True, fill_value=0).astype(np.float32)
+    return np.where(dn > 0, DMSP["a"] * dn ** DMSP["b"], 0).astype(np.float32)
+
+
 # ---------------------------------------------------------------- the glow
 
 def kernel(lat0: float, per_deg: int = FIT, k: dict = KERNEL) -> np.ndarray:
@@ -241,8 +303,20 @@ def artificial(years: list[int], bounds, cache: Path) -> tuple[np.ndarray, np.nd
     from scipy import ndimage, signal
     w, s, e, n = bounds
     win = window(bounds)
-    r = np.stack([radiance(y, win, cache) for y in years])
+    old = [y for y in years if y < VIIRS_FROM]
+    # The DMSP years are chained to the VIIRS ones: both skies of 2012 are
+    # made, and every DMSP sky is scaled, cell by cell, by how far the 2012
+    # DMSP sky fell from the VIIRS one — DMSP saturates in city centres and
+    # blooms around them, so it is trusted for the change, not the level.
+    chain = old and VIIRS_FROM in years
+    r = np.stack([radiance(y, win, cache) if y >= VIIRS_FROM else dmsp_radiance(y, win, cache) for y in years]
+                 + ([dmsp_radiance(VIIRS_FROM, win, cache)] if chain else []))
     glow = np.clip(signal.fftconvolve(r, kernel((s + n) / 2)[None], mode="same", axes=(1, 2)), 0, None)
+    if chain:
+        link = glow[years.index(VIIRS_FROM)] / np.maximum(glow[-1], 1e-6)
+        link = np.clip(np.where(glow[-1] > 1e-4, link, 1.0), 0.2, 5.0)
+        glow = glow[:-1]
+        glow[:len(old)] *= link
     # 30″ cell centres → the 15″ cell centres of bounds
     rows, cols = round((n - s) * NATIVE), round((e - w) * NATIVE)
     yc = ((win[3] - n) * FIT - 0.5) + (np.arange(rows) + 0.5) / 2
@@ -255,7 +329,8 @@ def artificial(years: list[int], bounds, cache: Path) -> tuple[np.ndarray, np.nd
 
 # ---------------------------------------------------------------- a tile
 
-FIRST_YEAR = 2012   # the first year of VNP46A4
+FIRST_YEAR = 1992   # the first year of DMSP in the harmonised series
+VIIRS_FROM = 2012   # the first year of VNP46A4
 
 
 def years_to(last: int) -> list[int]:
@@ -286,9 +361,11 @@ def build(tile, out_dir: Path, cache: Path, last_year: int | None = None) -> dic
         "share_milky_way_hidden": round(float((now < 20.5).mean()), 3),
         "share_pristine": round(float((art[-1] / NATURAL_MCD < 0.01).mean()), 3),
         "radiance_median_nw": round(float(np.median(rad[-1])), 2),
-        "model": KERNEL, "validation": VALIDATION,
-        "source": f"NASA Black Marble {COLLECTION} v2 ({years[0]}–{years[-1]}), LAADS DAAC; glow kernel fitted on Falchi et al. 2016",
-        "licence": "NASA Black Marble: public domain",
+        "model": KERNEL, "validation": VALIDATION, "dmsp": DMSP,
+        "coarse_before": VIIRS_FROM,
+        "source": f"NASA Black Marble {COLLECTION} v2 ({VIIRS_FROM}–{years[-1]}), LAADS DAAC; DMSP-OLS harmonised "
+                  f"(Li et al. 2020) {years[0]}–{VIIRS_FROM - 1}; glow kernel fitted on Falchi et al. 2016",
+        "licence": "NASA Black Marble: public domain; harmonised DMSP: CC BY 4.0",
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "caveat": "VIIRS does not see blue light: white LEDs are undercounted, so a town's change to them looks darker "
                   "than it is. A fitted kernel, not an atmosphere: terrain and altitude are not modelled.",

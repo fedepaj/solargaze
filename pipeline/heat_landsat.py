@@ -71,22 +71,29 @@ def qa_is_clear(qa: np.ndarray) -> np.ndarray:
     return (bad == 0) & (qa != 0) & (qa != 1)
 
 
+def thermal_key(item) -> str | None:
+    """The surface-temperature asset: lwir11 on Landsat 8/9 (band 10), lwir
+    on Landsat 4–7 (band 6); None where the USGS published reflectance only."""
+    return next((k for k in ("lwir11", "lwir") if k in item.assets), None)
+
+
 def read_scene(item, tile: Tile, shape: tuple[int, int]):
     """Surface temperature in °C over the tile, NaN where clouded or missing."""
     west, south, east, north = tile.bounds
     transform = from_bounds(west, south, east, north, shape[1], shape[0])
     signed = planetary_computer.sign(item)
     out = {}
-    for key, resampling in (("lwir11", Resampling.bilinear), ("qa_pixel", Resampling.nearest)):
+    thermal = thermal_key(item)
+    for key, resampling in ((thermal, Resampling.bilinear), ("qa_pixel", Resampling.nearest)):
         with rasterio.open(signed.assets[key].href) as src:
             with WarpedVRT(src, crs="EPSG:4326", transform=transform, width=shape[1], height=shape[0],
                            resampling=resampling, nodata=0) as vrt:
                 out[key] = vrt.read(1)
-    st = out["lwir11"].astype(np.float32)
-    band = item.assets["lwir11"].extra_fields["raster:bands"][0]
+    st = out[thermal].astype(np.float32)
+    band = item.assets[thermal].extra_fields["raster:bands"][0]
     kelvin = st * band["scale"] + band["offset"]
     celsius = kelvin - 273.15
-    valid = (out["lwir11"] != 0) & qa_is_clear(out["qa_pixel"])
+    valid = (out[thermal] != 0) & qa_is_clear(out["qa_pixel"])
     celsius[~valid] = np.nan
     return celsius
 
@@ -163,26 +170,38 @@ def run(tile: Tile) -> None:
     write_meta(tile, "heat", info)
 
 
-def build(tile: Tile, out_dir: Path) -> dict:
+PLATFORMS = ("landsat-8", "landsat-9")
+
+
+def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, ...] = PLATFORMS,
+          max_per_month: int | None = None, subdir: str = "heat") -> dict:
     """The packed months into out_dir; returns the meta entry, writes nothing
     else. NoData where no scene covers the tile or none carries surface
     temperature; Transient when too many scenes would not read (the network,
-    not the tile)."""
+    not the tile). An earlier decade (heat_past) passes its own years and
+    satellites, and a cap on the scenes a month: the clearest are kept."""
     shape = tile.shape(DEG_PER_PX)
     print(f"{tile.id}: {shape[0]}×{shape[1]} px at {DEG_PER_PX}°")
     cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
     items = list(cat.search(
-        collections=["landsat-c2-l2"], bbox=list(tile.bounds), datetime=YEARS,
-        query={"eo:cloud_cover": {"lt": MAX_CLOUD}, "platform": {"in": ["landsat-8", "landsat-9"]}},
+        collections=["landsat-c2-l2"], bbox=list(tile.bounds), datetime=years,
+        query={"eo:cloud_cover": {"lt": MAX_CLOUD}, "platform": {"in": list(platforms)}},
     ).items())
     print(f"  {len(items)} scenes under {MAX_CLOUD}% cloud")
     # Where the USGS lacks the ancillary data for surface temperature (the
     # Azores, ocean islands) it publishes reflectance only (L2SR, no lwir11):
     # nothing to read there, however often it is asked.
-    with_st = [it for it in items if "lwir11" in it.assets]
+    with_st = [it for it in items if thermal_key(it)]
     if items and not with_st:
         raise NoData(f"{tile.id}: Landsat has no surface temperature here ({len(items)} scenes, reflectance only)")
     items = with_st
+    if max_per_month:
+        kept: dict[int, list] = {}
+        for it in sorted(items, key=lambda it: it.properties.get("eo:cloud_cover", 100)):
+            if len(kept.setdefault(it.datetime.month, [])) < max_per_month:
+                kept[it.datetime.month].append(it)
+        items = [it for month in kept.values() for it in month]
+        print(f"  kept the clearest {max_per_month} a month: {len(items)} scenes")
 
     by_month: dict[int, list[np.ndarray]] = {m: [] for m in range(1, 13)}
     t0 = time.time()
@@ -238,7 +257,7 @@ def build(tile: Tile, out_dir: Path) -> dict:
 
     if not medians:
         raise NoData(f"{tile.id}: no month with a clear look")
-    files = write_packed(medians, out_dir)
+    files = write_packed(medians, out_dir, subdir)
 
     # The per-scene cache exists to resume an interrupted tile, not to keep
     # half a gigabyte per tile around: drop it once the months are written.
@@ -246,8 +265,9 @@ def build(tile: Tile, out_dir: Path) -> dict:
         p.unlink()
 
     info = {
-        "product": "Landsat 8/9 Collection 2 Level-2 surface temperature (ST_B10), per-pixel median by calendar month",
-        "years": YEARS,
+        "product": f"Landsat {'/'.join(p.split('-')[1] for p in platforms)} Collection 2 Level-2 surface temperature, "
+                   "per-pixel median by calendar month",
+        "years": years, "platforms": list(platforms), "max_per_month": max_per_month,
         "max_cloud_percent": MAX_CLOUD,
         "overpass_local_time": "~10:30",
         "rows": shape[0] // DOWNSAMPLE, "cols": shape[1] // DOWNSAMPLE,

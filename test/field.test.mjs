@@ -12,7 +12,7 @@ import {
 } from '../js/atmo/field.js';
 import { bandOf, rampLut, airStops, heatStops, pollenBand, POLLEN, skyBand, skyRatio } from '../js/atmo/scales.js';
 import { SOURCES, resolveDate, lastYear, shiftDate } from '../js/atmo/sources.js';
-import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS, setDaylight } from '../js/atmo/layers.js';
+import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS, setDaylight, setViewYear } from '../js/atmo/layers.js';
 import { FALLBACK, setCatalog, variantsOf, KNOWN_KINDS } from '../js/atmo/catalog.js';
 import { registerTileSources } from '../js/atmo/sources.js';
 
@@ -179,7 +179,18 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     registerTileSources();
     applyCatalog();
     const heat = LAYERS.find(l => l.id === 'temperature');
-    assert.deepEqual(heat.modes.choices.map(c => [c.key, c.source]), [['heat', 'tile-heat'], ['heat_night', 'tile-heat-night']]);
+    assert.deepEqual(heat.modes.choices.map(c => [c.key, c.source]), [['heat', 'tile-heat'], ['heat_2004', 'tile-heat-2004'],
+      ['heat_1994', 'tile-heat-1994'], ['heat_1984', 'tile-heat-1984'], ['heat_night', 'tile-heat-night']]);
+    // Mornings follow the year slider into the decade it is in; nights have only the present.
+    setDaylight(true);
+    for (const [y, want] of [[1970, 'heat_1984'], [1990, 'heat_1984'], [1999, 'heat_1994'], [2013, 'heat_2004'], [2016, 'heat'], [2026, 'heat']]) {
+      setViewYear(y);
+      assert.equal(modeOf(heat, {}), want, `morning in ${y}`);
+    }
+    setDaylight(false);
+    setViewYear(1990);
+    assert.equal(modeOf(heat, {}), 'heat_night');
+    setViewYear(null);
     // The heat follows the sun at the point, not a preference.
     setDaylight(true);
     assert.equal(modeOf(heat, { heatVariant: 'heat_night' }), 'heat');
@@ -264,6 +275,29 @@ test('growth: what is built now and was not in the year on the slider, read betw
   assert.equal(read.text, '+40% built since 1975');
   assert.match(read.sub, /10% of the ground in 1975, 50% in 1985 · mostly 1980–1985 · GHSL begins in 1975/);
   assert.match(growth.reading(r, 0.5, 0.25, 0, at(2026)).sub, /the last epoch/);
+});
+
+test('the air of earlier years: the cell under the point, the month and year on the slider, then the present', () => {
+  const air = LAYERS.find(l => l.id === 'air');
+  // a 2 × 2 grid of 0.75° cells, years 2003–2004; NO2 byte = µg/m³ + 1
+  const rows = 2, cols = 2, years = [2003, 2004];
+  const no2 = new Uint8Array(years.length * 12 * rows * cols);
+  no2[((1 * 12 + 6) * rows + 0) * cols + 1] = 41;          // 2004, July, north-east cell: 40 µg/m³
+  const s = { kind: 'grid-past', data: { nitrogen_dioxide: no2 },
+    meta: { years, grid: { north: 45, west: 10, step: 0.75, rows, cols } } };
+  const ctx = { mode: 'air_past', option: 'nitrogen_dioxide', monthFrac: 6.0, year: 2004 };
+  assert.equal(air.field(s, 45.1, 10.8, 0, ctx), 40);
+  assert.ok(Number.isNaN(air.field(s, 45.1, 10.8, 0, { ...ctx, year: 2003 })), 'no value that year');
+  assert.match(air.reading(s, 45.1, 10.8, 0, { ...ctx, year: 2010 }).sub, /Jul 2004 mean .* its last year/);
+  assert.ok(Number.isNaN(air.field(s, 50, 10.8, 0, ctx)), 'outside the grid');
+  // The slider picks the variant: before 2020 the past, after it the street habit.
+  setViewYear(2008);
+  assert.equal(modeOf(air, {}), 'air_past');
+  setViewYear(1990);
+  assert.equal(modeOf(air, {}), 'air_past');
+  setViewYear(2023);
+  assert.equal(modeOf(air, {}), 'air_street');
+  setViewYear(null);
 });
 
 test('pollen bands differ by taxon, and under a grain there is none', () => {

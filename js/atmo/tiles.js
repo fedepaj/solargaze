@@ -137,6 +137,58 @@ export async function tileMeta(tileId) {
 }
 
 /**
+ * A product that is one file for the whole scope rather than tiles (the air
+ * of earlier years, on an 80 km grid): its meta and every pollutant's image,
+ * decoded once. Rows of the grid for each (year, month), oldest first; byte
+ * = µg/m³ + 1, 0 = no value.
+ */
+const grids = new Map();
+export function gridPast(product) {
+  if (!grids.has(product)) {
+    const load = async () => {
+      const card = cardOf(product);
+      const meta = await fetch(`${BASE}/${card.meta}`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+      if (!meta) return null;
+      const data = {};
+      await Promise.all(Object.entries(meta.files).map(async ([name, file]) => {
+        const img = await loadImage(`${BASE}/${file}?v=${encodeURIComponent(meta.generated || '')}`);
+        const cv = document.createElement('canvas');
+        cv.width = img.width;
+        cv.height = img.height;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+        const v = new Uint8Array(cv.width * cv.height);
+        for (let i = 0, o = 0; i < v.length; i++, o += 4) v[i] = px[o];
+        data[name] = v;
+      }));
+      return { meta, data };
+    };
+    grids.set(product, load().catch(err => { grids.delete(product); throw err; }));
+  }
+  return grids.get(product);
+}
+
+/** The grid of earlier years around a point: a few degrees each way, on its own cell edges. */
+export async function gridPastAround(lat, lon, product) {
+  const g = await gridPast(product);
+  if (!g) return null;
+  const { north, west, step, rows, cols } = g.meta.grid;
+  const span = 4;
+  const r0 = Math.max(0, Math.round((north - (lat + span)) / step));
+  const r1 = Math.min(rows - 1, Math.round((north - (lat - span)) / step));
+  const c0 = Math.max(0, Math.round((lon - span - west) / step));
+  const c1 = Math.min(cols - 1, Math.round((lon + span - west) / step));
+  if (r0 > r1 || c0 > c1) return null;
+  const grid = {
+    north: north - r0 * step + step / 2, south: north - r1 * step - step / 2,
+    west: west + c0 * step - step / 2, east: west + c1 * step + step / 2,
+    key: `${product}|${r0},${r1},${c0},${c1}`,
+  };
+  return { kind: 'grid-past', grid, data: g.data, meta: g.meta, key: grid.key };
+}
+
+/**
  * Load one product of one tile. Returns null when the tile or the product
  * is absent. Shapes:
  *   air  → a climatology Series: { kind: 'climatology', grid, vars, meta }
