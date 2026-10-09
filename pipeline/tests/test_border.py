@@ -107,6 +107,17 @@ class Border(unittest.TestCase):
         # The pieces answer for this tile only, not for the land east of it.
         self.assertFalse(osm_extract.covered_box((7.2, 45.0, 7.4, 45.2)))
 
+    def test_pieces_of_an_older_format_are_left_again_at_once(self):
+        east = self.machine("east", (7.12, 44, 9, 46), [building(1, 7.2, 45.1)])
+        self.assertEqual(border.leave(self.remote, "east", east, [TILE]), 1)
+        self.assertEqual(border.leave(self.remote, "east", east, [TILE]), 0)
+        # A record from before the format was written: as if never left.
+        key = ("ops", border._region_key("east"))
+        rec = json.loads(self.remote.s3.objects[key]); rec.pop("format")
+        self.remote.s3.objects[key] = json.dumps(rec).encode()
+        self.assertEqual(border.pieces_age_days(self.remote, "east"), float("inf"))
+        self.assertEqual(border.leave(self.remote, "east", east, [TILE]), 1)
+
     def test_a_tile_still_missing_a_third_region_waits(self):
         # "east" covers only the north-east quarter: west + east leave land uncovered.
         east = self.machine("east", (7.12, 45.12, 9, 46), [building(1, 7.2, 45.2)])

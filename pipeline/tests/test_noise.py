@@ -54,6 +54,19 @@ class Model(unittest.TestCase):
         decoded = no.ENCODING["byte1_db"] + (b[0, 1:].astype(float) - 1) * no.ENCODING["step_db"]
         self.assertTrue(np.allclose(decoded, l[0, 1:], atol=0.25))
 
+    def test_roads_from_an_old_border_piece_fall_back_to_their_coarse_class(self):
+        from unittest import mock
+        import osm_extract
+        from tiles import Tile
+        tile = Tile.parse("N45.00E07.00")
+        roads = [{"id": "w1", "c": "major", "coordinates": [[7.1, 45.1], [7.2, 45.1]]},                 # old piece
+                 {"id": "w2", "c": "local", "h": "residential", "coordinates": [[7.1, 45.2], [7.2, 45.2]]},
+                 {"id": "w3", "c": "major", "h": "motorway", "t": 1, "coordinates": [[7.1, 45.0], [7.2, 45.0]]}]
+        with mock.patch.object(osm_extract, "read_roads", lambda t, whole=False: roads if t.id == tile.id else []), \
+                mock.patch.object(osm_extract, "read_tile", lambda t, whole=False: []):
+            got, _ = no.from_index(tile, no.Grid(tile.bounds))
+        self.assertEqual(sorted(c for c, _ in got), ["local", "primary"])   # the tunnel is left out
+
     def test_bands_are_the_end_maps(self):
         self.assertEqual(list(no.band_index(np.array([54.9, 55, 64.9, 75]))), [0, 1, 2, 5])
 

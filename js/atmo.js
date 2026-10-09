@@ -190,9 +190,16 @@ function viewRect() {
   return snapRect(rect);
 }
 
+/** Is any switched-on layer drawing from this source? */
+const drawnFrom = id => enabledLayers().some(l => currentSource(l) === id);
+
 function wantFor(source) {
   if (source.kind === 'tile' && VIEW_KINDS.has(source.dataKind)) {
-    const rect = viewRect();
+    // A layer that is off still reads its number at the pin, and for that
+    // the tile under the pin is enough: a mosaic of the whole view for every
+    // card, drawn or not, ran a phone out of memory. The view is fetched
+    // when the layer is switched on.
+    const rect = drawnFrom(source.id) ? viewRect() : snapRect([state.lon, state.lat, state.lon, state.lat]);
     return { source, rect, lat: state.lat, lon: state.lon, key: `${source.id}|${levelFor(rect)}|${rect.join(',')}` };
   }
   if (source.kind === 'tile') {

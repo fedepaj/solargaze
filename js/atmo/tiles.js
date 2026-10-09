@@ -137,6 +137,38 @@ export async function tileMeta(tileId) {
 }
 
 /**
+ * An image's red channel (and its alpha, if asked) as bytes, read a band of
+ * rows at a time: a 2784² tile read whole asks the browser for a 31 MB
+ * ImageData at once, and on a phone with a few tiles in memory that is the
+ * request that fails. The decoded bitmap is released as soon as it is read.
+ */
+const BAND = 256;
+function channels(img, { alpha = false } = {}) {
+  const w = img.width;
+  const h = img.height;
+  const red = new Uint8Array(w * h);
+  const al = alpha ? new Uint8Array(w * h) : null;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = Math.min(BAND, h);
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  for (let y0 = 0; y0 < h; y0 += BAND) {
+    const rows = Math.min(BAND, h - y0);
+    ctx.clearRect(0, 0, w, cv.height);
+    ctx.drawImage(img, 0, y0, w, rows, 0, 0, w, rows);
+    const px = ctx.getImageData(0, 0, w, rows).data;
+    for (let i = 0, o = 0, k = y0 * w; i < w * rows; i++, o += 4, k++) {
+      red[k] = px[o];
+      if (al) al[k] = px[o + 3];
+    }
+  }
+  cv.width = 0;
+  cv.height = 0;
+  img.close?.();
+  return { red, alpha: al, width: w, height: h };
+}
+
+/**
  * A product that is one file for the whole scope rather than tiles (the air
  * of earlier years, on an 80 km grid): its meta and every pollutant's image,
  * decoded once. Rows of the grid for each (year, month), oldest first; byte
@@ -152,15 +184,7 @@ export function gridPast(product) {
       const data = {};
       await Promise.all(Object.entries(meta.files).map(async ([name, file]) => {
         const img = await loadImage(`${BASE}/${file}?v=${encodeURIComponent(meta.generated || '')}`);
-        const cv = document.createElement('canvas');
-        cv.width = img.width;
-        cv.height = img.height;
-        const ctx = cv.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
-        const v = new Uint8Array(cv.width * cv.height);
-        for (let i = 0, o = 0; i < v.length; i++, o += 4) v[i] = px[o];
-        data[name] = v;
+        data[name] = channels(img).red;
       }));
       return { meta, data };
     };
@@ -298,17 +322,10 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
         throw new Error(`${file} is ${img.width}×${img.height}, meta says ${width}×${height}`);
       }
     }
-    const cv = document.createElement('canvas');
-    cv.width = img.width;
-    cv.height = img.height;
-    const ctx = cv.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0);
-    const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
-    const values = new Uint8Array(cv.width * cv.height);
-    for (let i = 0, o = 0; i < values.length; i++, o += 4) {
-      values[i] = v2 ? px[o] : (px[o + 3] ? px[o] + 1 : 0);
-    }
-    return values;
+    const { red, alpha } = channels(img, { alpha: !v2 });
+    if (v2) return red;
+    for (let i = 0; i < red.length; i++) red[i] = alpha[i] ? red[i] + 1 : 0;
+    return red;
   };
   if (info.packing) {
     // One image per level, the twelve months stacked north to south.
@@ -347,14 +364,8 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
   const v1 = enc.value_at_byte1 ?? enc.byte1_db;
   const step = enc.step ?? enc.step_db;
   const img = await loadImage(productUrl(tileId, file, info, product));
-  const cv = document.createElement('canvas');
-  cv.width = img.width;
-  cv.height = img.height;
-  const ctx = cv.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0);
-  const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
-  const values = new Uint8Array(cv.width * cv.height);
-  for (let i = 0, o = 0; i < values.length; i++, o += 4) values[i] = px[o];
+  const { red: values, width, height } = channels(img);
+  const cv = { width, height };
   // A stack of years (the night sky) or epochs (the built ground): one image
   // each, oldest on top — an overview's rows are its height over the count.
   // Epochs written as changes from the one before are summed back here.
@@ -385,16 +396,11 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
  */
 async function loadMask(tileId, info, product) {
   const img = await loadImage(productUrl(tileId, info.heights_png.file, info, product));
-  const cv = document.createElement('canvas');
-  cv.width = img.width;
-  cv.height = img.height;
-  const ctx = cv.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0);
-  const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
-  const solid = new Uint8Array(cv.width * cv.height);
+  const { red: solid, width, height } = channels(img);
+  const cv = { width, height };
   const slice = info.slice_height_m ?? 5;
   const perLsb = info.heights_png.metres_per_lsb ?? 1;
-  for (let i = 0, o = 0; i < solid.length; i++, o += 4) solid[i] = px[o] * perLsb > slice ? 1 : 0;
+  for (let i = 0; i < solid.length; i++) solid[i] = solid[i] * perLsb > slice ? 1 : 0;
   const meta = await tileMeta(tileId);
   return {
     kind: 'mask', bounds: meta.bounds, rows: cv.height, cols: cv.width, solid,
@@ -415,15 +421,7 @@ async function loadStreet(tileId, info, product) {
   await Promise.all(Object.entries(info.files).map(async ([name, file]) => {
     const img = await loadImage(productUrl(tileId, file, info, product));
     if (img.width !== info.cols || img.height !== info.rows) throw new Error(`${file} is ${img.width}×${img.height}`);
-    const cv = document.createElement('canvas');
-    cv.width = img.width;
-    cv.height = img.height;
-    const ctx = cv.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0);
-    const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
-    const v = new Uint8Array(cv.width * cv.height);
-    for (let i = 0, o = 0; i < v.length; i++, o += 4) v[i] = px[o];
-    bytes[name] = v;
+    bytes[name] = channels(img).red;
   }));
   const meta = await tileMeta(tileId);
   return { kind: 'street', bounds: meta.bounds, rows: info.rows, cols: info.cols, bytes, ratioOf, meta: info, key: `${product}|${tileId}` };

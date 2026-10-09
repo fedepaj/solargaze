@@ -49,6 +49,9 @@ CLASS_OF = {
     "service": "service",
 }
 CLASSES = ["motorway", "trunk", "primary", "secondary", "tertiary", "local", "service"]
+# The extract's coarse classes (osm_extract.ROAD_CLASSES), for roads that carry
+# nothing finer: each to the quieter end of what it groups.
+FROM_COARSE = {"major": "primary", "secondary": "tertiary", "local": "local", "service": "service"}
 MAJOR = {"motorway", "trunk", "primary", "secondary"}
 
 # Sound power per metre, dB(A) re 1 pW/m, Lden-weighted. Starting values from
@@ -338,10 +341,10 @@ def from_index(tile, grid: Grid) -> tuple[list, list]:
         for lo in range(math.floor(w / STEP), math.floor(e / STEP) + 1):
             t = Tile(la * STEP, lo * STEP)
             for el in osm_extract.read_roads(t, whole=False) or []:
-                if "h" not in el:
-                    from sg.errors import Upstream
-                    raise Upstream("the extract index predates the noise model's road classes; index it again")
-                cls = CLASS_OF.get(el.get("h") or "")
+                # A neighbour's border piece left before roads carried their
+                # OSM value has only the coarse class; it is left again in the
+                # new format on that region's next run (sg/border.py, FORMAT).
+                cls = CLASS_OF.get(el["h"] or "") if "h" in el else FROM_COARSE.get(el.get("c") or "")
                 if cls and not el.get("t") and el["id"] not in seen_r:
                     seen_r.add(el["id"])
                     roads.append((cls, [tuple(p) for p in el["coordinates"]]))
