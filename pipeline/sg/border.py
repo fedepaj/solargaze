@@ -33,6 +33,7 @@ from botocore.exceptions import ClientError
 
 PREFIX = "border/"
 REFRESH_DAYS = 30   # pieces older than this are left again; OSM changes slowly at a border
+FORMAT = 2          # 2: road lines carry `h`, the highway value the noise model needs; older pieces are left again
 
 
 def _region_key(name: str) -> str:
@@ -69,9 +70,10 @@ def split_piece(raw: bytes) -> tuple[list[str], list[str]]:
 
 
 def pieces_age_days(remote, name: str) -> float:
-    """Days since this region last left its pieces; inf if never."""
+    """Days since this region last left its pieces; inf if never, or if
+    they were left in an older format."""
     meta = remote._get_json(remote.ops, _region_key(name))
-    if not meta or not meta.get("at"):
+    if not meta or not meta.get("at") or meta.get("format", 1) < FORMAT:
         return float("inf")
     return (time.time() - datetime.fromisoformat(meta["at"]).timestamp()) / 86400
 
@@ -94,7 +96,7 @@ def leave(remote, name: str, poly: Path, tiles: list[str], log=None, force: bool
         sizes = list(ex.map(one, tiles))
     # Last: a region's record says its pieces are all there.
     put(_region_key(name), json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                                       "tiles": sorted(tiles)}).encode())
+                                       "format": FORMAT, "tiles": sorted(tiles)}).encode())
     if log:
         log.info("border.left", region=name, tiles=len(tiles), mb=round(sum(sizes) / 1e6, 1))
         log.count("bytes_border_left", sum(sizes))
