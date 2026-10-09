@@ -28,7 +28,7 @@ import {
 } from './field.js';
 import {
   HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
-  noiseBand, noiseStops, WHO_ROAD_LDEN,
+  noiseBand, noiseStops, WHO_ROAD_LDEN, skyBand, skyStops, skyRatio,
 } from './scales.js';
 import { FALLBACK, cardOf, tileSourceId, variantsOf, catalog } from './catalog.js';
 
@@ -37,6 +37,7 @@ const ICONS = {
   air: '<path d="M7.5 17h9.2a3.8 3.8 0 0 0 .3-7.6 5.5 5.5 0 0 0-10.5-1A3.8 3.8 0 0 0 7.5 17Z"/><circle cx="8" cy="20.6" r=".9" class="fill"/><circle cx="12" cy="20.6" r=".9" class="fill"/><circle cx="16" cy="20.6" r=".9" class="fill"/>',
   noise: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4Z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.5a8 8 0 0 1 0 11"/>',
   pollen: '<circle cx="12" cy="9.2" r="2"/><path d="M12 7.2c-.3-2.6.6-4 1.9-4s1.9 1.7.3 3.7M14 9.2c2.6-.3 4 .6 4 1.9s-1.7 1.9-3.7.3M12 11.2c.3 2.6-.6 4-1.9 4s-1.9-1.7-.3-3.7M10 9.2c-2.6.3-4-.6-4-1.9s1.7-1.9 3.7-.3"/><path d="M12 11.2V21M12 17.5c1.5-1.7 3.3-2.2 4.6-1.7"/>',
+  light: '<path d="M14.5 4.5a7.5 7.5 0 1 0 5 13 6 6 0 0 1-5-13Z"/><path d="M6 4.5v3M4.5 6h3M18.5 10v2M17.5 11h2"/>',
   wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 12.5h14.5a2.5 2.5 0 1 1-2.5 2.5"/><path d="M3 16.5h7a2 2 0 1 1-2 2"/>',
 };
 
@@ -166,6 +167,29 @@ export const KINDS = {
         text: `${v.toFixed(0)} dB`,
         sub: `day–evening–night level · ${Math.abs(over).toFixed(0)} dB ${over >= 0 ? 'above' : 'below'} the WHO guideline for road traffic (${WHO_ROAD_LDEN})`,
         band: noiseBand(v),
+      };
+    },
+  },
+  /**
+   * The night sky's zenith brightness, one raster, no months (VIIRS by year):
+   * a fixed scale in mag/arcsec², read with what is left of the Milky Way.
+   */
+  'sky-brightness': {
+    field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, 0),
+    domain: (s, ctx, card) => card?.scale_c ?? [16.5, 22],
+    stops: (ctx, card) => skyStops(card?.scale_c ?? [16.5, 22]),
+    legend: ([lo, hi]) => ({ lo: `${lo} city`, hi: `${hi} mag/arcsec²` }),
+    reading(s, lat, lon) {
+      const v = readSurface(s, lat, lon, 0);
+      if (Number.isNaN(v)) return null;
+      const band = skyBand(v);
+      const ratio = skyRatio(v);
+      const year = centreOf(s).meta?.year;
+      return {
+        value: v,
+        text: `${v.toFixed(2)} mag/arcsec²`,
+        sub: `Bortle ${band.bortle} · Milky Way ${band.milkyWay} · sky ${ratio < 1.1 ? 'as nature made it' : `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× natural`}${year ? ` · ${year} lights` : ''}`,
+        band,
       };
     },
   },
@@ -342,6 +366,17 @@ export const LAYERS = [
       };
     },
   },
+  theme({
+    id: 'sky',
+    theme: 'light',
+    label: 'Light',
+    tip: 'Light pollution<em>How bright the sky overhead is on a clear, moonless night, from the year\'s night lights</em>',
+    icon: ICONS.light,
+    defaultKind: 'sky-brightness',
+    render: 'drape',
+    slot: 'ground',
+    alpha: 0.55,
+  }),
   {
     id: 'wind',
     label: 'Wind',

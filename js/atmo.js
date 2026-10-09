@@ -161,7 +161,7 @@ const todayHere = () => {
 };
 
 /** Does any enabled layer want the view-driven raster set right now? */
-const VIEW_KINDS = new Set(['raster-months', 'raster-static']);
+const VIEW_KINDS = new Set(['raster-months', 'raster-static', 'sky-brightness']);
 const needsView = () => enabledLayers().some(l => VIEW_KINDS.has(SOURCES[currentSource(l)]?.dataKind));
 
 /**

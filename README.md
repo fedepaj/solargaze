@@ -59,6 +59,12 @@ for that day, and the beam arrives from the sun's direction into the studied poi
     Hamburg's — within one 5 dB band on nine cells in ten;
   - **Pollen**: grass, birch, alder, olive, mugwort and ragweed on the
     selected day, from the CAMS forecast or archive, each on its own bands;
+  - **Light**: how bright the night sky is overhead, in the magnitudes per
+    square arcsecond a Sky Quality Meter reads, with its Bortle class and what
+    is left of the Milky Way — the year's VIIRS night lights (NASA Black
+    Marble) spread by a glow kernel fitted on the World Atlas of Artificial
+    Night Sky Brightness, within a factor of 1.5 of it on 94 cells in 100
+    where it was never fitted;
   - **Wind**: the 10 m wind as drifting particles, threaded between the
     buildings where a tile carries them;
   - and the selected day's weather and air, read at the pin.
@@ -340,14 +346,14 @@ In the order they earn their keep, with what each needs:
    a new `timepanel.js` in a visitor's cache (an import map stamped at deploy).
 2. **Air quality at street scale**: monitoring stations (ARPA via OpenAQ,
    Sensor.Community) folded into the CAMS tables as local corrections.
-3. **Noise**: the END strategic noise maps (Lden, Lnight) for roads, rail and
-   airports, draped like the other layers.
+3. **Noise, rail and air**: trains, trams and airports beside the roads, and a
+   night level (Lnight).
 4. **Green**: Copernicus Tree Cover Density at 10 m, the same tile shape as
    the surface heat.
 5. **Sun hours per pixel**: what ANALYZE computes for a point and a day,
    precomputed for a tile and a month.
 6. **Flood hazard**: ISPRA's PGRA bands via WMS.
-7. **Night light** (VIIRS) and the **wind rose** from the archive.
+7. The **wind rose** from the archive, and the night sky **by year** since 2012.
 8. An **index** at the point, combining the layers with weights of your own.
 
 The precomputed products move from Open-Meteo to Copernicus in bulk

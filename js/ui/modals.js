@@ -609,6 +609,12 @@ function openHelp() {
        <b>Pollen</b> is the day's: grass, birch, alder, olive, mugwort and ragweed in grains per cubic
        metre from the CAMS forecast or archive, banded as the pollen services band them — each taxon
        on its own scale, since forty grains of olive is a quiet day and forty of ragweed a bad one.
+       <b>Light</b> is how bright the sky overhead is on a clear, moonless night, in the
+       magnitudes per square arcsecond a Sky Quality Meter reads — 22 a pristine sky, 17 a city
+       centre — with its Bortle class and what is left of the Milky Way: the year's night lights
+       seen from space by VIIRS, spread by the glow they cast tens of kilometres around, fitted on
+       the World Atlas of Artificial Night Sky Brightness. VIIRS does not see blue light, so white
+       LEDs count for less than they shine.
        <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>
     <p>What a particular day was like sits beside them: the weather chip in the corner gives
        the temperature at the hour on the clock and the day's sky, and <b>On the day</b> in the
@@ -631,7 +637,7 @@ function openHelp() {
     <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
 
     <h3>DATA SOURCES</h3>
-    <p>The heat, air and wind tiles are derived from these sources. They are our processing, not the
+    <p>The heat, air, noise, light and wind tiles are derived from these sources. They are our processing, not the
        providers' products, and none of the providers endorses them.</p>
     <ul class="sources">
       <li><b>Weather, and the air and pollen on a given day</b>: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0), with air quality and pollen from the Copernicus Atmosphere Monitoring Service.</li>
@@ -642,6 +648,7 @@ function openHelp() {
       <li><b>Air, monitoring stations, Canada</b>: the <a href="https://open.canada.ca/data/en/dataset/1b36a356-defd-4813-acea-47bc3abd859b" target="_blank" rel="noopener">National Air Pollution Surveillance (NAPS) programme</a>, Environment and Climate Change Canada with the provinces, under the Open Government Licence – Canada.</li>
       <li><b>Air, monitoring stations, Mexico</b>: <a href="https://sinaica.inecc.gob.mx/" target="_blank" rel="noopener">SINAICA</a> (INECC), under the Libre Uso MX terms, and the U.S. embassy and consulate monitors (AirNow, public domain), through <a href="https://openaq.org" target="_blank" rel="noopener">OpenAQ</a>.</li>
       <li><b>Air, monitoring stations, Brazil</b>: <a href="https://dados.mma.gov.br/dataset/5be05b46-3bda-4f6e-9bf2-810e716fff33" target="_blank" rel="noopener">MonitorAr</a>, Ministério do Meio Ambiente e Mudança do Clima, with the state and municipal networks (CC BY).</li>
+      <li><b>Light pollution</b>: NASA <a href="https://blackmarble.gsfc.nasa.gov/" target="_blank" rel="noopener">Black Marble</a> VNP46A4 yearly night lights (public domain), from the LAADS DAAC. The glow model is fitted on <a href="https://doi.org/10.5880/GFZ.1.4.2016.001" target="_blank" rel="noopener">The New World Atlas of Artificial Night Sky Brightness</a> (Falchi et al. 2016, <a href="https://doi.org/10.1126/sciadv.1600377" target="_blank" rel="noopener">Science Advances</a>), which is used for that fit only and not shown.</li>
       <li><b>Buildings and roads</b> (wind and street-scale air): © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL, from <a href="https://download.geofabrik.de" target="_blank" rel="noopener">Geofabrik</a> extracts.</li>
       <li><b>Land cover and terrain</b> (street-scale air): ESA WorldCover 2021 (© ESA WorldCover project, CC-BY 4.0) and Copernicus DEM GLO-30 (© DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA).</li>
     </ul>

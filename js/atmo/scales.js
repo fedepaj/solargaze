@@ -106,6 +106,37 @@ export function noiseBand(db) {
 /** Noise: the band colours pinned at their edges on a fixed [lo, hi] dB scale. */
 export const noiseStops = ([lo, hi]) => NOISE_BANDS.map(b => [Math.min(Math.max((b.from - lo) / (hi - lo), 0), 1), b.colour]);
 
+/**
+ * The night sky, zenith brightness in mag/arcsec² (what a Sky Quality Meter
+ * reads; higher is darker), in the Bortle classes by their usual SQM edges,
+ * on a fixed scale: a dark sky is dark anywhere. Each class says what is
+ * left of the Milky Way.
+ */
+export const SKY_BANDS = [
+  { name: 'City', bortle: '8–9', milkyWay: 'hidden; only the brightest stars', colour: '#fbe7ef', from: 0 },
+  { name: 'Urban', bortle: '7', milkyWay: 'hidden', colour: '#ef7b5f', from: 18.38 },
+  { name: 'Bright suburb', bortle: '6', milkyWay: 'hidden, or a trace overhead', colour: '#f2b13a', from: 18.94 },
+  { name: 'Suburb', bortle: '5', milkyWay: 'faint, washed out towards the horizon', colour: '#c8d65a', from: 19.5 },
+  { name: 'Rural edge', bortle: '4', milkyWay: 'visible, without detail near the horizon', colour: '#45c4b0', from: 20.49 },
+  { name: 'Rural', bortle: '4', milkyWay: 'clear, with some structure', colour: '#3f7fc4', from: 21.2 },
+  { name: 'Dark', bortle: '3', milkyWay: 'bright and structured', colour: '#2c3f8f', from: 21.69 },
+  { name: 'Pristine', bortle: '1–2', milkyWay: 'casts shadows; the zodiacal light shows', colour: '#151a45', from: 21.89 },
+];
+/** The natural sky, mag/arcsec²: what is left with no light anywhere. */
+export const NATURAL_SKY = 22.0;
+
+export function skyBand(mag) {
+  let i = 0;
+  while (i < SKY_BANDS.length - 1 && mag >= SKY_BANDS[i + 1].from) i++;
+  return { index: i, ...SKY_BANDS[i] };
+}
+
+/** How many times brighter than natural a sky of this brightness is. */
+export const skyRatio = mag => 10 ** ((NATURAL_SKY - mag) / 2.5);
+
+/** The night sky: the class colours pinned at their edges on a fixed [lo, hi] mag scale. */
+export const skyStops = ([lo, hi]) => SKY_BANDS.map(b => [Math.min(Math.max((b.from - lo) / (hi - lo), 0), 1), b.colour]);
+
 const hexToRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 /**

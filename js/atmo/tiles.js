@@ -158,7 +158,8 @@ async function load(tileId, product, level) {
   switch (cardOf(product)?.kind) {
     case 'climatology': return loadClimatology(tileId, info, product);
     case 'raster-months': return loadRaster(tileId, info, level, product);
-    case 'raster-static': return loadStatic(tileId, info, level, product);
+    case 'raster-static':
+    case 'sky-brightness': return loadStatic(tileId, info, level, product);
     case 'building-mask': return loadMask(tileId, info, product);
     case 'street-air': return loadStreet(tileId, info, product);
     default: throw new Error(`no reader for tile product ${product}`);
@@ -277,17 +278,21 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
 }
 
 /**
- * One raster with no months (noise): read like a month raster whose every
- * month is the same image, so the samplers and the mosaic need nothing new.
- * Byte 0 is no level (inside a building); the rest climb `step_db` from
- * `byte1_db`.
+ * One raster with no months (noise, the night sky): read like a month raster
+ * whose every month is the same image, so the samplers and the mosaic need
+ * nothing new. Byte 0 is no value (inside a building); the rest move by
+ * `step` from `value_at_byte1` (noise says `step_db` and `byte1_db`). The
+ * image is the product's one file without an overview suffix.
  */
 async function loadStatic(tileId, info, level = 1, product = 'noise') {
   const enc = info.encoding;
   const suffix = level > 1 && (info.overviews || []).includes(level) ? `.o${level}` : '';
   const factor = suffix ? level : 1;
   const meta = await tileMeta(tileId);
-  const file = info.files[`lden${suffix}`] || info.files.lden;
+  const main = Object.keys(info.files).find(name => !name.includes('.o'));
+  const file = info.files[`${main}${suffix}`] || info.files[main];
+  const v1 = enc.value_at_byte1 ?? enc.byte1_db;
+  const step = enc.step ?? enc.step_db;
   const img = await loadImage(productUrl(tileId, file, info, product));
   const cv = document.createElement('canvas');
   cv.width = img.width;
@@ -301,7 +306,7 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
   return {
     kind: 'raster', level: factor, bounds: meta.bounds, rows: cv.height, cols: cv.width,
     months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])),
-    decode: byte => enc.byte1_db + (byte - 1) * enc.step_db,
+    decode: byte => v1 + (byte - 1) * step,
     tileMedian: () => null, scenes: () => 0, meta: info, key: `${product}|${tileId}`,
   };
 }

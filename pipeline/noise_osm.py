@@ -67,6 +67,11 @@ VALIDATION = {
     "fitted_on": {"place": "Berlin centre, N52.50E13.25", "same_band": 0.565, "within_one_band": 0.937},
     "checked_on": {"place": "Hamburg centre, N53.50E9.75", "same_band": 0.637, "within_one_band": 0.926,
                    "recall_65plus": 0.76, "precision_65plus": 0.72},
+    # Italy reports no END map the EEA can show; Messina publishes its own
+    # (2022 round, CC BY 4.0, dati.gov.it). The model is louder there: 56% of
+    # the built-up cells at 55 dB or more against the map's 33%.
+    "checked_on_italy": {"place": "Messina, N38.00E15.50 (END 2022, Comune di Messina)", "same_band": 0.494,
+                         "within_one_band": 0.775, "recall_65plus": 0.79, "precision_65plus": 0.50},
 }
 
 

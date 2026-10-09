@@ -14,7 +14,7 @@
  */
 
 /** The kinds of data this app knows how to read (tiles.js) and draw (layers.js). */
-export const KNOWN_KINDS = new Set(['raster-months', 'raster-static', 'street-air', 'climatology', 'building-mask']);
+export const KNOWN_KINDS = new Set(['raster-months', 'raster-static', 'sky-brightness', 'street-air', 'climatology', 'building-mask']);
 
 export const FALLBACK = {
   version: 1,
@@ -30,6 +30,13 @@ export const FALLBACK = {
       source: 'OpenStreetMap roads and buildings; calibrated on EEA END strategic noise maps (Berlin, checked on Hamburg)',
       licence: 'ODbL',
       note: "Road traffic noise as a day–evening–night level (Lden), modelled from the class of every road and the buildings that screen it, calibrated on the official END noise maps of Berlin and checked on Hamburg's: within one 5 dB band of the official map on nine cells in ten. No traffic counts, speeds, barriers, railways or aircraft; where a city has an official noise map, that is the better source.",
+    },
+    light: {
+      theme: 'light', variant: 'sky', order: 10, kind: 'sky-brightness',
+      label: 'Night sky', title: 'Night-sky brightness', unit: 'mag/arcsec²', scale_c: [16.5, 22.0], resolution_m: 460,
+      source: 'NASA Black Marble VNP46A4 (VIIRS night lights, yearly); glow kernel fitted on Falchi et al. 2016',
+      licence: 'public domain (NASA)',
+      note: 'How bright the sky overhead is on a clear, moonless night, as a Sky Quality Meter reads it: 22 is a pristine sky, 17 a city centre. The year\'s VIIRS night lights spread by a kernel of distance fitted on the World Atlas of Artificial Night Sky Brightness, within a factor of 1.5 of it on 94 cells in 100 where it was never fitted. VIIRS is blind to blue light, so white LEDs are undercounted; altitude and terrain are not modelled.',
     },
     heat: {
       theme: 'heat', variant: 'morning', order: 10, kind: 'raster-months',

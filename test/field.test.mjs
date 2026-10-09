@@ -10,7 +10,7 @@ import {
   streetValue,
   gridFor, buildSeries, sampleAt, windAt, rangeOf, compassName, sampleClimatology, monthFraction, sampleRaster,
 } from '../js/atmo/field.js';
-import { bandOf, rampLut, airStops, heatStops, pollenBand, POLLEN } from '../js/atmo/scales.js';
+import { bandOf, rampLut, airStops, heatStops, pollenBand, POLLEN, skyBand, skyRatio } from '../js/atmo/scales.js';
 import { SOURCES, resolveDate, lastYear, shiftDate } from '../js/atmo/sources.js';
 import { LAYERS, rivalsOf, sourceOf, modeOf, optionsOf, applyCatalog, available, KINDS, setDaylight } from '../js/atmo/layers.js';
 import { FALLBACK, setCatalog, variantsOf, KNOWN_KINDS } from '../js/atmo/catalog.js';
@@ -163,7 +163,7 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
   assert.equal(sourceOf(temperature, {}), 'tile-heat');
   assert.equal(sourceOf(LAYERS.find(l => l.id === 'air'), {}), 'tile-air-street');
   assert.equal(optionsOf(LAYERS.find(l => l.id === 'air'), null).fallback, 'nitrogen_dioxide');
-  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'noise', 'pollen']);
+  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'noise', 'pollen', 'sky']);
   assert.deepEqual(rivalsOf(LAYERS.find(l => l.id === 'wind')), []);
 });
 
@@ -173,7 +173,7 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     title: 'Surface heat at night', when: 'nights', resolution_m: 70, source: 'ECOSTRESS', licence: 'public domain', note: 'n',
   };
   const cat = { version: 1, products: { ...FALLBACK.products, heat_night: night,
-    skyglow: { theme: 'light', variant: 'sky', kind: 'contours-3d', label: 'Sky', title: 't', note: 'n' } } };
+    skyglow: { theme: 'aurora', variant: 'curtain', kind: 'contours-3d', label: 'Sky', title: 't', note: 'n' } } };
   try {
     assert.ok(setCatalog(cat));
     registerTileSources();
@@ -189,7 +189,7 @@ test('a theme takes its variants from the catalog, and only of kinds it can draw
     setDaylight(true);
     assert.equal(SOURCES['tile-heat-night'].dataKind, 'raster-months');
     // A kind this app cannot draw is left out, not drawn wrong.
-    assert.deepEqual(variantsOf('light'), []);
+    assert.deepEqual(variantsOf('aurora'), []);
     assert.equal(SOURCES['tile-skyglow'], undefined);
     // The night variant reads in nights.
     const raster = { kind: 'raster', rows: 1, cols: 1, bounds: [0, 0, 1, 1], decode: b => b, decLut: null,
@@ -223,6 +223,24 @@ test('noise reads in dB against the WHO guideline, on fixed 5 dB bands', () => {
   assert.equal(read.band.name, 'Loud');
   assert.match(read.sub, /7 dB above the WHO guideline/);
   assert.deepEqual(noise.domain(r, ctx), [40, 80]);
+});
+
+test('the night sky reads in mag/arcsec² with its Bortle class, darker being higher', () => {
+  const sky = LAYERS.find(l => l.id === 'sky');
+  // byte 1 = 22.0 (pristine); byte 121 = 19.0 (a bright suburb)
+  const image = { values: Uint8Array.of(1, 121), cols: 2, rows: 1 };
+  const r = { kind: 'raster', rows: 1, cols: 2, bounds: [0, 0, 2, 1], decode: b => 22 + (b - 1) * -0.025, decLut: null,
+    months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])), tileMedian: () => null, meta: { year: 2025 } };
+  const ctx = { mode: 'light', monthFrac: 3 };
+  const dark = sky.reading(r, 0.5, 0.25, 0, ctx);
+  assert.equal(dark.band.name, 'Pristine');
+  assert.match(dark.sub, /as nature made it · 2025 lights/);
+  const bright = sky.reading(r, 0.5, 1.75, 0, ctx);
+  assert.equal(bright.band.name, 'Bright suburb');
+  assert.match(bright.sub, /Bortle 6 .* 16× natural/);
+  assert.deepEqual(sky.domain(r, ctx), [16.5, 22]);
+  assert.equal(skyBand(17).name, 'City');
+  assert.ok(Math.abs(skyRatio(22 - 2.5) - 10) < 1e-9);
 });
 
 test('pollen bands differ by taxon, and under a grain there is none', () => {
