@@ -24,11 +24,11 @@
 
 import {
   sampleAt, windAt, rangeOf, compassName, sampleClimatology, sampleRaster, sampleRasterSet,
-  sampleStreet, streetTileAt, streetRatio, STREET_MODELLED, yearImage,
+  sampleStreet, streetTileAt, streetRatio, STREET_MODELLED, yearImage, yearPair,
 } from './field.js';
 import {
   HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
-  noiseBand, noiseStops, WHO_ROAD_LDEN, skyBand, skyStops, skyRatio,
+  noiseBand, noiseStops, WHO_ROAD_LDEN, skyBand, skyStops, skyRatio, GROWTH_MIN, GROWTH_STOPS,
 } from './scales.js';
 import { FALLBACK, cardOf, tileSourceId, variantsOf, catalog } from './catalog.js';
 
@@ -38,6 +38,7 @@ const ICONS = {
   noise: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4Z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.5a8 8 0 0 1 0 11"/>',
   pollen: '<circle cx="12" cy="9.2" r="2"/><path d="M12 7.2c-.3-2.6.6-4 1.9-4s1.9 1.7.3 3.7M14 9.2c2.6-.3 4 .6 4 1.9s-1.7 1.9-3.7.3M12 11.2c.3 2.6-.6 4-1.9 4s-1.9-1.7-.3-3.7M10 9.2c-2.6.3-4-.6-4-1.9s1.7-1.9 3.7-.3"/><path d="M12 11.2V21M12 17.5c1.5-1.7 3.3-2.2 4.6-1.7"/>',
   light: '<path d="M14.5 4.5a7.5 7.5 0 1 0 5 13 6 6 0 0 1-5-13Z"/><path d="M6 4.5v3M4.5 6h3M18.5 10v2M17.5 11h2"/>',
+  growth: '<path d="M3.5 20.5h17"/><path d="M5.5 20.5v-6h4v6M11 20.5V9.5h4.5v11M17 20.5v-8h2.5"/><path d="M12.2 6.5 13.3 3.5l1.1 3"/>',
   wind: '<path d="M3 8.5h10.5a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 12.5h14.5a2.5 2.5 0 1 1-2.5 2.5"/><path d="M3 16.5h7a2 2 0 1 1-2 2"/>',
 };
 
@@ -192,6 +193,49 @@ export const KINDS = {
         text: `${v.toFixed(2)} mag/arcsec²`,
         sub: `Bortle ${band.bortle} · Milky Way ${band.milkyWay} · sky ${ratio < 1.1 ? 'as nature made it' : `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× natural`}${year ? ` · ${year} lights${ctx.year > year ? ', the latest' : ctx.year < year ? ', the first' : ''}` : ''}`,
         band,
+      };
+    },
+  },
+  /**
+   * The built ground by five-year epoch (GHSL): what is built now and was
+   * not in the year on the slider, as a share of the cell — a ghost over the
+   * 3D city of today, which cannot itself go back in time.
+   */
+  'built-epochs': {
+    field(s, lat, lon, t, ctx) {
+      const v = readSurface(s, lat, lon, 0, Infinity) - readSurface(s, lat, lon, 0, ctx.year);
+      return v >= GROWTH_MIN ? v : NaN;
+    },
+    domain: (s, ctx, card) => card?.scale_c ?? [0, 0.6],
+    stops: () => GROWTH_STOPS,
+    legend: ([, hi]) => ({ lo: 'a trace', hi: `${Math.round(hi * 100)}% of the ground` }),
+    reading(s, lat, lon, t, ctx) {
+      const c = centreOf(s);
+      if (!c?.years) return null;
+      const { first, last } = yearPair(c, ctx.year);
+      const at = y => readSurface(s, lat, lon, 0, y);
+      const pct = v => `${Math.round(v * 100)}%`;
+      const now = at(last);
+      if (Number.isNaN(now)) return null;
+      if (ctx.year >= last) {
+        return { value: 0, text: `${pct(now)} built`, sub: `of the ground, in ${last}, the last epoch · slide the year back to see what came since` };
+      }
+      const from = Math.max(ctx.year, first);
+      const then = at(from);
+      const since = now - then;
+      // The five years after the slider's year in which most was built.
+      let most = null;
+      let gain = GROWTH_MIN;
+      for (const e of c.yearList.filter(y => y > from)) {
+        const d = at(e) - at(e - 5);
+        if (d > gain) { gain = d; most = e; }
+      }
+      return {
+        value: since,
+        text: since >= GROWTH_MIN ? `+${pct(since)} built since ${from}` : `built as it is now in ${from}`,
+        sub: `${pct(then)} of the ground in ${from}, ${pct(now)} in ${last}` +
+          (most ? ` · mostly ${most - 5}–${most}` : '') +
+          (ctx.year < first ? ` · GHSL begins in ${first}` : ''),
       };
     },
   },
@@ -378,6 +422,17 @@ export const LAYERS = [
     render: 'drape',
     slot: 'ground',
     alpha: 0.55,
+  }),
+  theme({
+    id: 'growth',
+    theme: 'growth',
+    label: 'Growth',
+    tip: 'Growth<em>What was built after the year on the slider, over the city of today — GHSL, 1975 to 2020</em>',
+    icon: ICONS.growth,
+    defaultKind: 'built-epochs',
+    render: 'drape',
+    slot: 'ground',
+    alpha: 0.6,
   }),
   {
     id: 'wind',

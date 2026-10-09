@@ -243,9 +243,23 @@ export function monthFraction(doy, daysInYear = 365) {
  * nearest one it holds (the first before it began, the latest after).
  */
 export function yearImage(raster, year) {
-  const ys = Object.keys(raster.years).map(Number);
+  const { a, year: y, at } = yearPair(raster, year);
+  return { year: at, image: a, requested: y };
+}
+
+/**
+ * The two images of a raster stacked by year (or by epoch, five years
+ * apart) around a year, and the weight of the second: a year between two
+ * epochs is read between them. Outside the stack, its first or last.
+ */
+export function yearPair(raster, year) {
+  const ys = raster.yearList ??= Object.keys(raster.years).map(Number).sort((p, q) => p - q);
   const y = Math.min(Math.max(year ?? ys[ys.length - 1], ys[0]), ys[ys.length - 1]);
-  return { year: y, image: raster.years[y] };
+  let i = 0;
+  while (i < ys.length - 1 && ys[i + 1] <= y) i++;
+  const j = Math.min(i + 1, ys.length - 1);
+  const w = j === i ? 0 : (y - ys[i]) / (ys[j] - ys[i]);
+  return { a: raster.years[ys[i]], b: raster.years[ys[j]], w, year: y, at: ys[i], first: ys[0], last: ys[ys.length - 1] };
 }
 
 export function sampleRaster(raster, lat, lon, monthFrac, year) {
@@ -277,7 +291,11 @@ export function sampleRaster(raster, lat, lon, monthFrac, year) {
     return weight > 0.25 ? sum / weight : NaN;
   };
 
-  if (raster.years) return read(yearImage(raster, year).image);
+  if (raster.years) {
+    const { a, b, w } = yearPair(raster, year);
+    const va = read(a);
+    return w ? va * (1 - w) + read(b) * w : va;
+  }
   const mf = ((monthFrac % 12) + 12) % 12;
   const m0 = Math.floor(mf);
   const m1 = (m0 + 1) % 12;

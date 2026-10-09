@@ -65,6 +65,9 @@ for that day, and the beam arrives from the sun's direction into the studied poi
     each year's VIIRS night lights (NASA Black Marble) spread by a glow kernel fitted on the World Atlas of Artificial
     Night Sky Brightness, within a factor of 1.5 of it on 94 cells in 100
     where it was never fitted;
+  - **Growth**: what was built after the year on the slider, tinted over the
+    3D city of today — the JRC's Global Human Settlement Layer, the built-up
+    share of every 90 m by five-year epoch from 1975 to 2020;
   - **Wind**: the 10 m wind as drifting particles, threaded between the
     buildings where a tile carries them;
   - and the selected day's weather and air, read at the pin.

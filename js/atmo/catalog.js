@@ -14,7 +14,7 @@
  */
 
 /** The kinds of data this app knows how to read (tiles.js) and draw (layers.js). */
-export const KNOWN_KINDS = new Set(['raster-months', 'raster-static', 'sky-brightness', 'street-air', 'climatology', 'building-mask']);
+export const KNOWN_KINDS = new Set(['raster-months', 'raster-static', 'sky-brightness', 'built-epochs', 'street-air', 'climatology', 'building-mask']);
 
 export const FALLBACK = {
   version: 1,
@@ -37,6 +37,13 @@ export const FALLBACK = {
       source: 'NASA Black Marble VNP46A4 (VIIRS night lights, yearly); glow kernel fitted on Falchi et al. 2016',
       licence: 'public domain (NASA)',
       note: 'How bright the sky overhead is on a clear, moonless night, as a Sky Quality Meter reads it: 22 is a pristine sky, 17 a city centre. The year\'s VIIRS night lights spread by a kernel of distance fitted on the World Atlas of Artificial Night Sky Brightness, within a factor of 1.5 of it on 94 cells in 100 where it was never fitted. VIIRS is blind to blue light, so white LEDs are undercounted; altitude and terrain are not modelled.',
+    },
+    built: {
+      theme: 'growth', variant: 'built', order: 10, kind: 'built-epochs',
+      label: 'Built', title: 'Built since the year on the slider', unit: 'share of the ground', scale_c: [0, 0.6], resolution_m: 90,
+      source: 'GHS-BUILT-S R2023A, European Commission Joint Research Centre',
+      licence: 'CC BY 4.0 (© European Union)',
+      note: "What was built after the year on the slider, over the city of today: the share of each 90 m cell that buildings cover, epoch by epoch from 1975 to 2020, from the JRC's Global Human Settlement Layer (Landsat and Sentinel-2). Comparable between epochs, but a single cell is an estimate, and the 1970s and 1980s the least certain. Nothing after 2020.",
     },
     heat: {
       theme: 'heat', variant: 'morning', order: 10, kind: 'raster-months',

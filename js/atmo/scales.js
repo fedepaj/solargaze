@@ -137,6 +137,14 @@ export const skyRatio = mag => 10 ** ((NATURAL_SKY - mag) / 2.5);
 /** The night sky: the class colours pinned at their edges on a fixed [lo, hi] mag scale. */
 export const skyStops = ([lo, hi]) => SKY_BANDS.map(b => [Math.min(Math.max((b.from - lo) / (hi - lo), 0), 1), b.colour]);
 
+/**
+ * What was built after the year on the slider, as a share of each cell: a
+ * ghost tint over today's city, from a trace to a whole block. Under
+ * GROWTH_MIN the cell is left clear — what was there then is there now.
+ */
+export const GROWTH_MIN = 0.03;
+export const GROWTH_STOPS = [[0, '#f6d8a8'], [0.35, '#f0a35e'], [0.7, '#e2673f'], [1, '#a8283a']];
+
 const hexToRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 
 /**

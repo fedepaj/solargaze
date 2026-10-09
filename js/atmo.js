@@ -18,13 +18,13 @@ import { state, on, emit, setPref } from './state.js';
 import { viewer } from './scene.js';
 import { wallToUtc } from './timezone.js';
 import { profile } from './device.js';
-import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED, yearImage } from './atmo/field.js';
-import { rampLut } from './atmo/scales.js';
+import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED, yearPair } from './atmo/field.js';
+import { rampLut, GROWTH_MIN } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
 import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
 import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight } from './atmo/layers.js';
-import { setCatalog } from './atmo/catalog.js';
+import { setCatalog, cardOf } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape } from './atmo/drape.js';
 import { createWind } from './atmo/wind.js';
@@ -161,7 +161,7 @@ const todayHere = () => {
 };
 
 /** Does any enabled layer want the view-driven raster set right now? */
-const VIEW_KINDS = new Set(['raster-months', 'raster-static', 'sky-brightness']);
+const VIEW_KINDS = new Set(['raster-months', 'raster-static', 'sky-brightness', 'built-epochs']);
 const needsView = () => enabledLayers().some(l => VIEW_KINDS.has(SOURCES[currentSource(l)]?.dataKind));
 
 /**
@@ -291,15 +291,29 @@ function readCameraRect() {
   return rect[2] - rect[0] > 3 || rect[3] - rect[1] > 3 ? null : rect;
 }
 
-export const contextFor = layer => ({
-  viewRect: cameraRect,
-  dayBounds: dayBounds(),
-  mode: modeOf(layer, state.prefs),
-  option: optionOf(layer),
-  monthFrac: monthFraction(dayOfYear(state.y, state.m, state.d), daysInYear(state.y)),
-  hourFrac: state.minutes / 60,
-  year: state.y,
-});
+export const contextFor = layer => {
+  const mode = modeOf(layer, state.prefs);
+  const card = cardOf(mode);
+  return {
+    viewRect: cameraRect,
+    dayBounds: dayBounds(),
+    mode,
+    /** The kind of data in use, and whether it is coarse enough to be drawn as visible tiles. */
+    kind: card?.kind ?? null,
+    coarse: (card?.resolution_m ?? 0) >= COARSE_M,
+    option: optionOf(layer),
+    monthFrac: monthFraction(dayOfYear(state.y, state.m, state.d), daysInYear(state.y)),
+    hourFrac: state.minutes / 60,
+    year: state.y,
+  };
+};
+
+/**
+ * Data this coarse is drawn as tiles with a fine darker seam between cells,
+ * so that a 460 m night sky or a 10 km air field reads as the estimate it
+ * is, not as a sharp picture of the street.
+ */
+const COARSE_M = 300;
 
 /* ── renderers ─────────────────────────────────────────────────────── */
 
@@ -408,25 +422,43 @@ function fillRaster(raster, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
   const mf = ((ctx.monthFrac % 12) + 12) % 12;
   const m0 = Math.floor(mf);
   const wm = mf - m0;
-  // A raster by year (the night sky) has one image for the year on the slider.
-  const a = raster.years ? yearImage(raster, ctx.year).image.values : raster.months[m0]?.values;
-  const b = raster.years ? a : raster.months[(m0 + 1) % 12]?.values;
+  // A raster by year or epoch (the night sky, the built ground) is read
+  // between the two around the year on the slider; the built ground draws
+  // what is there now and was not then (KINDS['built-epochs'] in layers.js).
+  let a, b, w = wm, now = null;
+  if (raster.years) {
+    const pair = yearPair(raster, ctx.year);
+    a = pair.a.values; b = pair.b.values; w = pair.w;
+    if (ctx.kind === 'built-epochs') now = raster.years[pair.last].values;
+  } else {
+    a = raster.months[m0]?.values;
+    b = raster.months[(m0 + 1) % 12]?.values;
+  }
   if (!a && !b) return;
   // A 256-entry table instead of a call per pixel.
   const dec = raster.decLut ??= Float32Array.from({ length: 256 }, (_, k) => (k ? raster.decode(k) : NaN));
   const span = hi - lo || 1;
   const rows = pick(raster.rows, P);
   const cols = pick(raster.cols, P);
+  // Coarse data: the first pixel row and column of each source cell is a seam.
+  const seams = ctx.coarse && P >= 4 * raster.cols;
+  const seamAlpha = Math.round(alpha * 0.45);
   for (let y = 0; y < P; y++) {
     const base = rows[y] * raster.cols;
+    const rowSeam = seams && y > 0 && rows[y] !== rows[y - 1];
     let o = ((y0 + y) * W + x0) * 4;
     for (let x = 0; x < P; x++, o += 4) {
       const i = base + cols[x];
       const va = a ? dec[a[i]] : NaN;
       const vb = b ? dec[b[i]] : NaN;
-      const v = Number.isNaN(va) ? vb : Number.isNaN(vb) ? va : va * (1 - wm) + vb * wm;
+      let v = Number.isNaN(va) ? vb : Number.isNaN(vb) ? va : va * (1 - w) + vb * w;
+      if (now) {
+        v = dec[now[i]] - v;
+        if (!(v >= GROWTH_MIN)) { px[o + 3] = 0; continue; }
+      }
       if (Number.isNaN(v)) { px[o + 3] = 0; continue; }
-      paintPixel(px, o, v, lut, lo, span, alpha);
+      const seam = rowSeam || (seams && x > 0 && cols[x] !== cols[x - 1]);
+      paintPixel(px, o, v, lut, lo, span, seam ? seamAlpha : alpha);
     }
   }
 }

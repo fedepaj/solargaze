@@ -615,6 +615,11 @@ function openHelp() {
        slider, from 2012 on: that year's night lights seen from space by VIIRS, spread by the glow they cast tens of kilometres around, fitted on
        the World Atlas of Artificial Night Sky Brightness. VIIRS does not see blue light, so white
        LEDs count for less than they shine.
+       <b>Growth</b> goes back in time over the city of today, which cannot: slide the year back and
+       everything built since that year is tinted, from a trace to a whole block — the Global Human
+       Settlement Layer's built-up share of every 90 m, epoch by epoch from 1975 to 2020, read from
+       Landsat and Sentinel-2 by the European Commission's JRC. An estimate per cell, the earliest
+       epochs the roughest.
        <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>
     <p>What a particular day was like sits beside them: the weather chip in the corner gives
        the temperature at the hour on the clock and the day's sky, and <b>On the day</b> in the
@@ -637,7 +642,7 @@ function openHelp() {
     <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
 
     <h3>DATA SOURCES</h3>
-    <p>The heat, air, noise, light and wind tiles are derived from these sources. They are our processing, not the
+    <p>The heat, air, noise, light, growth and wind tiles are derived from these sources. They are our processing, not the
        providers' products, and none of the providers endorses them.</p>
     <ul class="sources">
       <li><b>Weather, and the air and pollen on a given day</b>: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC-BY 4.0), with air quality and pollen from the Copernicus Atmosphere Monitoring Service.</li>
@@ -649,6 +654,7 @@ function openHelp() {
       <li><b>Air, monitoring stations, Mexico</b>: <a href="https://sinaica.inecc.gob.mx/" target="_blank" rel="noopener">SINAICA</a> (INECC), under the Libre Uso MX terms, and the U.S. embassy and consulate monitors (AirNow, public domain), through <a href="https://openaq.org" target="_blank" rel="noopener">OpenAQ</a>.</li>
       <li><b>Air, monitoring stations, Brazil</b>: <a href="https://dados.mma.gov.br/dataset/5be05b46-3bda-4f6e-9bf2-810e716fff33" target="_blank" rel="noopener">MonitorAr</a>, Ministério do Meio Ambiente e Mudança do Clima, with the state and municipal networks (CC BY).</li>
       <li><b>Light pollution</b>: NASA <a href="https://blackmarble.gsfc.nasa.gov/" target="_blank" rel="noopener">Black Marble</a> VNP46A4 yearly night lights (public domain), from the LAADS DAAC. The glow model is fitted on <a href="https://doi.org/10.5880/GFZ.1.4.2016.001" target="_blank" rel="noopener">The New World Atlas of Artificial Night Sky Brightness</a> (Falchi et al. 2016, <a href="https://doi.org/10.1126/sciadv.1600377" target="_blank" rel="noopener">Science Advances</a>), which is used for that fit only and not shown.</li>
+      <li><b>Growth</b>: <a href="https://human-settlement.emergency.copernicus.eu/" target="_blank" rel="noopener">GHS-BUILT-S R2023A</a>, Global Human Settlement Layer, © European Union, European Commission Joint Research Centre (CC BY 4.0); epochs 1975–2020, reprojected and encoded by us.</li>
       <li><b>Buildings and roads</b> (wind and street-scale air): © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL, from <a href="https://download.geofabrik.de" target="_blank" rel="noopener">Geofabrik</a> extracts.</li>
       <li><b>Land cover and terrain</b> (street-scale air): ESA WorldCover 2021 (© ESA WorldCover project, CC-BY 4.0) and Copernicus DEM GLO-30 (© DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA).</li>
     </ul>

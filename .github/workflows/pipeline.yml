@@ -32,7 +32,7 @@ on:
     inputs:
       scope: { description: 'build scope (pipeline/sg/regions.py)', default: 'europe' }
       max: { description: 'regions in parallel', default: '6' }
-      products: { description: 'products', default: 'wind,noise,light,heat,heat_night' }
+      products: { description: 'products', default: 'wind,noise,light,built,heat,heat_night' }
       hours: { description: 'build budget per region, hours', default: '4.5' }
       gap_scope: { description: 'countries whose gaps to track (pipeline/sg/gaps.py)', default: 'next' }
       gaps_only: { description: 'skip the build: only scan the gaps and let the agent work on one', type: boolean, default: false }
@@ -50,7 +50,7 @@ env:
   PYTHONUNBUFFERED: '1'
   SCOPE: ${{ inputs.scope || 'europe' }}
   MAX: ${{ inputs.max || '6' }}
-  PRODUCTS: ${{ inputs.products || 'wind,noise,light,heat,heat_night' }}
+  PRODUCTS: ${{ inputs.products || 'wind,noise,light,built,heat,heat_night' }}
   HOURS: ${{ inputs.hours || '4.5' }}
   GAP_SCOPE: ${{ inputs.gap_scope || 'next' }}
 

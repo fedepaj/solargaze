@@ -128,8 +128,12 @@ export function initTimePanel() {
   render();
 }
 
-/** Where the year slider starts: the air-quality archive begins in 2013. */
-const YEAR_FROM = 2013;
+/**
+ * Where the year slider starts: the first epoch of the built ground (GHSL).
+ * Each layer says what it has for an earlier year — the air on the day
+ * begins in 2013, the night sky in 2012 — and the sun has every year.
+ */
+const YEAR_FROM = 1975;
 
 /** Equinox and solstice marks under the year slider. Only the year moves them. */
 function buildSeasonTicks() {

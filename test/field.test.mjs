@@ -163,7 +163,7 @@ test('the layer registry is well-formed and drapes exclude each other', () => {
   assert.equal(sourceOf(temperature, {}), 'tile-heat');
   assert.equal(sourceOf(LAYERS.find(l => l.id === 'air'), {}), 'tile-air-street');
   assert.equal(optionsOf(LAYERS.find(l => l.id === 'air'), null).fallback, 'nitrogen_dioxide');
-  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'noise', 'pollen', 'sky']);
+  assert.deepEqual(rivalsOf(temperature).map(l => l.id), ['air', 'noise', 'pollen', 'sky', 'growth']);
   assert.deepEqual(rivalsOf(LAYERS.find(l => l.id === 'wind')), []);
 });
 
@@ -247,6 +247,23 @@ test('the night sky reads in mag/arcsec² with its Bortle class, for the year on
   assert.deepEqual(sky.domain(r, at(2025)), [16.5, 22]);
   assert.equal(skyBand(17).name, 'City');
   assert.ok(Math.abs(skyRatio(22 - 2.5) - 10) < 1e-9);
+});
+
+test('growth: what is built now and was not in the year on the slider, read between epochs', () => {
+  const growth = LAYERS.find(l => l.id === 'growth');
+  // share = (byte - 1) * 0.004: 1975 10%, 1980 10%, 1985 50%; a second cell never changes
+  const img = share => ({ values: Uint8Array.of(Math.round(share / 0.004) + 1, 51), cols: 2, rows: 1 });
+  const r = { kind: 'raster', rows: 1, cols: 2, bounds: [0, 0, 2, 1], decode: b => (b - 1) * 0.004, decLut: null,
+    years: { 1975: img(0.1), 1980: img(0.1), 1985: img(0.5) }, months: {}, tileMedian: () => null };
+  const at = year => ({ mode: 'built', monthFrac: 3, year });
+  assert.ok(Math.abs(growth.field(r, 0.5, 0.25, 0, at(1975)) - 0.4) < 1e-6);
+  assert.ok(Math.abs(growth.field(r, 0.5, 0.25, 0, at(1982)) - 0.24) < 1e-6, 'between epochs');
+  assert.ok(Number.isNaN(growth.field(r, 0.5, 1.75, 0, at(1975))), 'unchanged: left clear');
+  assert.ok(Number.isNaN(growth.field(r, 0.5, 0.25, 0, at(1990))), 'after the last epoch: nothing to show');
+  const read = growth.reading(r, 0.5, 0.25, 0, at(1960));
+  assert.equal(read.text, '+40% built since 1975');
+  assert.match(read.sub, /10% of the ground in 1975, 50% in 1985 · mostly 1980–1985 · GHSL begins in 1975/);
+  assert.match(growth.reading(r, 0.5, 0.25, 0, at(2026)).sub, /the last epoch/);
 });
 
 test('pollen bands differ by taxon, and under a grain there is none', () => {

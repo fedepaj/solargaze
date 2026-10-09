@@ -159,7 +159,8 @@ async function load(tileId, product, level) {
     case 'climatology': return loadClimatology(tileId, info, product);
     case 'raster-months': return loadRaster(tileId, info, level, product);
     case 'raster-static':
-    case 'sky-brightness': return loadStatic(tileId, info, level, product);
+    case 'sky-brightness':
+    case 'built-epochs': return loadStatic(tileId, info, level, product);
     case 'building-mask': return loadMask(tileId, info, product);
     case 'street-air': return loadStreet(tileId, info, product);
     default: throw new Error(`no reader for tile product ${product}`);
@@ -302,10 +303,17 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
   const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
   const values = new Uint8Array(cv.width * cv.height);
   for (let i = 0, o = 0; i < values.length; i++, o += 4) values[i] = px[o];
-  // A stack of years (the night sky): one image per year, oldest on top.
-  const rows = info.stack === 'years' ? info.rows : cv.height;
-  const years = info.stack === 'years'
-    ? Object.fromEntries(info.years.map((y, k) => [y, { values: values.subarray(k * rows * cv.width, (k + 1) * rows * cv.width), cols: cv.width, rows }]))
+  // A stack of years (the night sky) or epochs (the built ground): one image
+  // each, oldest on top — an overview's rows are its height over the count.
+  // Epochs written as changes from the one before are summed back here.
+  const stacked = info.stack === 'years';
+  const rows = stacked ? cv.height / info.years.length : cv.height;
+  const n = rows * cv.width;
+  if (stacked && enc.deltas) {
+    for (let i = n; i < values.length; i++) values[i] = values[i - n] + values[i] - enc.delta_zero_byte;
+  }
+  const years = stacked
+    ? Object.fromEntries(info.years.map((y, k) => [y, { values: values.subarray(k * n, (k + 1) * n), cols: cv.width, rows }]))
     : null;
   const image = years ? years[info.years[info.years.length - 1]] : { values, cols: cv.width, rows: cv.height };
   return {

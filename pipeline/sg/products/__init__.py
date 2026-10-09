@@ -1,7 +1,8 @@
 """The products, in the order a tile needs them: wind first (its building
 count decides which tiles get the rest), then the road noise on the same
-buildings and roads, the night sky's brightness, heat by morning and by
-night and air, then the street air built on air."""
+buildings and roads, the night sky's brightness, where and when the ground
+was built, heat by morning and by night and air, then the street air built
+on air."""
 
 from .heat import Heat
 from .wind import Wind
@@ -10,6 +11,7 @@ from .air_street import AirStreet
 from .heat_night import HeatNight
 from .noise import Noise
 from .light import Light
+from .built import Built
 
-PRODUCTS = {p.name: p for p in (Wind(), Noise(), Light(), Heat(), HeatNight(), Air(), AirStreet())}
-ORDER = ["wind", "noise", "light", "heat", "heat_night", "air", "air_street"]
+PRODUCTS = {p.name: p for p in (Wind(), Noise(), Light(), Built(), Heat(), HeatNight(), Air(), AirStreet())}
+ORDER = ["wind", "noise", "light", "built", "heat", "heat_night", "air", "air_street"]
