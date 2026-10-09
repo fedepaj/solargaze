@@ -21,7 +21,7 @@ import { profile } from './device.js';
 import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED, yearPair } from './atmo/field.js';
 import { rampLut, GROWTH_MIN } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
-import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, getCatalog } from './atmo/tiles.js';
+import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, maskAround, maskSpot, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
 import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear } from './atmo/layers.js';
 import { setCatalog, cardOf } from './atmo/catalog.js';
@@ -204,7 +204,9 @@ function wantFor(source) {
   }
   if (source.kind === 'tile') {
     const tileId = tileIdFor(state.lat, state.lon);
-    return { source, tileId, key: `${source.id}|${tileId}`, lat: state.lat, lon: state.lon };
+    // The building mask is cut around the pin, a piece at a time (tiles.js).
+    const spot = source.dataKind === 'building-mask' ? `|${maskSpot(state.lat, state.lon).join(',')}` : '';
+    return { source, tileId, key: `${source.id}|${tileId}${spot}`, lat: state.lat, lon: state.lon };
   }
   const resolved = resolveDate(source, { y: state.y, m: state.m, d: state.d }, todayHere());
   if (!resolved) return null;
@@ -223,6 +225,7 @@ function fetchWant(want) {
     if (want.source.dataKind === 'street-air') return streetSetAround(want.lat, want.lon, want.source.product);
     // The air of earlier years is one file for Europe, read around the pin.
     if (want.source.dataKind === 'grid-past') return gridPastAround(want.lat, want.lon, want.source.product);
+    if (want.source.dataKind === 'building-mask') return maskAround(want.lat, want.lon, want.source.product);
     return tileProduct(want.tileId, want.source.product);
   }
   return fetchSeries(want);

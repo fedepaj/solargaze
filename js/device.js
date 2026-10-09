@@ -40,4 +40,8 @@ export const profile = {
   heatLevels: isPhone ? [4, 30] : [12, 110],
   /** The widest a drape texture may be, in pixels, on either side. */
   maxTexture: isPhone ? 2048 : 4096,
+  /** Decoded tile products kept in memory for the pin to come back to (atmo/tiles.js). */
+  tileMemoryBytes: (isPhone ? 96 : 384) * 1024 * 1024,
+  /** The largest tile read at full resolution just for the number at the pin; above it, its overview. */
+  maxReadCells: isPhone ? 2e6 : Infinity,
 };

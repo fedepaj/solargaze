@@ -83,8 +83,14 @@ export async function tileProductsInView(rect, lat, lon, product) {
     ids = ids.sort((a, b) => d(a) - d(b)).slice(0, MAX_TILES);
   }
   const centreId = tileIdFor(lat, lon);
+  // The tile under the pin at full resolution, for the reading — unless it
+  // is larger than this device should hold for a number (a 10 m noise tile
+  // is 7.7 million cells): then its first overview, which reads the same
+  // to the decibel.
+  const info = (await tileMeta(centreId))?.products?.[product];
+  const big = info && info.rows * info.cols > profile.maxReadCells && (info.overviews || []).includes(3);
   const [centre, ...rest] = await Promise.all([
-    tileProduct(centreId, product, 1).catch(() => null),
+    tileProduct(centreId, product, big ? 3 : 1).catch(() => null),
     ...ids.map(id => tileProduct(id, product, level).catch(() => null)),
   ]);
   const tiles = rest.filter(Boolean);
@@ -218,12 +224,57 @@ export async function gridPastAround(lat, lon, product) {
  *   air  → a climatology Series: { kind: 'climatology', grid, vars, meta }
  *   heat → a raster stack:       { kind: 'raster', bounds, rows, cols, months, decode, meta }
  */
-export async function tileProduct(tileId, product, level = 1) {
-  const key = `${tileId}|${product}|${level}`;
-  if (products.has(key)) return products.get(key);
-  const promise = load(tileId, product, level).catch(err => { products.delete(key); throw err; });
-  products.set(key, promise);
-  return promise;
+export const tileProduct = (tileId, product, level = 1) =>
+  remember(`${tileId}|${product}|${level}`, () => load(tileId, product, level));
+
+/** A decoded product by key: from memory, or loaded and kept within the budget below. */
+function remember(key, loader) {
+  const hit = products.get(key);
+  if (hit) {
+    // Most recently used last: a Map keeps insertion order.
+    products.delete(key);
+    products.set(key, hit);
+    return hit.promise;
+  }
+  const entry = { promise: null, bytes: 0 };
+  entry.promise = loader()
+    .then(v => { entry.bytes = bytesOf(v); held += entry.bytes; trim(); return v; })
+    .catch(err => { products.delete(key); throw err; });
+  products.set(key, entry);
+  return entry.promise;
+}
+
+/**
+ * The decoded products are kept for when the pin comes back, up to a
+ * budget: every tile ever passed, kept for the session, filled a phone's
+ * memory (a noise tile or a wind mask is 7.7 MB) until an allocation
+ * failed. The least recently used go first; one still on screen is held by
+ * the scene and is only decoded again if it is asked for after going.
+ */
+let held = 0;
+/** How much the decoded products hold right now, for Settings and for tests. */
+export const tileMemory = () => ({ bytes: held, entries: products.size });
+function trim() {
+  for (const [key, e] of products) {
+    if (held <= profile.tileMemoryBytes) break;
+    if (!e.bytes) continue;          // still loading
+    held -= e.bytes;
+    products.delete(key);
+  }
+}
+
+/** The bytes a decoded product holds in typed arrays, each buffer once. */
+function bytesOf(v) {
+  const seen = new Set();
+  const walk = (x, depth) => {
+    if (!x || typeof x !== 'object' || depth > 4) return;
+    if (ArrayBuffer.isView(x)) { seen.add(x.buffer); return; }
+    for (const y of Array.isArray(x) ? x : Object.values(x)) walk(y, depth + 1);
+  };
+  walk(v, 0);
+  let n = 0;
+  for (const b of seen) n += b.byteLength;
+  return n;
 }
 
 async function load(tileId, product, level) {
@@ -397,15 +448,53 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
 async function loadMask(tileId, info, product) {
   const img = await loadImage(productUrl(tileId, info.heights_png.file, info, product));
   const { red: solid, width, height } = channels(img);
-  const cv = { width, height };
+  const meta = await tileMeta(tileId);
+  return maskOf(solid, height, width, meta.bounds, info, `tile-wind|${tileId}`);
+}
+
+function maskOf(solid, rows, cols, bounds, info, key) {
   const slice = info.slice_height_m ?? 5;
   const perLsb = info.heights_png.metres_per_lsb ?? 1;
   for (let i = 0; i < solid.length; i++) solid[i] = solid[i] * perLsb > slice ? 1 : 0;
-  const meta = await tileMeta(tileId);
-  return {
-    kind: 'mask', bounds: meta.bounds, rows: cv.height, cols: cv.width, solid,
-    sliceHeight: slice, buildings: info.osm_buildings, meta: info, key: `tile-wind|${tileId}`,
-  };
+  return { kind: 'mask', bounds, rows, cols, solid, sliceHeight: slice, buildings: info.osm_buildings, meta: info, key };
+}
+
+/**
+ * The building mask around a point rather than the whole tile: the flow is
+ * solved on a 512-cell window about the pin, so a 1024-cell piece of the
+ * mask centred near it is all that is ever read — one megabyte instead of
+ * the tile's eight, which is the allocation a phone refused. The piece is
+ * centred on a 0.02° lattice (`maskSpot`), so the pin can wander a
+ * kilometre before another is cut; the browser crops while it decodes.
+ */
+const MASK_PIECE = 1024;
+const MASK_LATTICE = 0.02;
+export const maskSpot = (lat, lon) => [Math.round(lat / MASK_LATTICE), Math.round(lon / MASK_LATTICE)];
+
+export function maskAround(lat, lon, product) {
+  const tileId = tileIdFor(lat, lon);
+  const [i, j] = maskSpot(lat, lon);
+  return remember(`${tileId}|${product}|piece${i},${j}`, async () => {
+    const meta = await tileMeta(tileId);
+    const info = meta?.products?.[product];
+    if (!info) return null;
+    if (typeof createImageBitmap !== 'function' || !info.rows || !info.cols) return loadMask(tileId, info, product);
+    const [west, south, east, north] = meta.bounds;
+    const { rows, cols } = info;
+    const h = Math.min(MASK_PIECE, rows);
+    const w = Math.min(MASK_PIECE, cols);
+    const clamp = (x, hi) => Math.max(0, Math.min(hi, Math.round(x)));
+    const r0 = clamp(((north - i * MASK_LATTICE) / (north - south)) * rows - h / 2, rows - h);
+    const c0 = clamp(((j * MASK_LATTICE - west) / (east - west)) * cols - w / 2, cols - w);
+    const res = await cachedFetch(productUrl(tileId, info.heights_png.file, info, product));
+    if (!res.ok) throw new Error(`could not load ${info.heights_png.file}`);
+    const img = await createImageBitmap(await res.blob(), c0, r0, w, h);
+    const { red } = channels(img);
+    const dLat = (north - south) / rows;
+    const dLon = (east - west) / cols;
+    const bounds = [west + c0 * dLon, north - (r0 + h) * dLat, west + (c0 + w) * dLon, north - r0 * dLat];
+    return maskOf(red, h, w, bounds, info, `tile-wind|${tileId}|${i},${j}`);
+  });
 }
 
 /**
