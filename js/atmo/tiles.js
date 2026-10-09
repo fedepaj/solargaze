@@ -302,9 +302,14 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
   const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
   const values = new Uint8Array(cv.width * cv.height);
   for (let i = 0, o = 0; i < values.length; i++, o += 4) values[i] = px[o];
-  const image = { values, cols: cv.width, rows: cv.height };
+  // A stack of years (the night sky): one image per year, oldest on top.
+  const rows = info.stack === 'years' ? info.rows : cv.height;
+  const years = info.stack === 'years'
+    ? Object.fromEntries(info.years.map((y, k) => [y, { values: values.subarray(k * rows * cv.width, (k + 1) * rows * cv.width), cols: cv.width, rows }]))
+    : null;
+  const image = years ? years[info.years[info.years.length - 1]] : { values, cols: cv.width, rows: cv.height };
   return {
-    kind: 'raster', level: factor, bounds: meta.bounds, rows: cv.height, cols: cv.width,
+    kind: 'raster', level: factor, bounds: meta.bounds, rows, cols: cv.width, years,
     months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])),
     decode: byte => v1 + (byte - 1) * step,
     tileMedian: () => null, scenes: () => 0, meta: info, key: `${product}|${tileId}`,

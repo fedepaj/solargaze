@@ -24,7 +24,7 @@
 
 import {
   sampleAt, windAt, rangeOf, compassName, sampleClimatology, sampleRaster, sampleRasterSet,
-  sampleStreet, streetTileAt, streetRatio, STREET_MODELLED,
+  sampleStreet, streetTileAt, streetRatio, STREET_MODELLED, yearImage,
 } from './field.js';
 import {
   HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
@@ -51,8 +51,8 @@ const HEAT_SPAN = 6;
 
 /** A raster or the centre tile of a raster-set, for medians and meta. */
 const centreOf = s => (s.kind === 'raster-set' ? s.centre : s);
-const readSurface = (s, lat, lon, mf) =>
-  (s.kind === 'raster-set' ? sampleRasterSet(s, lat, lon, mf) : sampleRaster(s, lat, lon, mf));
+const readSurface = (s, lat, lon, mf, year) =>
+  (s.kind === 'raster-set' ? sampleRasterSet(s, lat, lon, mf, year) : sampleRaster(s, lat, lon, mf, year));
 
 /**
  * The median of the tiles in view for a month fraction: what the colours
@@ -171,24 +171,26 @@ export const KINDS = {
     },
   },
   /**
-   * The night sky's zenith brightness, one raster, no months (VIIRS by year):
-   * a fixed scale in mag/arcsec², read with what is left of the Milky Way.
+   * The night sky's zenith brightness, a raster per year (VIIRS since 2012),
+   * the year on the slider: a fixed scale in mag/arcsec², read with what is
+   * left of the Milky Way.
    */
   'sky-brightness': {
-    field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, 0),
+    field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, 0, ctx.year),
     domain: (s, ctx, card) => card?.scale_c ?? [16.5, 22],
     stops: (ctx, card) => skyStops(card?.scale_c ?? [16.5, 22]),
     legend: ([lo, hi]) => ({ lo: `${lo} city`, hi: `${hi} mag/arcsec²` }),
-    reading(s, lat, lon) {
-      const v = readSurface(s, lat, lon, 0);
+    reading(s, lat, lon, t, ctx) {
+      const v = readSurface(s, lat, lon, 0, ctx.year);
       if (Number.isNaN(v)) return null;
       const band = skyBand(v);
       const ratio = skyRatio(v);
-      const year = centreOf(s).meta?.year;
+      const c = centreOf(s);
+      const year = c.years ? yearImage(c, ctx.year).year : c.meta?.year;
       return {
         value: v,
         text: `${v.toFixed(2)} mag/arcsec²`,
-        sub: `Bortle ${band.bortle} · Milky Way ${band.milkyWay} · sky ${ratio < 1.1 ? 'as nature made it' : `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× natural`}${year ? ` · ${year} lights` : ''}`,
+        sub: `Bortle ${band.bortle} · Milky Way ${band.milkyWay} · sky ${ratio < 1.1 ? 'as nature made it' : `${ratio < 10 ? ratio.toFixed(1) : ratio.toFixed(0)}× natural`}${year ? ` · ${year} lights${ctx.year > year ? ', the latest' : ctx.year < year ? ', the first' : ''}` : ''}`,
         band,
       };
     },

@@ -18,7 +18,7 @@ import { state, on, emit, setPref } from './state.js';
 import { viewer } from './scene.js';
 import { wallToUtc } from './timezone.js';
 import { profile } from './device.js';
-import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED } from './atmo/field.js';
+import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED, yearImage } from './atmo/field.js';
 import { rampLut } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
 import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, getCatalog } from './atmo/tiles.js';
@@ -298,6 +298,7 @@ export const contextFor = layer => ({
   option: optionOf(layer),
   monthFrac: monthFraction(dayOfYear(state.y, state.m, state.d), daysInYear(state.y)),
   hourFrac: state.minutes / 60,
+  year: state.y,
 });
 
 /* ── renderers ─────────────────────────────────────────────────────── */
@@ -330,7 +331,7 @@ function drapeRenderer(drape) {
       if (series.kind === 'street-set' || series.kind === 'raster-set') {
         // Repaint only when what the pixels depend on has moved: surface heat
         // follows the month alone, street air the month and the hour.
-        const sig = [series.key, ctx.option, Math.round(ctx.monthFrac * 20),
+        const sig = [series.key, ctx.option, Math.round(ctx.monthFrac * 20), ctx.year,
           series.kind === 'street-set' ? Math.round(ctx.hourFrac * 4) : '', domain.join(',')].join('|');
         if (sig === current.sig) return;
         current.sig = sig;
@@ -407,8 +408,9 @@ function fillRaster(raster, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
   const mf = ((ctx.monthFrac % 12) + 12) % 12;
   const m0 = Math.floor(mf);
   const wm = mf - m0;
-  const a = raster.months[m0]?.values;
-  const b = raster.months[(m0 + 1) % 12]?.values;
+  // A raster by year (the night sky) has one image for the year on the slider.
+  const a = raster.years ? yearImage(raster, ctx.year).image.values : raster.months[m0]?.values;
+  const b = raster.years ? a : raster.months[(m0 + 1) % 12]?.values;
   if (!a && !b) return;
   // A 256-entry table instead of a call per pixel.
   const dec = raster.decLut ??= Float32Array.from({ length: 256 }, (_, k) => (k ? raster.decode(k) : NaN));

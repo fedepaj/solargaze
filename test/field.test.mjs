@@ -225,20 +225,26 @@ test('noise reads in dB against the WHO guideline, on fixed 5 dB bands', () => {
   assert.deepEqual(noise.domain(r, ctx), [40, 80]);
 });
 
-test('the night sky reads in mag/arcsec² with its Bortle class, darker being higher', () => {
+test('the night sky reads in mag/arcsec² with its Bortle class, for the year on the slider', () => {
   const sky = LAYERS.find(l => l.id === 'sky');
-  // byte 1 = 22.0 (pristine); byte 121 = 19.0 (a bright suburb)
-  const image = { values: Uint8Array.of(1, 121), cols: 2, rows: 1 };
+  // byte 1 = 22.0 (pristine); byte 121 = 19.0 (a bright suburb); byte 141 = 18.5 (urban)
+  const y2012 = { values: Uint8Array.of(1, 121), cols: 2, rows: 1 };
+  const y2025 = { values: Uint8Array.of(1, 141), cols: 2, rows: 1 };
   const r = { kind: 'raster', rows: 1, cols: 2, bounds: [0, 0, 2, 1], decode: b => 22 + (b - 1) * -0.025, decLut: null,
-    months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])), tileMedian: () => null, meta: { year: 2025 } };
-  const ctx = { mode: 'light', monthFrac: 3 };
-  const dark = sky.reading(r, 0.5, 0.25, 0, ctx);
+    years: { 2012: y2012, 2025: y2025 }, months: {}, tileMedian: () => null };
+  const at = year => ({ mode: 'light', monthFrac: 3, year });
+  const dark = sky.reading(r, 0.5, 0.25, 0, at(2012));
   assert.equal(dark.band.name, 'Pristine');
-  assert.match(dark.sub, /as nature made it · 2025 lights/);
-  const bright = sky.reading(r, 0.5, 1.75, 0, ctx);
-  assert.equal(bright.band.name, 'Bright suburb');
-  assert.match(bright.sub, /Bortle 6 .* 16× natural/);
-  assert.deepEqual(sky.domain(r, ctx), [16.5, 22]);
+  assert.match(dark.sub, /as nature made it · 2012 lights$/);
+  const then = sky.reading(r, 0.5, 1.75, 0, at(2012));
+  assert.equal(then.band.name, 'Bright suburb');
+  assert.match(then.sub, /Bortle 6 .* 16× natural/);
+  // After the last composite: the latest, and it says so.
+  const now = sky.reading(r, 0.5, 1.75, 0, at(2027));
+  assert.equal(now.band.name, 'Urban');
+  assert.match(now.sub, /2025 lights, the latest$/);
+  assert.equal(sky.field(r, 0.5, 1.75, 0, at(2000)), 19);
+  assert.deepEqual(sky.domain(r, at(2025)), [16.5, 22]);
   assert.equal(skyBand(17).name, 'City');
   assert.ok(Math.abs(skyRatio(22 - 2.5) - 10) < 1e-9);
 });

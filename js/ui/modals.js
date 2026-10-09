@@ -611,8 +611,8 @@ function openHelp() {
        on its own scale, since forty grains of olive is a quiet day and forty of ragweed a bad one.
        <b>Light</b> is how bright the sky overhead is on a clear, moonless night, in the
        magnitudes per square arcsecond a Sky Quality Meter reads — 22 a pristine sky, 17 a city
-       centre — with its Bortle class and what is left of the Milky Way: the year's night lights
-       seen from space by VIIRS, spread by the glow they cast tens of kilometres around, fitted on
+       centre — with its Bortle class and what is left of the Milky Way, for the year on the year
+       slider, from 2012 on: that year's night lights seen from space by VIIRS, spread by the glow they cast tens of kilometres around, fitted on
        the World Atlas of Artificial Night Sky Brightness. VIIRS does not see blue light, so white
        LEDs count for less than they shine.
        <b>Wind</b> is a cloud of particles with the 10 m wind, threaded between the buildings.</p>

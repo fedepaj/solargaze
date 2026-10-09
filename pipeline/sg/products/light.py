@@ -1,5 +1,6 @@
-"""Light pollution: how dark the night sky is overhead, from the year's VIIRS
-night lights and a glow kernel fitted on the World Atlas (light_viirs.py)."""
+"""Light pollution: how dark the night sky is overhead, year by year since
+2012, from VIIRS night lights and a glow kernel fitted on the World Atlas
+(light_viirs.py)."""
 
 from __future__ import annotations
 
@@ -10,13 +11,30 @@ from PIL import Image
 
 from ..errors import Invalid
 from ..product import Context, Product
+from ..state import DONE, Record
+
+
+class _OpsStore:
+    """The reduced yearly radiance, shared between runners on the ops bucket."""
+
+    def __init__(self, remote):
+        self.remote = remote
+
+    def get(self, key: str) -> bytes | None:
+        from botocore.exceptions import ClientError
+        try:
+            return self.remote._call(lambda: self.remote.s3.get_object(Bucket=self.remote.ops, Key=key)["Body"].read())
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                return None
+            raise
+
+    def put(self, key: str, raw: bytes) -> None:
+        self.remote._call(lambda: self.remote.s3.put_object(Bucket=self.remote.ops, Key=key, Body=raw))
 
 
 class Light(Product):
-    name, version, subdir = "light", 1, "light"
-    # A new year's composite comes out in spring; a tile asks again three
-    # times a year and picks it up within months.
-    refresh_days = 120
+    name, version, subdir = "light", 2, "light"
     card = {
         "theme": "light", "variant": "sky", "order": 10, "kind": "sky-brightness",
         "label": "Night sky", "title": "Night-sky brightness",
@@ -24,8 +42,8 @@ class Light(Product):
         "source": "NASA Black Marble VNP46A4 (VIIRS night lights, yearly); glow kernel fitted on Falchi et al. 2016",
         "licence": "public domain (NASA)",
         "note": "How bright the sky overhead is on a clear, moonless night, as a Sky Quality Meter reads it: 22 is a "
-                "pristine sky, 17 a city centre. The year's VIIRS night lights spread by a kernel of distance fitted "
-                "on the World Atlas of Artificial Night Sky Brightness, within a factor of 1.5 of it on 94 cells in "
+                "pristine sky, 17 a city centre, year by year since 2012. Each year's VIIRS night lights spread by a "
+                "kernel of distance fitted on the World Atlas of Artificial Night Sky Brightness, within a factor of 1.5 of it on 94 cells in "
                 "100 where it was never fitted. VIIRS is blind to blue light, so white LEDs are undercounted; "
                 "altitude and terrain are not modelled.",
     }
@@ -37,22 +55,45 @@ class Light(Product):
             return None
         return "no Earthdata credentials (EARTHDATA_TOKEN, or EARTHDATA_USERNAME and EARTHDATA_PASSWORD)"
 
+    def reason(self, tile: str, rec: Record, *, git: str = "") -> str | None:
+        """Besides the usual: a done tile is built again when a new year's
+        composite comes out (once a year, in spring)."""
+        why = super().reason(tile, rec, git=git)
+        if why or rec.status != DONE:
+            return why
+        latest = self._latest()
+        if latest and rec.inputs.get("last_year", 0) < latest:
+            return f"new year {latest}"
+        return None
+
+    _latest_year = None
+
+    def _latest(self) -> int | None:
+        if self._latest_year is None:
+            import light_viirs
+            try:
+                Light._latest_year = light_viirs.latest_year()
+            except Exception:  # noqa: BLE001 — CMR out of reach: nothing is due on its account
+                Light._latest_year = 0
+        return self._latest_year or None
+
     def prepare(self, tiles: list[str], ctx: Context) -> None:
-        """The year, and every 10° composite the tiles' glow windows reach,
-        downloaded once for the region (a few hundred MB)."""
-        import math
+        """The years, and every 10° cell the tiles' glow windows reach, for
+        each of them: from the ops bucket when a runner has been there
+        before (about 1 MB a cell and year), else from Earthdata."""
         import light_viirs as lv
         from tiles import Tile
-        year = lv.latest_year()
-        reach = lv.KERNEL["reach_km"] / 111.32
+        from ..remote import Remote
+        remote = Remote.maybe(ctx.data_dir, ctx.cache_dir / "state")
+        lv._store = _OpsStore(remote) if remote else None
+        years = lv.years_to(lv.latest_year())
         cells = set()
         for t in tiles:
-            w, s, e, n = Tile.parse(t).bounds
-            mx = reach / math.cos(math.radians((s + n) / 2))
-            cells.update(lv.cells_for((w - mx, max(s - reach, -89.9), e + mx, min(n + reach, 89.9))))
-        for h, v in sorted(cells):
-            lv._file(year, h, v, self._cache(ctx))
-        ctx.shared["light_year"] = year
+            cells.update(lv.cells_for(lv.window(Tile.parse(t).bounds)))
+        for y in years:
+            for h, v in sorted(cells):
+                lv.r30(y, h, v, self._cache(ctx), lv._store)
+        ctx.shared["light_last_year"] = years[-1]
 
     def _cache(self, ctx: Context) -> Path:
         return ctx.cache_dir / "light"
@@ -60,15 +101,16 @@ class Light(Product):
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:
         import light_viirs
         from tiles import Tile
-        return light_viirs.build(Tile.parse(tile), stage, self._cache(ctx), year=ctx.shared.get("light_year"))
+        return light_viirs.build(Tile.parse(tile), stage, self._cache(ctx), last_year=ctx.shared.get("light_last_year"))
 
     def inputs(self, tile: str, ctx: Context) -> dict:
-        return {"year": ctx.shared.get("light_year")}
+        return {"last_year": ctx.shared.get("light_last_year")}
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
         img = np.asarray(Image.open(stage / "sky.png"))
-        if img.shape != (info["rows"], info["cols"]):
-            raise Invalid(f"sky.png is {img.shape}, meta says {info['rows']}×{info['cols']}")
+        want = (info["rows"] * len(info["years"]), info["cols"])
+        if img.shape != want:
+            raise Invalid(f"sky.png is {img.shape}, meta says {len(info['years'])} years of {info['rows']}×{info['cols']}")
         if (img == 0).any():
             raise Invalid("sky.png has cells with no value")
         if not (14.0 < info["mag_min"] <= info["mag_max"] <= 22.0 + 1e-6):

@@ -238,7 +238,17 @@ export function monthFraction(doy, daysInYear = 365) {
  * `months[m]` (m = 0..11, missing when the month has no data) is
  * `{ values: Uint8Array, cols, rows }`; `decode(byte)` maps a byte to °C.
  */
-export function sampleRaster(raster, lat, lon, monthFrac) {
+/**
+ * The image of a raster stacked by year for a year: that year's, or the
+ * nearest one it holds (the first before it began, the latest after).
+ */
+export function yearImage(raster, year) {
+  const ys = Object.keys(raster.years).map(Number);
+  const y = Math.min(Math.max(year ?? ys[ys.length - 1], ys[0]), ys[ys.length - 1]);
+  return { year: y, image: raster.years[y] };
+}
+
+export function sampleRaster(raster, lat, lon, monthFrac, year) {
   const { bounds, rows, cols, decode } = raster;
   const [west, south, east, north] = bounds;
   const fx = ((lon - west) / (east - west)) * cols - 0.5;
@@ -267,6 +277,7 @@ export function sampleRaster(raster, lat, lon, monthFrac) {
     return weight > 0.25 ? sum / weight : NaN;
   };
 
+  if (raster.years) return read(yearImage(raster, year).image);
   const mf = ((monthFrac % 12) + 12) % 12;
   const m0 = Math.floor(mf);
   const m1 = (m0 + 1) % 12;
@@ -279,10 +290,10 @@ export function sampleRaster(raster, lat, lon, monthFrac) {
 }
 
 /** A raster-set: the value from whichever member tile holds the point. */
-export function sampleRasterSet(set, lat, lon, monthFrac) {
+export function sampleRasterSet(set, lat, lon, monthFrac, year) {
   for (const r of set.tiles) {
     const [west, south, east, north] = r.bounds;
-    if (lat >= south && lat < north && lon >= west && lon < east) return sampleRaster(r, lat, lon, monthFrac);
+    if (lat >= south && lat < north && lon >= west && lon < east) return sampleRaster(r, lat, lon, monthFrac, year);
   }
   return NaN;
 }
