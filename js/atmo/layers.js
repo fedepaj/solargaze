@@ -108,6 +108,18 @@ function nearestNode(s, lat, lon) {
   return best;
 }
 
+/**
+ * Where the built ground is compared from: the year on the slider — and, with
+ * the slider on the present (at or after the last epoch), the first epoch,
+ * so that the layer switched on today shows everything built since 1975
+ * rather than nothing.
+ */
+export function growthFrom(raster, year) {
+  if (!raster?.years) return year;
+  const { first, last } = yearPair(raster, year);
+  return year >= last ? first : Math.max(year, first);
+}
+
 /** The year a grid of earlier years holds nearest the slider's. */
 const pastYear = (s, year) => Math.min(Math.max(year, s.meta.years[0]), s.meta.years[s.meta.years.length - 1]);
 
@@ -220,7 +232,7 @@ export const KINDS = {
    */
   'built-epochs': {
     field(s, lat, lon, t, ctx) {
-      const v = readSurface(s, lat, lon, 0, Infinity) - readSurface(s, lat, lon, 0, ctx.year);
+      const v = readSurface(s, lat, lon, 0, Infinity) - readSurface(s, lat, lon, 0, growthFrom(centreOf(s), ctx.year));
       return v >= GROWTH_MIN ? v : NaN;
     },
     domain: (s, ctx, card) => card?.scale_c ?? [0, 0.6],
@@ -234,10 +246,7 @@ export const KINDS = {
       const pct = v => `${Math.round(v * 100)}%`;
       const now = at(last);
       if (Number.isNaN(now)) return null;
-      if (ctx.year >= last) {
-        return { value: 0, text: `${pct(now)} built`, sub: `of the ground, in ${last}, the last epoch · slide the year back to see what came since` };
-      }
-      const from = Math.max(ctx.year, first);
+      const from = growthFrom(c, ctx.year);
       const then = at(from);
       const since = now - then;
       // The five years after the slider's year in which most was built.
@@ -252,7 +261,8 @@ export const KINDS = {
         text: since >= GROWTH_MIN ? `+${pct(since)} built since ${from}` : `built as it is now in ${from}`,
         sub: `${pct(then)} of the ground in ${from}, ${pct(now)} in ${last}` +
           (most ? ` · mostly ${most - 5}–${most}` : '') +
-          (ctx.year < first ? ` · GHSL begins in ${first}` : ''),
+          (ctx.year >= last ? ' · slide the year back for a later start'
+            : ctx.year < first ? ` · GHSL begins in ${first}` : ''),
       };
     },
   },

@@ -270,11 +270,14 @@ test('growth: what is built now and was not in the year on the slider, read betw
   assert.ok(Math.abs(growth.field(r, 0.5, 0.25, 0, at(1975)) - 0.4) < 1e-6);
   assert.ok(Math.abs(growth.field(r, 0.5, 0.25, 0, at(1982)) - 0.24) < 1e-6, 'between epochs');
   assert.ok(Number.isNaN(growth.field(r, 0.5, 1.75, 0, at(1975))), 'unchanged: left clear');
-  assert.ok(Number.isNaN(growth.field(r, 0.5, 0.25, 0, at(1990))), 'after the last epoch: nothing to show');
+  // With the slider on the present, everything since the first epoch.
+  assert.ok(Math.abs(growth.field(r, 0.5, 0.25, 0, at(1990)) - 0.4) < 1e-6, 'on the present: since 1975');
   const read = growth.reading(r, 0.5, 0.25, 0, at(1960));
   assert.equal(read.text, '+40% built since 1975');
   assert.match(read.sub, /10% of the ground in 1975, 50% in 1985 · mostly 1980–1985 · GHSL begins in 1975/);
-  assert.match(growth.reading(r, 0.5, 0.25, 0, at(2026)).sub, /the last epoch/);
+  const today = growth.reading(r, 0.5, 0.25, 0, at(2026));
+  assert.equal(today.text, '+40% built since 1975');
+  assert.match(today.sub, /slide the year back for a later start/);
 });
 
 test('the air of earlier years: the cell under the point, the month and year on the slider, then the present', () => {

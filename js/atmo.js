@@ -23,7 +23,7 @@ import { rampLut, GROWTH_MIN } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
 import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, maskAround, maskSpot, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
-import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear } from './atmo/layers.js';
+import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear, growthFrom } from './atmo/layers.js';
 import { setCatalog, cardOf } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape } from './atmo/drape.js';
@@ -451,9 +451,10 @@ function fillRaster(raster, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
   // what is there now and was not then (KINDS['built-epochs'] in layers.js).
   let a, b, w = wm, now = null;
   if (raster.years) {
-    const pair = yearPair(raster, ctx.year);
+    const growth = ctx.kind === 'built-epochs';
+    const pair = yearPair(raster, growth ? growthFrom(raster, ctx.year) : ctx.year);
     a = pair.a.values; b = pair.b.values; w = pair.w;
-    if (ctx.kind === 'built-epochs') now = raster.years[pair.last].values;
+    if (growth) now = raster.years[pair.last].values;
   } else {
     a = raster.months[m0]?.values;
     b = raster.months[(m0 + 1) % 12]?.values;
