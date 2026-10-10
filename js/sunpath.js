@@ -13,7 +13,6 @@ import { daySampler } from './solar.js';
 const C = window.Cesium;
 
 const ACCENT = C.Color.fromCssColorString('#f6d02f');
-const ACCENT_SOFT = ACCENT.withAlpha(0.95);
 const SHADOW_COL = C.Color.fromCssColorString('#eef2f8').withAlpha(0.95);
 
 /**
@@ -519,7 +518,7 @@ let lastRadius = NaN;
  * The point is always marked; the Sun card adds to it the beam arriving from
  * the sun, the compass card, the day's arc and the readouts.
  */
-export const sunPathShown = () => state.prefs.sunPath;
+const sunPathShown = () => state.prefs.sunPath;
 
 export function update(parts = { sun: true, arc: true, frame: true }) {
   if (!ents || !viewer) return;

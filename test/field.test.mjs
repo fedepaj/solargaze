@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
   streetValue,
-  gridFor, buildSeries, sampleAt, windAt, rangeOf, compassName, sampleClimatology, monthFraction, sampleRaster,
+  gridFor, buildSeries, sampleAt, windAt, compassName, sampleClimatology, monthFraction, sampleRaster,
 } from '../js/atmo/field.js';
 import { bandOf, rampLut, airStops, heatStops, pollenBand, POLLEN, skyBand, skyRatio } from '../js/atmo/scales.js';
 import { SOURCES, resolveDate, lastYear, shiftDate } from '../js/atmo/sources.js';
@@ -90,13 +90,6 @@ test('wind is carried as components and comes back as a speed and a "from" beari
   assert.equal(compassName(w.from), 'W');
   assert.equal(compassName(22), 'NNE');
   assert.equal(compassName(359), 'N');
-});
-
-test('the legend domain spans every node across the requested hours', () => {
-  const g = gridFor(W, 45, 7, 3);
-  const s = buildSeries(W, g, fakeLocations(g, 6, (lat, lon, h) => 10 + h));
-  assert.deepEqual(rangeOf(s, 'temperature_2m', s.t0, s.t0 + 2 * 3600000), { min: 10, max: 12 });
-  assert.deepEqual(rangeOf(s, 'temperature_2m', s.t0, s.t0 + 40 * 3600000), { min: 10, max: 15 });
 });
 
 test('EAQI bands follow the EEA edges per pollutant', () => {

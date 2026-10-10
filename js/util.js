@@ -1,4 +1,9 @@
-/** Helpers small enough to have no home of their own. */
+/** Helpers small enough to have no home of their own. Pure: the tests import some. */
+
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Two digits, as clocks and dates are written. */
+export const pad2 = n => String(n).padStart(2, '0');
 
 /**
  * Escape a string for interpolation into HTML.

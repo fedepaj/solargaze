@@ -16,17 +16,18 @@
 
 import { state, on, emit, setPref } from './state.js';
 import { viewer } from './scene.js';
-import { wallToUtc } from './timezone.js';
 import { profile } from './device.js';
-import { gridFor, monthFraction, sampleClimatology, STREET_MODELLED, yearPair } from './atmo/field.js';
-import { rampLut, GROWTH_MIN } from './atmo/scales.js';
+import { MONTHS } from './util.js';
+import { gridFor, monthFraction } from './atmo/field.js';
+import { rampLut } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
 import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, maskAround, maskSpot, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
-import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear, growthFrom } from './atmo/layers.js';
+import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear } from './atmo/layers.js';
 import { setCatalog, cardOf } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape } from './atmo/drape.js';
+import { mosaicLayout, mosaicSteps } from './atmo/mosaic.js';
 import { createWind } from './atmo/wind.js';
 
 /** Read-mostly view of the data, for the pane. */
@@ -52,6 +53,8 @@ const RENDERERS = {};
 
 let fetchTimer = null;
 const inflight = {};
+/** The request a source last answered "nothing here" to, so it is not asked again. */
+const noneKeys = {};
 const luts = new Map();
 
 export function initAtmo() {
@@ -94,6 +97,8 @@ export function initAtmo() {
 
   apply();
   scheduleFetch(true);
+  // A connection that comes back is a reason to ask again for what failed.
+  window.addEventListener('online', () => { retries = 0; scheduleFetch(true); });
 
   // The catalog the tiles were built with: new variants of a theme, new
   // words. The built-in copy stands in until it lands, or if it never does.
@@ -105,6 +110,9 @@ export function initAtmo() {
       atmo.error[id] = '';
     }
     applyCatalog();
+    // A card may have new words and a new scale for a picture already up.
+    luts.clear();
+    RENDERERS.drape.hide();
     emit('catalog');
     apply();
     scheduleFetch(true);
@@ -243,6 +251,22 @@ function setStatus(id, status, error = '') {
   emit('atmo', { source: id, status });
 }
 
+/**
+ * What failed is asked again by itself, a few times and further apart: the
+ * network drops for minutes and comes back, and a tile that could not be
+ * read is not a tile that does not exist. After the last try it waits for
+ * the next reason to fetch — the pin, the view, the connection coming back.
+ */
+const RETRY_MS = [4000, 15000, 60000];
+let retries = 0;
+let retryTimer = null;
+const canRetry = () => retries < RETRY_MS.length;
+/** The sources whose last answer failed, or came back with tiles missing. */
+const failing = new Set();
+
+/** A series with tiles that could not be read is asked again while there are tries left. */
+const settled = (series, key) => series?.key === key && !(series.incomplete && canRetry());
+
 async function fetchNeeded() {
   await Promise.all(neededSources().map(async id => {
     const source = SOURCES[id];
@@ -252,11 +276,12 @@ async function fetchNeeded() {
       return;
     }
     const { key } = want;
-    if (atmo.series[id]?.key === key || inflight[id] === key) return;
-    if (atmo.status[id] === 'none' && atmo.noneKey?.[id] === key) return;
+    if (settled(atmo.series[id], key) || inflight[id] === key) return;
+    if (atmo.status[id] === 'none' && noneKeys[id] === key) return;
 
     inflight[id] = key;
-    setStatus(id, 'loading');
+    // Asked again with its picture still up, it is not "loading" to anyone.
+    if (atmo.series[id]?.key !== key) setStatus(id, 'loading');
     try {
       const series = await fetchWant(want);
       // The pin may have moved on while this was in the air.
@@ -264,36 +289,35 @@ async function fetchNeeded() {
       inflight[id] = null;
       if (series) {
         if (series.kind !== undefined) series.key = key;
+        if (series.incomplete) failing.add(id); else failing.delete(id);
         atmo.series[id] = series;
         setStatus(id, 'ready');
       } else {
+        failing.delete(id);
         atmo.series[id] = null;
-        (atmo.noneKey ||= {})[id] = key;
+        noneKeys[id] = key;
         setStatus(id, 'none');
       }
     } catch (err) {
       if (inflight[id] !== key) return;
       inflight[id] = null;
-      setStatus(id, 'error', String(err.message || err));
+      failing.add(id);
+      // A picture with tiles missing, asked again in vain, stays up as it is.
+      if (atmo.series[id]?.key !== key) setStatus(id, 'error', String(err.message || err));
     }
     apply();
   }));
+  if (!failing.size) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retries = 0;
+  } else if (!retryTimer && canRetry()) {
+    retryTimer = setTimeout(() => { retryTimer = null; fetchNeeded(); }, RETRY_MS[retries++]);
+  }
 }
 
 /* ── context ───────────────────────────────────────────────────────── */
 
-/** UTC bounds of the selected local day, for legends that span the day. */
-function dayBounds() {
-  const start = wallToUtc({ y: state.y, m: state.m, d: state.d, minutes: 0 }, state.zone, state.lon);
-  return [start.getTime(), start.getTime() + 86400000];
-}
-
-/**
- * Everything a layer may want to know about "now": the day's UTC bounds for
- * legends that span it, the chosen option, and the two slider positions as
- * the climatologies read them — a month fraction from the day of the year
- * and an hour fraction from the wall clock at the pin.
- */
 /**
  * The ground the camera sees, in degrees, while it is close enough to mean
  * something (a view of the horizon is not "here"); null otherwise. Updated
@@ -308,12 +332,25 @@ function readCameraRect() {
   return rect[2] - rect[0] > 3 || rect[3] - rect[1] > 3 ? null : rect;
 }
 
+/**
+ * Coarse data — this coarse, or a card that says so (the mornings of the
+ * 1980s) — is drawn as visible tiles: a fine seam between cells where they
+ * are large on screen, and cells read in 2 × 2 blocks where they are not,
+ * so that it reads as the estimate it is, not as a sharp picture.
+ */
+const COARSE_M = 300;
+
+/**
+ * Everything a layer may want to know about "now": the mode and the kind of
+ * its data, the chosen option, what the camera sees, the year, and the two
+ * slider positions as the climatologies read them — a month fraction from
+ * the day of the year and an hour fraction from the wall clock at the pin.
+ */
 export const contextFor = layer => {
   const mode = modeOf(layer, state.prefs);
   const card = cardOf(mode);
   return {
     viewRect: cameraRect,
-    dayBounds: dayBounds(),
     mode,
     /** The kind of data in use, and whether it is coarse enough to be drawn as visible tiles. */
     kind: card?.kind ?? null,
@@ -331,14 +368,6 @@ export const contextFor = layer => {
   };
 };
 
-/**
- * Coarse data — this coarse, or a card that says so (the mornings of the
- * 1980s) — is drawn as visible tiles: a fine seam between cells where they
- * are large on screen, and cells read in 2 × 2 blocks where they are not,
- * so that it reads as the estimate it is, not as a sharp picture.
- */
-const COARSE_M = 300;
-
 /* ── renderers ─────────────────────────────────────────────────────── */
 
 const lutFor = (layer, ctx) => {
@@ -348,219 +377,93 @@ const lutFor = (layer, ctx) => {
 };
 
 function drapeRenderer(drape) {
-  let current = null;   // { layer, series, ctx, domain }
+  let current = null;   // { layer, series, ctx, domain, sig, ready }
   return {
     show(layer, series, ctx) {
       const domain = layer.domain(series, ctx);
       if (!domain) { this.hide(); return; }
-      current = { layer, series, ctx, domain };
+      // Shown again as it is — another source landed, another layer's switch
+      // moved — the mosaic keeps its signature, and paint() leaves it alone.
+      const same = current?.layer === layer;
+      if (same && current.series === series) {
+        current.ctx = ctx;
+        current.domain = domain;
+      } else {
+        // A mosaic arrives a moment after it is asked for. Until it does, the
+        // layer's last picture stays up (the pin's tile while the view loads,
+        // the morning while the night is painted) — but never another layer's.
+        current = { layer, series, ctx, domain, sig: null, ready: same && current.ready };
+      }
       this.paint(state.utc.getTime());
-      drape.show(true);
+      drape.show(current.ready);
     },
     paint(t) {
       if (!current) return;
-      const { layer, series } = current;
+      const now = current;
+      const { layer, series } = now;
       // The sliders may have moved since show(): re-read them, and for a
       // legend that depends on them (the surface anomaly) the domain too.
       const ctx = contextFor(layer);
-      const domain = layer.domain(series, ctx) || current.domain;
-      current.ctx = ctx;
-      current.domain = domain;
+      const domain = layer.domain(series, ctx) || now.domain;
+      now.ctx = ctx;
+      now.domain = domain;
       if (series.kind === 'street-set' || series.kind === 'raster-set') {
         // Repaint only when what the pixels depend on has moved: surface heat
         // follows the month alone, street air the month and the hour.
         const sig = [series.key, ctx.option, Math.round(ctx.monthFrac * 20), ctx.year,
           series.kind === 'street-set' ? Math.round(ctx.hourFrac * 4) : '', domain.join(',')].join('|');
-        if (sig === current.sig) return;
-        current.sig = sig;
-        drape.paintCanvas(series.rect, mosaicCanvas(series, layer, ctx, lutFor(layer, ctx), domain));
+        if (sig === now.sig) return;
+        now.sig = sig;
+        // Still wanted once painted? Not if the layer went, or the sliders moved on.
+        const wanted = () => current === now && now.sig === sig;
+        mosaicCanvas(series, layer, ctx, lutFor(layer, ctx), domain, wanted).then(canvas => {
+          if (!canvas || !wanted()) return;
+          drape.paintCanvas(series.rect, canvas);
+          now.ready = true;
+          drape.show(true);
+        }).catch(err => {
+          // Not painted, so not to be taken for painted.
+          if (wanted()) now.sig = null;
+          console.error(err);
+        });
       } else {
         drape.paint(series.grid, (lat, lon) => layer.field(series, lat, lon, t, ctx), lutFor(layer, ctx), domain, layer.alpha);
+        now.ready = true;
       }
     },
     hide() { current = null; drape.show(false); },
-    /** For the pane: the domain the ground is painted on right now. */
-    get domain() { return current?.domain ?? null; },
   };
 }
 
-/* ── mosaics ────────────────────────────────────────────────────────── */
+/** Give the page a turn: input, a frame, whatever was waiting. */
+const breathe = () => (globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise(r => setTimeout(r, 0)));
+
+/** The longest the page is held between two turns while a mosaic is painted, in ms. */
+const PAINT_SLICE_MS = 10;
 
 /**
- * A set of tiles becomes one texture on one ground primitive: a primitive
- * per tile is a draw call, a texture and a classification volume each, and
- * seventy of them stall a laptop and kill a phone. Every quarter-degree cell
- * of the rectangle that has no data is painted a translucent grey — "not
- * computed here yet" — in the same pass.
+ * A set of tiles as one canvas for the drape; what goes into its pixels is
+ * atmo/mosaic.js. Painted a tile at a time with a turn for the page in
+ * between: a view of 10 m noise in one go froze it for a third of a second.
+ * Resolves to null if, at one of those turns, the picture is `wanted` no more.
  */
-const CELL = 0.25;
-const MISSING = [128, 128, 128, 64];
-
-function mosaicCanvas(series, layer, ctx, lut, domain) {
-  const [west, south, east, north] = series.rect;
-  const nx = Math.round((east - west) / CELL);
-  const ny = Math.round((north - south) / CELL);
-  const native = series.kind === 'street-set'
-    ? Math.round((series.tiles[0]?.cols ?? 64) * profile.streetScale)
-    : (series.tiles[0]?.cols ?? 8);
-  const P = Math.max(4, Math.min(native, Math.floor(profile.maxTexture / Math.max(nx, ny))));
-  const W = nx * P;
-  const H = ny * P;
+async function mosaicCanvas(series, layer, ctx, lut, domain, wanted) {
+  const layout = mosaicLayout(series, ctx, profile);
   const cv = document.createElement('canvas');
-  cv.width = W;
-  cv.height = H;
+  cv.width = layout.W;
+  cv.height = layout.H;
   const out = cv.getContext('2d');
-  const img = out.createImageData(W, H);
-  const px = img.data;
-  for (let o = 0; o < px.length; o += 4) {
-    px[o] = MISSING[0]; px[o + 1] = MISSING[1]; px[o + 2] = MISSING[2]; px[o + 3] = MISSING[3];
-  }
-  const alpha = Math.round(layer.alpha * 255);
-  for (const tile of series.tiles) {
-    const x0 = Math.round((tile.bounds[0] - west) / CELL) * P;
-    const y0 = Math.round((north - tile.bounds[3]) / CELL) * P;
-    if (x0 < 0 || y0 < 0 || x0 >= W || y0 >= H) continue;
-    if (series.kind === 'street-set') fillStreet(tile, ctx, lut, domain, alpha, px, W, x0, y0, P);
-    else fillRaster(tile, ctx, lut, domain, alpha, px, W, x0, y0, P);
+  const img = out.createImageData(layout.W, layout.H);
+  let since = performance.now();
+  for (const paintNext of mosaicSteps(img.data, layout, series, ctx, lut, domain, layer.alpha)) {
+    paintNext();
+    if (performance.now() - since < PAINT_SLICE_MS) continue;
+    await breathe();
+    if (!wanted()) return null;
+    since = performance.now();
   }
   out.putImageData(img, 0, 0);
   return cv;
-}
-
-/** Source row/column for each of P output pixels across n source cells. */
-const pick = (n, P) => Uint32Array.from({ length: P }, (_, k) => Math.min(n - 1, Math.floor(((k + 0.5) * n) / P)));
-
-const paintPixel = (px, o, v, lut, lo, span, alpha) => {
-  const li = Math.min(255, Math.max(0, Math.round(((v - lo) / span) * 255))) * 3;
-  px[o] = lut[li];
-  px[o + 1] = lut[li + 1];
-  px[o + 2] = lut[li + 2];
-  px[o + 3] = alpha;
-};
-
-/**
- * A raster tile's month, the two months around the date blended per pixel
- * as the layer's sampler does for the readout, so ground and pane agree.
- */
-function fillRaster(raster, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
-  const mf = ((ctx.monthFrac % 12) + 12) % 12;
-  const m0 = Math.floor(mf);
-  const wm = mf - m0;
-  // A raster by year or epoch (the night sky, the built ground) is read
-  // between the two around the year on the slider; the built ground draws
-  // what is there now and was not then (KINDS['built-epochs'] in layers.js).
-  let a, b, w = wm, now = null;
-  if (raster.years) {
-    const growth = ctx.kind === 'built-epochs';
-    const pair = yearPair(raster, growth ? growthFrom(raster, ctx.year) : ctx.year);
-    a = pair.a.values; b = pair.b.values; w = pair.w;
-    if (growth) now = raster.years[pair.last].values;
-  } else {
-    a = raster.months[m0]?.values;
-    b = raster.months[(m0 + 1) % 12]?.values;
-  }
-  if (!a && !b) return;
-  // A 256-entry table instead of a call per pixel.
-  const dec = raster.decLut ??= Float32Array.from({ length: 256 }, (_, k) => (k ? raster.decode(k) : NaN));
-  const span = hi - lo || 1;
-  const seams = ctx.coarse && P >= 4 * raster.cols;
-  const block = ctx.blocky && !seams && raster.level === 1 ? 2 : 1;   // an overview is coarse already
-  const rows = pick(raster.rows, P).map(r => r - (r % block));
-  const cols = pick(raster.cols, P).map(c => c - (c % block));
-  // Coarse data: the first pixel row and column of each source cell is a seam.
-  const seamAlpha = Math.round(alpha * 0.45);
-  for (let y = 0; y < P; y++) {
-    const base = rows[y] * raster.cols;
-    const rowSeam = seams && y > 0 && rows[y] !== rows[y - 1];
-    let o = ((y0 + y) * W + x0) * 4;
-    for (let x = 0; x < P; x++, o += 4) {
-      const i = base + cols[x];
-      const va = a ? dec[a[i]] : NaN;
-      const vb = b ? dec[b[i]] : NaN;
-      let v = Number.isNaN(va) ? vb : Number.isNaN(vb) ? va : va * (1 - w) + vb * w;
-      if (now) {
-        v = dec[now[i]] - v;
-        if (!(v >= GROWTH_MIN)) { px[o + 3] = 0; continue; }
-      }
-      if (Number.isNaN(v)) { px[o + 3] = 0; continue; }
-      const seam = rowSeam || (seams && x > 0 && cols[x] !== cols[x - 1]);
-      paintPixel(px, o, v, lut, lo, span, seam ? seamAlpha : alpha);
-    }
-  }
-}
-
-/**
- * A street tile for the month and hour on the sliders. CAMS changes over
- * kilometres, the ratio over metres: CAMS is evaluated on a 32 × 32 lattice
- * and interpolated a row at a time, the ratio read per cell. The arithmetic
- * is streetValue's (atmo/field.js), written out flat because this loop runs
- * a few million times a repaint; the tests hold streetValue to it.
- */
-const STREET_LATTICE = 32;
-function fillStreet(tile, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
-  const { cols, rows, bounds: [west, south, east, north] } = tile;
-  const option = ctx.option;
-  const G = STREET_LATTICE;
-  const lattice = name => {
-    const g = new Float32Array(G * G);
-    for (let j = 0; j < G; j++) {
-      const lat = north - ((j * (rows - 1)) / (G - 1) + 0.5) * ((north - south) / rows);
-      for (let i = 0; i < G; i++) {
-        const lon = west + ((i * (cols - 1)) / (G - 1) + 0.5) * ((east - west) / cols);
-        g[j * G + i] = sampleClimatology(tile.clim, name, lat, lon, ctx.monthFrac, ctx.hourFrac);
-      }
-    }
-    return g;
-  };
-  const isOzone = option === 'ozone';
-  const camsVar = isOzone ? 'ozone' : option;
-  const gMain = lattice(camsVar);
-  const gNo2 = isOzone ? lattice('nitrogen_dioxide') : null;
-  const ratioVar = isOzone ? 'nitrogen_dioxide' : STREET_MODELLED.includes(option) ? option : null;
-  const bytes = ratioVar ? tile.bytes[ratioVar] : null;
-  const ratioOf = tile.ratioOf;
-  const span = hi - lo || 1;
-  const srcRow = pick(rows, P);
-  const srcCol = pick(cols, P);
-  const i0 = new Uint16Array(P);
-  const fx = new Float32Array(P);
-  for (let x = 0; x < P; x++) {
-    const u = (srcCol[x] * (G - 1)) / (cols - 1);
-    i0[x] = Math.min(G - 2, Math.floor(u));
-    fx[x] = u - i0[x];
-  }
-  const rowMain = new Float32Array(P);
-  const rowNo2 = new Float32Array(P);
-  const fillRow = (g, out, j0, fy) => {
-    for (let x = 0; x < P; x++) {
-      const k = j0 * G + i0[x];
-      const a = g[k] + (g[k + 1] - g[k]) * fx[x];
-      const b = g[k + G] + (g[k + G + 1] - g[k + G]) * fx[x];
-      out[x] = a + (b - a) * fy;
-    }
-  };
-  for (let y = 0; y < P; y++) {
-    const r = srcRow[y];
-    const v0 = (r * (G - 1)) / (rows - 1);
-    const j0 = Math.min(G - 2, Math.floor(v0));
-    fillRow(gMain, rowMain, j0, v0 - j0);
-    if (gNo2) fillRow(gNo2, rowNo2, j0, v0 - j0);
-    const base = r * cols;
-    let o = ((y0 + y) * W + x0) * 4;
-    for (let x = 0; x < P; x++, o += 4) {
-      const ratio = bytes ? ratioOf[bytes[base + srcCol[x]]] : NaN;
-      let v;
-      if (isOzone) {
-        const no2 = rowNo2[x];
-        const no2Street = Number.isNaN(ratio) ? no2 : (no2 + 1) * ratio - 1;
-        v = Math.max(0, (rowMain[x] / 1.96 + no2 / 1.88 - no2Street / 1.88) * 1.96);
-      } else {
-        v = Number.isNaN(ratio) ? rowMain[x] : (rowMain[x] + 1) * ratio - 1;
-      }
-      if (Number.isNaN(v)) { px[o + 3] = 0; continue; }
-      paintPixel(px, o, v, lut, lo, span, alpha);
-    }
-  }
 }
 
 function particlesRenderer(wind) {
@@ -631,13 +534,13 @@ export function readings() {
     out[layer.id] = reading && {
       ...reading,
       ctx,
-      domain: layer.domain && series ? layer.domain(series, ctx) : null,
+      // For the legend, which only a drawn layer shows.
+      domain: layer.domain && isOn(layer.id) ? layer.domain(series, ctx) : null,
     };
   }
   return out;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const longDate = ({ y, m, d }) => `${d} ${MONTHS[m - 1]} ${y}`;
 
 /**
@@ -664,6 +567,3 @@ export function dateNote() {
 /** The fine print: each source's own caveat, in one paragraph. */
 export const sourceNotes = () =>
   `${Object.values(SOURCES).map(s => s.note).join(' ')} The gradient between model cells is interpolation, not measurement.`;
-
-/** Where the precomputed products stand at the pin, for the pane. */
-export const tileHere = () => tileIdFor(state.lat, state.lon);

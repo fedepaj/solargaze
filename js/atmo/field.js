@@ -119,32 +119,30 @@ export function sampleAt(series, name, lat, lon, t) {
 /** Bilinear interpolation over one hour-slice of a node array. */
 function bilinear(arr, grid, base, lat, lon) {
   const { rows, cols } = grid;
-  const n = cols;
   const fi = clamp((lat - grid.south) / grid.step, 0, rows - 1);
   const fj = clamp((lon - grid.west) / grid.step, 0, cols - 1);
   const i0 = Math.min(Math.floor(fi), rows - 2);
   const j0 = Math.min(Math.floor(fj), cols - 2);
   const wi = fi - i0;
   const wj = fj - j0;
+  const k = base + i0 * cols + j0;
 
   // Weighted by hand rather than as the usual two lerps, because a node the
   // model left empty must only poison the answer where it actually counts —
   // NaN × 0 is NaN in IEEE arithmetic, so the plain formula would blank a
-  // whole cell for a hole in its far corner.
+  // whole cell for a hole in its far corner. The four weights add up to one,
+  // and a NaN that does count carries through the sum by itself. Written
+  // out flat: the wind asks this for every particle, every frame.
+  const w00 = (1 - wi) * (1 - wj);
+  const w01 = (1 - wi) * wj;
+  const w10 = wi * (1 - wj);
+  const w11 = wi * wj;
   let sum = 0;
-  let weight = 0;
-  const take = (k, w) => {
-    if (w <= 0) return;
-    const v = arr[base + k];
-    if (Number.isNaN(v)) { weight = NaN; return; }
-    sum += v * w;
-    weight += w;
-  };
-  take(i0 * n + j0, (1 - wi) * (1 - wj));
-  take(i0 * n + j0 + 1, (1 - wi) * wj);
-  take((i0 + 1) * n + j0, wi * (1 - wj));
-  take((i0 + 1) * n + j0 + 1, wi * wj);
-  return weight > 0 ? sum / weight : NaN;
+  if (w00 > 0) sum += arr[k] * w00;
+  if (w01 > 0) sum += arr[k + 1] * w01;
+  if (w10 > 0) sum += arr[k + cols] * w10;
+  if (w11 > 0) sum += arr[k + cols + 1] * w11;
+  return sum;
 }
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -164,30 +162,6 @@ export function compassName(bearing) {
   const names = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
     'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   return names[Math.round(((bearing % 360) + 360) % 360 / 22.5) % 16];
-}
-
-/**
- * Minimum and maximum of `name` over every node between two UTC instants —
- * the legend's domain, so that a day's playback shows the morning cool and
- * the afternoon heat on one fixed scale.
- */
-export function rangeOf(series, name, tFrom, tTo) {
-  const arr = series.vars[name];
-  if (!arr) return null;
-  const nodes = series.grid.rows * series.grid.cols;
-  const hFrom = Math.max(0, Math.floor((tFrom - series.t0) / 3600000));
-  const hTo = Math.min(series.hours - 1, Math.ceil((tTo - series.t0) / 3600000));
-  let min = Infinity;
-  let max = -Infinity;
-  for (let h = hFrom; h <= hTo; h++) {
-    for (let k = h * nodes; k < (h + 1) * nodes; k++) {
-      const v = arr[k];
-      if (Number.isNaN(v)) continue;
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-  }
-  return min === Infinity ? null : { min, max };
 }
 
 /* ── climatologies and rasters: the precomputed products ──────────── */
@@ -262,6 +236,36 @@ export function yearPair(raster, year) {
   return { a: raster.years[ys[i]], b: raster.years[ys[j]], w, year: y, at: ys[i], first: ys[0], last: ys[ys.length - 1] };
 }
 
+/**
+ * Where the built ground is compared from: the year on the slider — and, with
+ * the slider on the present (at or after the last epoch), the first epoch,
+ * so that the layer switched on today shows everything built since 1975
+ * rather than nothing.
+ */
+export function growthFrom(raster, year) {
+  if (!raster?.years) return year;
+  const { first, last } = yearPair(raster, year);
+  return year >= last ? first : Math.max(year, first);
+}
+
+/** One image of a raster between four pixel centres; a missing pixel drops out of the weights. */
+function readImage(img, cols, decode, x0, y0, wx, wy) {
+  if (!img) return NaN;
+  const { values } = img;
+  const k = y0 * cols + x0;
+  let sum = 0;
+  let weight = 0;
+  let w = (1 - wx) * (1 - wy);
+  if (w > 0 && values[k]) { sum += decode(values[k]) * w; weight += w; }
+  w = wx * (1 - wy);
+  if (w > 0 && values[k + 1]) { sum += decode(values[k + 1]) * w; weight += w; }
+  w = (1 - wx) * wy;
+  if (w > 0 && values[k + cols]) { sum += decode(values[k + cols]) * w; weight += w; }
+  w = wx * wy;
+  if (w > 0 && values[k + cols + 1]) { sum += decode(values[k + cols + 1]) * w; weight += w; }
+  return weight > 0.25 ? sum / weight : NaN;
+}
+
 export function sampleRaster(raster, lat, lon, monthFrac, year) {
   const { bounds, rows, cols, decode } = raster;
   const [west, south, east, north] = bounds;
@@ -273,23 +277,7 @@ export function sampleRaster(raster, lat, lon, monthFrac, year) {
   const wx = Math.min(Math.max(fx - x0, 0), 1);
   const wy = Math.min(Math.max(fy - y0, 0), 1);
 
-  const read = img => {
-    if (!img) return NaN;
-    let sum = 0;
-    let weight = 0;
-    const take = (x, y, w) => {
-      if (w <= 0) return;
-      const b = img.values[y * cols + x];
-      if (b === 0) return;
-      sum += decode(b) * w;
-      weight += w;
-    };
-    take(x0, y0, (1 - wx) * (1 - wy));
-    take(x0 + 1, y0, wx * (1 - wy));
-    take(x0, y0 + 1, (1 - wx) * wy);
-    take(x0 + 1, y0 + 1, wx * wy);
-    return weight > 0.25 ? sum / weight : NaN;
-  };
+  const read = img => readImage(img, cols, decode, x0, y0, wx, wy);
 
   if (raster.years) {
     const { a, b, w } = yearPair(raster, year);
@@ -307,13 +295,26 @@ export function sampleRaster(raster, lat, lon, monthFrac, year) {
   return a * (1 - wm) + b * wm;
 }
 
+const holds = (b, lat, lon) => lat >= b[1] && lat < b[3] && lon >= b[0] && lon < b[2];
+
+/**
+ * The tile of a set holding a point, or null. The one that answered last is
+ * asked first: readings come from the pin and a legend's lattice walks the
+ * view cell by cell, so the next point is nearly always in the same tile —
+ * and a view can hold hundreds.
+ */
+function tileAt(set, lat, lon) {
+  if (set.hit && holds(set.hit.bounds, lat, lon)) return set.hit;
+  for (const t of set.tiles) {
+    if (holds(t.bounds, lat, lon)) { set.hit = t; return t; }
+  }
+  return null;
+}
+
 /** A raster-set: the value from whichever member tile holds the point. */
 export function sampleRasterSet(set, lat, lon, monthFrac, year) {
-  for (const r of set.tiles) {
-    const [west, south, east, north] = r.bounds;
-    if (lat >= south && lat < north && lon >= west && lon < east) return sampleRaster(r, lat, lon, monthFrac, year);
-  }
-  return NaN;
+  const r = tileAt(set, lat, lon);
+  return r ? sampleRaster(r, lat, lon, monthFrac, year) : NaN;
 }
 
 /**
@@ -329,8 +330,9 @@ export function sampleRasterSet(set, lat, lon, monthFrac, year) {
  * ratio, NaN where there is none.
  */
 export const STREET_MODELLED = ['nitrogen_dioxide', 'pm10'];
-const PPB_NO2 = 1.88;
-const PPB_O3 = 1.96;
+/** µg/m³ per ppb, for the ozone titration (also the mosaic's, atmo/mosaic.js). */
+export const PPB_NO2 = 1.88;
+export const PPB_O3 = 1.96;
 
 export function streetValue(option, cams, ratio) {
   const scaled = name => {
@@ -345,18 +347,8 @@ export function streetValue(option, cams, ratio) {
   return STREET_MODELLED.includes(option) ? scaled(option) : cams(option);
 }
 
-/** The CAMS variables a street value of `option` needs. */
-export const streetNeeds = option =>
-  (option === 'ozone' ? ['ozone', 'nitrogen_dioxide'] : [option]);
-
 /** The street tile of a street-set holding the point, or null. */
-export function streetTileAt(set, lat, lon) {
-  for (const t of set.tiles) {
-    const [west, south, east, north] = t.bounds;
-    if (lat >= south && lat < north && lon >= west && lon < east) return t;
-  }
-  return null;
-}
+export const streetTileAt = tileAt;
 
 /** The 50 m ratio of `name` at a point of a street tile (nearest cell). */
 export function streetRatio(tile, name, lat, lon) {

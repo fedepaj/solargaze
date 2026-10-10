@@ -4,16 +4,16 @@
  */
 
 import {
-  state, on, emit, setTime, setDate, setDayOfYear, setYear, currentDayOfYear,
+  state, on, setTime, setDate, setDayOfYear, setYear, currentDayOfYear,
   jumpToNow, sliderRange, setPref,
 } from '../state.js';
 import { daysInYear, dayOfYear, fromDayOfYear } from '../solar.js';
 import { offsetLabel } from '../timezone.js';
 import { toast } from './toast.js';
+import { pad2 as pad } from '../util.js';
 
 const $ = id => document.getElementById(id);
 
-const pad = n => String(n).padStart(2, '0');
 const fmtClock = m => `${pad(Math.floor(m / 60))}:${pad(Math.round(m) % 60)}`;
 const fmtDate = ({ y, m, d }) => `${pad(d)}/${pad(m)}/${y}`;
 const iso = ({ y, m, d }) => `${y}-${pad(m)}-${pad(d)}`;
@@ -168,7 +168,6 @@ function onKey(e) {
 }
 
 function shiftDay(delta) {
-  const total = daysInYear(state.y);
   let doy = currentDayOfYear() + delta;
   let y = state.y;
   while (doy > daysInYear(y)) { doy -= daysInYear(y); y += 1; }

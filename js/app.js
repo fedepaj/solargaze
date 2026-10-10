@@ -21,7 +21,7 @@ import {
   hasTileset, tilesetVisible,
 } from './scene.js';
 import { loadTzDatabase } from './timezone.js';
-import { escapeHtml } from './util.js';
+import { escapeHtml, pad2 as pad } from './util.js';
 import * as ionAuth from './ion-auth.js';
 import { initSunPath, refreshSunPath } from './sunpath.js';
 import { initTimePanel, stopPlayback } from './ui/timepanel.js';
@@ -294,15 +294,6 @@ async function seatOverlayOnMesh({ tries = 30, gap = 500 } = {}) {
   refreshSunPath();
 }
 
-/**
- * Turn a tile failure into something the gate can act on.
- *
- * `kind` decides which button the gate leads with, and the distinction is the
- * whole point: retrying a credential ion has just rejected will fail again in
- * exactly the same way, so offering it first wastes the one move the visitor
- * has. A spent quota or a dropped connection is the opposite — retrying is the
- * right thing and fixing the account is not.
- */
 /* ── mesh loading overlay ─────────────────────────────────────────── */
 
 let meshLoadTimer = null;
@@ -376,6 +367,15 @@ function settleInitialView() {
   refreshSunPath();
 }
 
+/**
+ * Turn a tile failure into something the gate can act on.
+ *
+ * `kind` decides which button the gate leads with, and the distinction is the
+ * whole point: retrying a credential ion has just rejected will fail again in
+ * exactly the same way, so offering it first wastes the one move the visitor
+ * has. A spent quota or a dropped connection is the opposite — retrying is the
+ * right thing and fixing the account is not.
+ */
 function explainTileFailure(err) {
   const message = String(err?.message || err);
 
@@ -682,8 +682,6 @@ function schedulePushUrl() {
 function buildUrl() {
   const cam = viewer?.camera;
   const pos = cam ? cartographicOf(cam.positionWC) : null;
-  const pad = n => String(n).padStart(2, '0');
-
   const parts = [
     `ll=${state.lat.toFixed(6)},${state.lon.toFixed(6)}`,
     `t=${state.y}-${pad(state.m)}-${pad(state.d)}T${pad(Math.floor(state.minutes / 60))}:${pad(state.minutes % 60)}`,

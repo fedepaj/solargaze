@@ -7,8 +7,6 @@
  * stylesheet does the stacking arithmetic from there.
  */
 
-import { on } from '../state.js';
-
 const $ = id => document.getElementById(id);
 
 export function initSheet() {

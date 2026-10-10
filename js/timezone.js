@@ -113,17 +113,6 @@ export function wallToUtc({ y, m, d, minutes }, zone, lon = 0) {
   return new Date(t);
 }
 
-/** The wall-clock reading at `zone` for a real UTC instant. */
-export function utcToWall(date, zone, lon = 0) {
-  const shifted = new Date(date.getTime() + offsetAt(date, zone, lon) * 60000);
-  return {
-    y: shifted.getUTCFullYear(),
-    m: shifted.getUTCMonth() + 1,
-    d: shifted.getUTCDate(),
-    minutes: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
-  };
-}
-
 /** "+02:00" / "−05:30" style label. */
 export function offsetLabel(minutes) {
   const sign = minutes < 0 ? '−' : '+';

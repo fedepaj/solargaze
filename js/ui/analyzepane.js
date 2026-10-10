@@ -1,12 +1,12 @@
 /** Wiring for the ANALYZE tab. */
 
-import { state, on } from '../state.js';
+import { on } from '../state.js';
 import { computeSunHours, canAnalyze } from '../analyze.js';
 import { toast } from './toast.js';
 import { working } from './sunloader.js';
+import { pad2 as pad } from '../util.js';
 
 const $ = id => document.getElementById(id);
-const pad = n => String(n).padStart(2, '0');
 const fmt = m => `${pad(Math.floor(m / 60) % 24)}:${pad(Math.round(m) % 60)}`;
 
 export function initAnalyzePane() {

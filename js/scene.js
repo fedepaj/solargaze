@@ -111,7 +111,6 @@ function tuneShadowDistance() {
   viewer.shadowMap.maximumDistance = Math.min(Math.max(height * 4, 1500), 30000);
 }
 
-/** Push the current shadow preferences into the renderer. */
 /**
  * Shadows want a sun to cast them. Below the horizon the shadow map still
  * projects from it, grazing, and splits the scene along an arbitrary line
@@ -121,6 +120,7 @@ function tuneShadowDistance() {
 const sunUp = () => state.sun.elevation > -0.833;
 let castingFor = null;
 
+/** Push the current shadow preferences into the renderer. */
 export function applyShadowSettings() {
   if (!viewer) return;
   const { prefs } = state;
@@ -363,8 +363,8 @@ export function resetBearing() {
 /**
  * Authoritative height of the mesh under the pin.
  *
- * Unlike `sampleGroundAtPin` below, this streams the tiles it needs before
- * answering, so it is right even where the mesh has not arrived yet. That
+ * This streams the tiles it needs before answering, so it is right even
+ * where the mesh has not arrived yet, unlike a pick of what is on screen. That
  * costs frames, so it is called deliberately rather than on every camera move:
  * when the pin is locked, when a drag ends, and after a search flight.
  *
@@ -386,20 +386,4 @@ export async function resolveGroundAtPin() {
   } catch { /* nothing sampleable there */ } finally {
     clearInterval(pump);
   }
-}
-
-/**
- * The cheap probe: whatever is already resident under the pin, this frame.
- * Answers nothing rather than something wrong when the tiles are not there.
- */
-export function sampleGroundAtPin() {
-  if (!viewer || !viewer.scene.sampleHeightSupported || !tilesetVisible()) return;
-  const carto = C.Cartographic.fromDegrees(state.lon, state.lat);
-  let h;
-  try {
-    h = viewer.scene.sampleHeight(carto, []);
-  } catch {
-    return;
-  }
-  if (typeof h === 'number' && Number.isFinite(h)) setGroundHeight(h);
 }

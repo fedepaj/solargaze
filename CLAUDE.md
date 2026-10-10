@@ -10,7 +10,7 @@ numbers. Code, comments and commit messages are in English, in the voice of the 
 | Path | What |
 |---|---|
 | `index.html`, `css/`, `js/` | The app. `js/atmo.js` is the data engine; `js/atmo/` its parts; `js/ui/` the panels. |
-| `test/*.test.mjs` | App tests (pure modules only: layers, scales, field samplers, solar). |
+| `test/*.test.mjs` | App tests (pure modules only: layers, scales, field samplers, mosaic pixels, solar). |
 | `pipeline/sg/` | The pipeline framework: products, runner, state, border pieces, catalog, gaps. |
 | `pipeline/*.py` | One module per data source (`heat_landsat.py`, `noise_osm.py`, `light_viirs.py`, …). |
 | `pipeline/tests/` | Pipeline tests (`unittest`, no network). |
@@ -53,8 +53,18 @@ cd pipeline && .venv/bin/python -m sg run --bbox 11.5,41.25,13.25,42.5 --product
   (`wantFor`); decoded tiles live in an LRU with a byte budget (`remember` in `tiles.js`); images are
   decoded in bands of rows (`channels`); the wind's building mask is cut around the pin (`maskAround`).
   Do not reintroduce whole-view fetches for readings or whole-tile `getImageData`.
-- **Coarse data is drawn coarse**: `card.resolution_m >= 300` gets a seam between cells; `card.coarse` or
-  a year before `card.coarse_before` is read in 2 × 2 blocks.
+- **One picture per set of tiles**: `js/atmo/mosaic.js` (pure, tested) writes the pixels, the engine makes
+  the canvas. A mosaic is repainted only when its signature moves (`paint` in `drapeRenderer`); `show()`
+  keeps the signature, so a source landing or another switch does not repaint what is already up. It is
+  painted a tile at a time with a turn for the page in between (`mosaicCanvas`): do not make it one loop
+  again, a view of 10 m noise held the page for 360 ms.
+- **Could not ask is not "does not exist"**: a meta or an index that cannot be reached throws and is not
+  remembered (`fetchJson` in `tiles.js`); a set with tiles that failed is `incomplete`; the engine asks
+  again after 4, 15 and 60 s and when the connection comes back (`fetchNeeded`). Only a 404 is "not
+  computed here yet".
+- **Coarse data is drawn coarse**: `card.resolution_m >= 300` is drawn eight pixels a cell with a seam
+  between cells (while a tile stays under 512 px); `card.coarse` or a year before `card.coarse_before`
+  is read in 2 × 2 blocks.
 
 ## The pipeline in one page
 

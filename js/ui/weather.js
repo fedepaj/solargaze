@@ -6,6 +6,7 @@
 
 import { state, on } from '../state.js';
 import { SOURCES, isoDate } from '../atmo/sources.js';
+import { MONTHS, pad2 as pad } from '../util.js';
 
 const ICONS = {
   clear: '<circle cx="12" cy="12" r="4.5"/><path d="M12 2.6v2.4M12 19v2.4M2.6 12H5M19 12h2.4M5.3 5.3 7 7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/>',
@@ -28,8 +29,6 @@ function glyphFor(code) {
   return 'cloud';
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const pad = n => String(n).padStart(2, '0');
 
 /** One day at one place: { key, hourly temps, day code, max, min, uv, resolved date, proxy }. */
 let day = null;

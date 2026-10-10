@@ -16,10 +16,10 @@ import { state, on, setPref } from '../state.js';
 import { atmo, readings, dateNote, sourceNotes, toggleLayer, isOn, optionOf, layerPrefs, currentSource } from '../atmo.js';
 import { LAYERS, modeOf, optionsOf, available } from '../atmo/layers.js';
 import { cssGradient } from '../atmo/scales.js';
+import { pad2 as pad } from '../util.js';
 
 const $ = id => document.getElementById(id);
 const svg = paths => `<svg viewBox="0 0 24 24">${paths}</svg>`;
-const pad = n => String(n).padStart(2, '0');
 const hhmm = minutes => (minutes === null || minutes === undefined ? '–:–'
   : `${pad(Math.floor(minutes / 60) % 24)}:${pad(Math.round(minutes) % 60)}`);
 

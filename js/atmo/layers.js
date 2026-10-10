@@ -18,19 +18,21 @@
  * switches the other off. `particles` draws a vector field as drifting
  * trails in the air above, in its own slot, and combines with any drape.
  *
- * The functions all take `ctx`: `{ dayBounds: [fromMs, toMs], option }`, where
- * `option` is the layer's chosen option value (a pollutant, say) or null.
+ * The functions all take `ctx`, the engine's reading of "now" (contextFor in
+ * ../atmo.js): the mode and its kind, the chosen `option` (a pollutant, say)
+ * or null, the month and hour fractions, the year, and what the camera sees.
  */
 
 import {
-  sampleAt, windAt, rangeOf, compassName, sampleClimatology, sampleRaster, sampleRasterSet,
-  sampleStreet, streetTileAt, streetRatio, STREET_MODELLED, yearImage, yearPair,
+  sampleAt, windAt, compassName, sampleClimatology, sampleRaster, sampleRasterSet,
+  sampleStreet, streetTileAt, streetRatio, STREET_MODELLED, yearImage, yearPair, growthFrom,
 } from './field.js';
 import {
-  HEAT_STOPS, EAQI_BANDS, AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
+  AIR_METRICS, bandOf, heatStops, airStops, POLLEN, pollenBand, pollenStops,
   noiseBand, noiseStops, WHO_ROAD_LDEN, skyBand, skyStops, skyRatio, GROWTH_MIN, GROWTH_STOPS,
 } from './scales.js';
 import { FALLBACK, cardOf, tileSourceId, variantsOf, catalog } from './catalog.js';
+import { MONTHS } from '../util.js';
 
 const ICONS = {
   heat: '<path d="M10 4.5a2 2 0 0 1 4 0v9.2a3.6 3.6 0 1 1-4 0Z"/><path d="M12 9v6.2"/><circle cx="12" cy="16.9" r="1.3" class="fill"/>',
@@ -44,7 +46,6 @@ const ICONS = {
 
 /* ── helpers shared by the entries ───────────────────────────────── */
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthName = mf => MONTHS[((Math.round(mf) % 12) + 12) % 12];
 
 /** Anomaly span of a surface-heat legend, °C either side of the tile median, for a card with no fixed scale. */
@@ -61,7 +62,19 @@ const readSurface = (s, lat, lon, mf, year) =>
  * rather than between it and the fields of the tile's edges. A single
  * raster is its own view.
  */
+const medians = new WeakMap();
 function viewMedian(s, monthFrac, viewRect = null) {
+  // Asked again at every repaint and every pane render, for an answer that
+  // only a new month, a new view or new tiles change: the last one is kept.
+  const key = `${monthFrac}|${viewRect ? viewRect.join(',') : ''}`;
+  const hit = medians.get(s);
+  if (hit?.key === key) return hit.value;
+  const value = medianInView(s, monthFrac, viewRect);
+  medians.set(s, { key, value });
+  return value;
+}
+
+function medianInView(s, monthFrac, viewRect) {
   // What the camera actually sees, sampled on a 40 × 40 lattice: a view of a
   // city's centre is then read against that centre, not against the fields
   // its tiles also hold.
@@ -96,28 +109,6 @@ function blendedMedian(s, monthFrac) {
   if (a === null) return b;
   if (b === null) return a;
   return a * (1 - (mf - m0)) + b * (mf - m0);
-}
-
-function nearestNode(s, lat, lon) {
-  let best = null;
-  let d = Infinity;
-  for (const n of s.nodes || []) {
-    const dd = (n.requested[0] - lat) ** 2 + (n.requested[1] - lon) ** 2;
-    if (dd < d) { d = dd; best = n; }
-  }
-  return best;
-}
-
-/**
- * Where the built ground is compared from: the year on the slider — and, with
- * the slider on the present (at or after the last epoch), the first epoch,
- * so that the layer switched on today shows everything built since 1975
- * rather than nothing.
- */
-export function growthFrom(raster, year) {
-  if (!raster?.years) return year;
-  const { first, last } = yearPair(raster, year);
-  return year >= last ? first : Math.max(year, first);
 }
 
 /** The year a grid of earlier years holds nearest the slider's. */
@@ -183,11 +174,11 @@ export const KINDS = {
   },
   /** One raster, no months (noise): a fixed scale, read in its own unit. */
   'raster-static': {
-    field: (s, lat, lon, t, ctx) => readSurface(s, lat, lon, 0),
+    field: (s, lat, lon) => readSurface(s, lat, lon, 0),
     domain: (s, ctx, card) => card?.scale_c ?? [40, 80],
     stops: (ctx, card) => noiseStops(card?.scale_c ?? [40, 80]),
     legend: ([lo, hi], ctx, card) => ({ lo: `${lo} ${card?.unit || ''}`.trim(), hi: `${hi} ${card?.unit || ''}`.trim() }),
-    reading(s, lat, lon, t, ctx) {
+    reading(s, lat, lon) {
       const v = readSurface(s, lat, lon, 0);
       if (Number.isNaN(v)) return null;
       const over = v - WHO_ROAD_LDEN;
@@ -550,38 +541,44 @@ export const setDaylight = up => { const changed = up !== daylight; daylight = u
 let viewYear = null;
 export const setViewYear = y => { const changed = y !== viewYear; viewYear = y; return changed; };
 
+const span = choice => cardOf(choice.key)?.years;
+const daypartOf = choice => {
+  const c = cardOf(choice.key);
+  // A catalog older than `daypart` says it in words (`when`: mornings, nights).
+  return c?.daypart ?? (c?.when === 'nights' ? 'night' : 'day');
+};
+
+/**
+ * Of some variants, the one that stands for the year on the slider: the
+ * span it is in, or the first span when the year is before them all. Null
+ * for the present, and between the spans and the present.
+ */
+function variantOfYear(choices) {
+  if (viewYear === null) return null;
+  const past = choices.filter(span).sort((a, b) => span(a)[0] - span(b)[0]);
+  if (!past.length) return null;
+  return past.find(c => viewYear >= span(c)[0] && viewYear <= span(c)[1])
+    || (viewYear < span(past[0])[0] ? past[0] : null);
+}
+
 /** The mode a layer is in, from the hour, the year or its preference, or null for a single-source layer. */
 export function modeOf(layer, prefs) {
   if (!layer.modes) return null;
+  const { choices, fallback, pref } = layer.modes;
   if (layer.byDaypart) {
     const want = daylight ? 'day' : 'night';
-    // A catalog older than `daypart` says it in words (`when`: mornings, nights).
-    const part = key => { const c = cardOf(key); return c?.daypart ?? (c?.when === 'nights' ? 'night' : 'day'); };
-    const fits = layer.modes.choices.filter(c => part(c.key) === want);
-    // The decade the slider is in; before the first, the first; otherwise
-    // (and between the decades and the present) the present.
-    const span = c => cardOf(c.key)?.years;
-    const past = fits.filter(span).sort((a, b) => span(a)[0] - span(b)[0]);
-    const y = viewYear;
-    const pick = (y !== null && past.find(c => y >= span(c)[0] && y <= span(c)[1]))
-      || (y !== null && past.length && y < span(past[0])[0] && past[0])
-      || fits.find(c => !span(c));
-    return pick?.key ?? layer.modes.fallback;
+    const fits = choices.filter(c => daypartOf(c) === want);
+    return (variantOfYear(fits) || fits.find(c => !span(c)))?.key ?? fallback;
   }
   // A theme with variants for earlier years (the air since 2003) follows
-  // the slider the same way; one without, its preference.
-  const span = c => cardOf(c.key)?.years;
-  const past = layer.modes.choices.filter(span).sort((a, b) => span(a)[0] - span(b)[0]);
-  if (past.length && viewYear !== null) {
-    const y = viewYear;
-    const pick = past.find(c => y >= span(c)[0] && y <= span(c)[1]) || (y < span(past[0])[0] && past[0]);
-    if (pick) return pick.key;
-    const present = layer.modes.choices.filter(c => !span(c));
-    const value = prefs[layer.modes.pref];
-    return present.some(c => c.key === value) ? value : (present[0]?.key ?? layer.modes.fallback);
-  }
-  const value = prefs[layer.modes.pref];
-  return layer.modes.choices.some(c => c.key === value) ? value : layer.modes.fallback;
+  // the slider the same way; otherwise, and for the present, its preference.
+  const past = variantOfYear(choices);
+  if (past) return past.key;
+  const dated = viewYear !== null && choices.some(span);
+  const open = dated ? choices.filter(c => !span(c)) : choices;
+  const value = prefs[pref];
+  if (open.some(c => c.key === value)) return value;
+  return (dated && open[0]?.key) || fallback;
 }
 
 /** The source a layer reads in its current mode. */
@@ -599,5 +596,3 @@ export const layerById = id => LAYERS.find(l => l.id === id);
 
 /** The layers that share a slot with this one, and so cannot be on with it. */
 export const rivalsOf = layer => LAYERS.filter(l => l !== layer && l.slot === layer.slot);
-
-export { HEAT_STOPS, EAQI_BANDS, AIR_METRICS };

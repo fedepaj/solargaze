@@ -24,14 +24,13 @@ const metas = new Map();
 const products = new Map();
 
 /** The ids of the tile holding a point and its eight neighbours. */
-export function tileIdsAround(lat, lon) {
-  const lat0 = Math.floor(lat / STEP) * STEP;
-  const lon0 = Math.floor(lon / STEP) * STEP;
+function tileIdsAround(lat, lon) {
+  // From the middle of the tile, so that a step lands inside the next one.
+  const lat0 = (Math.floor(lat / STEP) + 0.5) * STEP;
+  const lon0 = (Math.floor(lon / STEP) + 0.5) * STEP;
   const ids = [];
   for (const di of [-1, 0, 1]) {
-    for (const dj of [-1, 0, 1]) {
-      ids.push(`N${(lat0 + di * STEP).toFixed(2)}E${(lon0 + dj * STEP).toFixed(2)}`);
-    }
+    for (const dj of [-1, 0, 1]) ids.push(tileIdFor(lat0 + di * STEP, lon0 + dj * STEP));
   }
   return ids;
 }
@@ -72,16 +71,15 @@ export async function tileProductsInView(rect, lat, lon, product) {
   const idx = await getIndex();
   const [west, south, east, north] = rect;
   const level = levelFor(rect);
-  let ids = idx.tiles
-    .filter(t => t.products.includes(product))
-    .filter(t => t.bounds[0] < east && t.bounds[2] > west && t.bounds[1] < north && t.bounds[3] > south)
-    .map(t => t.id);
-  if (ids.length > MAX_TILES) {
+  let inView = idx.tiles.filter(({ products: has, bounds: b }) =>
+    has.includes(product) && b[0] < east && b[2] > west && b[1] < north && b[3] > south);
+  if (inView.length > MAX_TILES) {
     // Nearest to the pin first: a view of half a continent still draws
     // around the place being looked at.
-    const d = id => { const m = /^N(-?[\d.]+)E(-?[\d.]+)$/.exec(id); return (Number(m[1]) + STEP / 2 - lat) ** 2 + (Number(m[2]) + STEP / 2 - lon) ** 2; };
-    ids = ids.sort((a, b) => d(a) - d(b)).slice(0, MAX_TILES);
+    const d = ({ bounds: b }) => ((b[1] + b[3]) / 2 - lat) ** 2 + ((b[0] + b[2]) / 2 - lon) ** 2;
+    inView = inView.sort((p, q) => d(p) - d(q)).slice(0, MAX_TILES);
   }
+  const ids = inView.map(t => t.id);
   const centreId = tileIdFor(lat, lon);
   // The tile under the pin at full resolution, for the reading — unless it
   // is larger than this device should hold for a number (a 10 m noise tile
@@ -89,14 +87,29 @@ export async function tileProductsInView(rect, lat, lon, product) {
   // to the decibel.
   const info = (await tileMeta(centreId))?.products?.[product];
   const big = info && info.rows * info.cols > profile.maxReadCells && (info.overviews || []).includes(3);
-  const [centre, ...rest] = await Promise.all([
-    tileProduct(centreId, product, big ? 3 : 1).catch(() => null),
-    ...ids.map(id => tileProduct(id, product, level).catch(() => null)),
+  const [first, ...rest] = await Promise.all([
+    attempt(tileProduct(centreId, product, big ? 3 : 1)),
+    ...ids.map(id => attempt(tileProduct(id, product, level))),
   ]);
-  const tiles = rest.filter(Boolean);
-  if (!centre && !tiles.length) return null;
-  return { kind: 'raster-set', rect, tiles, centre: centre || tiles[0], level, key: `${product}-view|${level}|${rect.join(',')}`, meta: (centre || tiles[0]).meta };
+  const centre = first.value;
+  const tiles = rest.map(r => r.value).filter(Boolean);
+  const failure = [first, ...rest].find(r => r.error);
+  if (!centre && !tiles.length) {
+    if (failure) throw failure.error;
+    return null;
+  }
+  return {
+    kind: 'raster-set', rect, tiles, centre: centre || tiles[0], level, incomplete: !!failure,
+    key: `${product}-view|${level}|${rect.join(',')}`, meta: (centre || tiles[0]).meta,
+  };
 }
+
+/**
+ * A tile's product, or why it could not be read. One tile failing must not
+ * take the view down with it, but it is not the same as a tile that is not
+ * there: the set says it is `incomplete`, and the engine asks again.
+ */
+const attempt = promise => promise.then(value => ({ value }), error => ({ error }));
 
 export function tileIdFor(lat, lon) {
   const lat0 = Math.floor(lat / STEP) * STEP;
@@ -111,9 +124,24 @@ export function tileIdFor(lat, lon) {
  */
 let BASE = TILES_BASE;
 
+/**
+ * A small JSON file that is always fetched fresh (an index, a meta): its
+ * content, or null when it is not there — or is there and is not JSON, as a
+ * development server answers for a folder it does not have. No network or a
+ * server error throws instead: "could not ask" must not be taken for "does
+ * not exist", or a minute without DNS empties the map until a reload.
+ */
+async function fetchJson(url, init) {
+  const res = await fetch(url, init);
+  if (res.ok) return res.json().catch(() => null);
+  // A bucket answers 404 for what it does not hold, or 403 where listing is off.
+  if (res.status === 404 || res.status === 403) return null;
+  throw new Error(`could not load ${url.split('/').slice(-2).join('/')}: HTTP ${res.status}`);
+}
+
 async function getIndex() {
   if (index) return index;
-  const read = base => fetch(`${base}/index.json`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  const read = base => fetchJson(`${base}/index.json`);
   index = (async () => {
     let idx = await read(BASE);
     const remote = TILES_REMOTE && TILES_REMOTE.replace(/\/$/, '');
@@ -121,25 +149,35 @@ async function getIndex() {
       BASE = remote;
       idx = await read(BASE);
     }
-    return idx || { tiles: [] };
+    idx ||= { tiles: [] };
+    idx.ids = new Set(idx.tiles.map(t => t.id));
+    return idx;
   })();
+  // An index that could not be reached is asked for again by the next caller:
+  // kept, it would be "nothing computed anywhere" until the page is reloaded.
+  index.catch(() => { index = null; });
   return index;
 }
 
 /** The pipeline's catalog of products (atmo/catalog.js), from wherever the index came from; null if none. */
 export async function getCatalog() {
   await getIndex();
-  return fetch(`${BASE}/catalog.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  return fetchJson(`${BASE}/catalog.json`, { cache: 'no-cache' }).catch(() => null);
 }
 
-/** The tile's meta.json, or null when no tile has been computed there. */
-export async function tileMeta(tileId) {
-  if (metas.has(tileId)) return metas.get(tileId);
-  const idx = await getIndex();
-  if (!idx.tiles.some(t => t.id === tileId)) { metas.set(tileId, null); return null; }
-  const meta = await fetch(`${BASE}/${tileId}/meta.json`).then(r => (r.ok ? r.json() : null)).catch(() => null);
-  metas.set(tileId, meta);
-  return meta;
+/**
+ * The tile's meta.json, or null when no tile has been computed there. The
+ * promise is what is kept: every product of the tile under the pin asks at
+ * once, and each used to fetch the same file for itself.
+ */
+export function tileMeta(tileId) {
+  if (!metas.has(tileId)) {
+    const meta = getIndex().then(idx => (idx.ids.has(tileId) ? fetchJson(`${BASE}/${tileId}/meta.json`) : null));
+    // Kept only once it has answered: a meta that could not be reached is asked for again.
+    meta.catch(() => metas.delete(tileId));
+    metas.set(tileId, meta);
+  }
+  return metas.get(tileId);
 }
 
 /**
@@ -185,7 +223,7 @@ export function gridPast(product) {
   if (!grids.has(product)) {
     const load = async () => {
       const card = cardOf(product);
-      const meta = await fetch(`${BASE}/${card.meta}`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+      const meta = await fetchJson(`${BASE}/${card.meta}`, { cache: 'no-cache' });
       if (!meta) return null;
       const data = {};
       await Promise.all(Object.entries(meta.files).map(async ([name, file]) => {
@@ -277,6 +315,17 @@ function bytesOf(v) {
   return n;
 }
 
+/**
+ * The overview of a product to read for a level: its file suffix and how
+ * many cells a side it averages. Overviews are the full image averaged
+ * 3 × 3 or 9 × 9; a tile without them (an older product) is read at full
+ * resolution whatever was asked.
+ */
+function overviewOf(info, level) {
+  const has = level > 1 && (info.overviews || []).includes(level);
+  return { suffix: has ? `.o${level}` : '', factor: has ? level : 1 };
+}
+
 async function load(tileId, product, level) {
   const meta = await tileMeta(tileId);
   const info = meta?.products?.[product];
@@ -341,14 +390,11 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
   const decode = v2
     ? byte => enc.byte1_c + (byte - 1) * enc.step_c
     : byte => enc.byte0_c + ((byte - 1) / 255) * (enc.byte255_c - enc.byte0_c);
-  // Overviews are the 90 m month averaged 3 × 3 or 9 × 9; a tile without
-  // them (an older product) is read at full resolution whatever was asked.
-  const suffix = level > 1 && (info.overviews || []).includes(level) ? `.o${level}` : '';
-  const factor = suffix ? level : 1;
+  const { suffix, factor } = overviewOf(info, level);
   const raster = {
     kind: 'raster',
     level: factor,
-    bounds: null,        // filled from the tile meta by the caller
+    bounds: (await tileMeta(tileId)).bounds,
     rows: Math.floor(info.rows / factor), cols: Math.floor(info.cols / factor),
     months: {},          // m (0..11) → { values, cols, rows }
     decode,
@@ -357,8 +403,6 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
     meta: info,
     key: `${product}|${tileId}`,
   };
-  const meta = await tileMeta(tileId);
-  raster.bounds = meta.bounds;
   // Decode every month up front: the date slider would otherwise stall on
   // each new month it reaches.
   const fetchChecked = async (file, width, height) => {
@@ -407,31 +451,29 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
  */
 async function loadStatic(tileId, info, level = 1, product = 'noise') {
   const enc = info.encoding;
-  const suffix = level > 1 && (info.overviews || []).includes(level) ? `.o${level}` : '';
-  const factor = suffix ? level : 1;
+  const { suffix, factor } = overviewOf(info, level);
   const meta = await tileMeta(tileId);
   const main = Object.keys(info.files).find(name => !name.includes('.o'));
   const file = info.files[`${main}${suffix}`] || info.files[main];
   const v1 = enc.value_at_byte1 ?? enc.byte1_db;
   const step = enc.step ?? enc.step_db;
   const img = await loadImage(productUrl(tileId, file, info, product));
-  const { red: values, width, height } = channels(img);
-  const cv = { width, height };
+  const { red: values, width: cols, height } = channels(img);
   // A stack of years (the night sky) or epochs (the built ground): one image
   // each, oldest on top — an overview's rows are its height over the count.
   // Epochs written as changes from the one before are summed back here.
   const stacked = info.stack === 'years';
-  const rows = stacked ? cv.height / info.years.length : cv.height;
-  const n = rows * cv.width;
+  const rows = stacked ? height / info.years.length : height;
+  const n = rows * cols;
   if (stacked && enc.deltas) {
     for (let i = n; i < values.length; i++) values[i] = values[i - n] + values[i] - enc.delta_zero_byte;
   }
   const years = stacked
-    ? Object.fromEntries(info.years.map((y, k) => [y, { values: values.subarray(k * n, (k + 1) * n), cols: cv.width, rows }]))
+    ? Object.fromEntries(info.years.map((y, k) => [y, { values: values.subarray(k * n, (k + 1) * n), cols, rows }]))
     : null;
-  const image = years ? years[info.years[info.years.length - 1]] : { values, cols: cv.width, rows: cv.height };
+  const image = years ? years[info.years[info.years.length - 1]] : { values, cols, rows };
   return {
-    kind: 'raster', level: factor, bounds: meta.bounds, rows, cols: cv.width, years,
+    kind: 'raster', level: factor, bounds: meta.bounds, rows, cols, years,
     months: Object.fromEntries([...Array(12).keys()].map(m => [m, image])),
     decode: byte => v1 + (byte - 1) * step,
     tileMedian: () => null, scenes: () => 0, meta: info, key: `${product}|${tileId}`,
@@ -524,18 +566,23 @@ async function loadStreet(tileId, info, product) {
  */
 export async function streetSetAround(lat, lon, product = 'air_street') {
   const base = cardOf(product)?.base || 'air';
-  const pair = id => Promise.all([
-    tileProduct(id, product).catch(() => null),
-    tileProduct(id, base).catch(() => null),
-  ]).then(([street, clim]) => (street && clim ? { ...street, clim } : null));
+  let failure = null;
+  const pair = id => Promise.all([attempt(tileProduct(id, product)), attempt(tileProduct(id, base))])
+    .then(([street, clim]) => {
+      failure ||= street.error || clim.error || null;
+      return street.value && clim.value ? { ...street.value, clim: clim.value } : null;
+    });
   const centreId = tileIdFor(lat, lon);
   const all = await Promise.all(tileIdsAround(lat, lon).map(pair));
   const tiles = all.filter(Boolean);
   const centre = tiles.find(t => t.key === `${product}|${centreId}`);
-  if (!centre) return null;
+  if (!centre) {
+    if (failure) throw failure;
+    return null;
+  }
   const [w, south, e, n] = centre.bounds;
   const rect = [w - STEP, south - STEP, e + STEP, n + STEP];
-  return { kind: 'street-set', rect, tiles, centre, meta: centre.meta, key: `${product}|${centreId}` };
+  return { kind: 'street-set', rect, tiles, centre, meta: centre.meta, incomplete: !!failure, key: `${product}|${centreId}` };
 }
 
 /**

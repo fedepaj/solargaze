@@ -20,7 +20,7 @@
  */
 
 import { state, pointHeight } from '../state.js';
-import { viewer, distanceTo, requestRender } from '../scene.js';
+import { distanceTo, requestRender } from '../scene.js';
 import { windAt, compassName } from './field.js';
 import { createFlow } from './flow.js';
 
@@ -163,12 +163,6 @@ export function createWind(scene, { count = 320 } = {}) {
 
   const metresPerDegLat = 111320;
 
-  function windAtLocal(x, y, t) {
-    const lat = anchor.lat + y / metresPerDegLat;
-    const lon = anchor.lon + x / (metresPerDegLat * Math.cos(anchor.lat * Math.PI / 180));
-    return windAt(series, lat, lon, t);
-  }
-
   /**
    * The wind a particle feels. Regional wind from the model; where the
    * buildings' flow field covers the spot, its direction and relative
@@ -177,10 +171,10 @@ export function createWind(scene, { count = 320 } = {}) {
    * and a courtyard barely moves.
    */
   function windFor(x, y, t, ref) {
-    const coarse = windAtLocal(x, y, t);
-    if (!coarse || !ref) return coarse;
     const lat = anchor.lat + y / metresPerDegLat;
     const lon = anchor.lon + x / (metresPerDegLat * Math.cos(anchor.lat * Math.PI / 180));
+    const coarse = windAt(series, lat, lon, t);
+    if (!coarse || !ref) return coarse;
     const fine = flow.sample(lat, lon);
     if (!fine) return coarse;
     if (fine.solid) return { u: 0, v: 0, speed: 0, solid: true };
@@ -216,11 +210,11 @@ export function createWind(scene, { count = 320 } = {}) {
       polylines[i].positions = tail;
       polylines[i].show = true;
     }
-    paintVane(t);
+    paintVane(ref);
   }
 
-  function paintVane(t) {
-    const w = windAt(series, anchor.lat, anchor.lon, t);
+  /** The arrow and the number at the anchor, for the wind there. */
+  function paintVane(w) {
     if (!w || w.speed < 0.05) {
       vane.show = false;
       vaneLabel.show = false;
@@ -296,11 +290,5 @@ export function createWind(scene, { count = 320 } = {}) {
     start,
     stop,
     get running() { return running; },
-    destroy() {
-      stop();
-      flow.destroy();
-      scene.primitives.remove(lines);
-      scene.primitives.remove(labels);
-    },
   };
 }

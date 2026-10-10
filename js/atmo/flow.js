@@ -15,7 +15,6 @@
  */
 
 const WINDOW = 512;
-const SLICE_HEIGHT_M = 5;
 const SCREEN_LENGTH_M = 60;
 const EARTH_M_PER_DEG = 111320;
 /** Degrees of wind swing that earn a re-solve. */
@@ -27,7 +26,6 @@ export function createFlow() {
   let field = null;       // { r0, c0, rows, cols, u, v, from }
   let pending = null;
   let nextId = 0;
-  let listeners = [];
 
   function ensureWorker() {
     if (worker) return worker;
@@ -37,7 +35,6 @@ export function createFlow() {
       if (!pending || pending.id !== id) return;
       field = { ...pending, u, v, iterations, ms };
       pending = null;
-      for (const fn of listeners) fn(field);
     };
     return worker;
   }
@@ -128,9 +125,5 @@ export function createFlow() {
       const solid = !!mask.solid[(field.r0 + Math.max(0, rr)) * mask.cols + field.c0 + Math.max(0, cc)];
       return { u: lerp(field.u), v: lerp(field.v), solid };
     },
-    onField(fn) { listeners.push(fn); },
-    destroy() { worker?.terminate(); worker = null; listeners = []; },
   };
 }
-
-export { SLICE_HEIGHT_M, WINDOW };

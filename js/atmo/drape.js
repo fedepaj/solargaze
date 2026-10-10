@@ -49,6 +49,24 @@ function makeCanvas() {
   return cv;
 }
 
+/** A rectangle of ground (west, south, east, north in degrees) classified with an image. */
+function groundRect([west, south, east, north], image) {
+  const material = C.Material.fromType('Image', { image });
+  const primitive = new C.GroundPrimitive({
+    geometryInstances: new C.GeometryInstance({
+      geometry: new C.RectangleGeometry({
+        rectangle: C.Rectangle.fromDegrees(west, south, east, north),
+        vertexFormat: C.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+      }),
+    }),
+    appearance: new C.EllipsoidSurfaceAppearance({ material, translucent: true, flat: true }),
+    classificationType: C.ClassificationType.BOTH,
+    asynchronous: false,
+    allowPicking: false,
+  });
+  return { primitive, material };
+}
+
 export function createDrape(scene) {
   widenClassificationVolume();
 
@@ -70,19 +88,7 @@ export function createDrape(scene) {
       primitive = null;
     }
     gridKey = grid.key;
-    material = C.Material.fromType('Image', { image: canvases[flip] });
-    primitive = new C.GroundPrimitive({
-      geometryInstances: new C.GeometryInstance({
-        geometry: new C.RectangleGeometry({
-          rectangle: C.Rectangle.fromDegrees(grid.west, grid.south, grid.east, grid.north),
-          vertexFormat: C.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
-        }),
-      }),
-      appearance: new C.EllipsoidSurfaceAppearance({ material, translucent: true, flat: true }),
-      classificationType: C.ClassificationType.BOTH,
-      asynchronous: false,
-      allowPicking: false,
-    });
+    ({ primitive, material } = groundRect([grid.west, grid.south, grid.east, grid.north], canvases[flip]));
     primitive.show = shown;
     scene.primitives.add(primitive);
   }
@@ -148,20 +154,7 @@ export function createDrape(scene) {
       keep.add(key);
       let entry = extras.get(key);
       if (!entry) {
-        const [west, south, east, north] = bounds;
-        const mat = C.Material.fromType('Image', { image: canvas });
-        const prim = new C.GroundPrimitive({
-          geometryInstances: new C.GeometryInstance({
-            geometry: new C.RectangleGeometry({
-              rectangle: C.Rectangle.fromDegrees(west, south, east, north),
-              vertexFormat: C.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
-            }),
-          }),
-          appearance: new C.EllipsoidSurfaceAppearance({ material: mat, translucent: true, flat: true }),
-          classificationType: C.ClassificationType.BOTH,
-          asynchronous: false,
-          allowPicking: false,
-        });
+        const { primitive: prim, material: mat } = groundRect(bounds, canvas);
         scene.primitives.add(prim);
         entry = { prim, mat };
         extras.set(key, entry);
@@ -188,12 +181,5 @@ export function createDrape(scene) {
     requestRender();
   }
 
-  function destroy() {
-    clearSet();
-    if (primitive) scene.primitives.remove(primitive);
-    primitive = null;
-    gridKey = null;
-  }
-
-  return { paint, paintCanvas, paintSet, show, destroy, get visible() { return shown && (!!primitive || extras.size > 0); } };
+  return { paint, paintCanvas, show };
 }
