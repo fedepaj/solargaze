@@ -397,4 +397,4 @@ relicense:
 - **OpenStreetMap** building footprints for the wind product — ODbL.
 - **tz-lookup** — timezone boundary data, CC0.
 
-Not affiliated with, or endorsed by, Google or Shadowmap.
+Not affiliated with, or endorsed by, Google.
