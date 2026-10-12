@@ -38,6 +38,7 @@ from rasterio.enums import Resampling
 from rasterio.transform import from_bounds
 from rasterio.vrt import WarpedVRT
 
+import stored
 from tiles import Tile, write_meta
 from sg.errors import NoData, Transient
 
@@ -153,8 +154,8 @@ def write_packed(t90: dict[int, np.ndarray], out_dir: Path, subdir: str = "heat"
         level = {m: np.asarray(encode(t if k == 1 else downsample(t, k), t_min, t_step)) for m, t in t90.items()}
         r, c = next(iter(level.values())).shape
         name = "months" if k == 1 else f"months.o{k}"
-        Image.fromarray(stack_months(level, r, c), "L").save(out_dir / f"{name}.png", optimize=True)
-        files[name] = f"{subdir}/{name}.png"
+        stored.lossy(stack_months(level, r, c), out_dir / f"{name}.avif")
+        files[name] = f"{subdir}/{name}.avif"
     return files
 
 
@@ -273,7 +274,8 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
         "rows": shape[0] // DOWNSAMPLE, "cols": shape[1] // DOWNSAMPLE,
         "degrees_per_pixel": DEG_PER_PX * DOWNSAMPLE,
         "native_degrees_per_pixel": DEG_PER_PX,
-        "encoding": {"version": ENCODING, "channel": "L", "nodata_byte": 0, "byte1_c": T_MIN, "step_c": T_STEP,
+        "encoding": {"version": ENCODING, "channel": "L", "nodata_byte": 0, "lossy": stored.LOSSY,
+                     "byte1_c": T_MIN, "step_c": T_STEP,
                      "note": "median at 30 m, then a 3 x 3 mean; byte 0 = fewer than 3 clear scenes"},
         "files": files,
         "packing": PACKING,

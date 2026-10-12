@@ -185,9 +185,13 @@ export function tileMeta(tileId) {
  * rows at a time: a 2784² tile read whole asks the browser for a 31 MB
  * ImageData at once, and on a phone with a few tiles in memory that is the
  * request that fails. The decoded bitmap is released as soon as it is read.
+ *
+ * `masked` is for an image stored lossy (pipeline/lossy.py): its alpha says
+ * exactly where there is no data, and its level is only close, so a cell
+ * with data is never read as byte 0, the byte that means none.
  */
 const BAND = 256;
-function channels(img, { alpha = false } = {}) {
+function channels(img, { alpha = false, masked = false } = {}) {
   const w = img.width;
   const h = img.height;
   const red = new Uint8Array(w * h);
@@ -202,7 +206,7 @@ function channels(img, { alpha = false } = {}) {
     ctx.drawImage(img, 0, y0, w, rows, 0, 0, w, rows);
     const px = ctx.getImageData(0, 0, w, rows).data;
     for (let i = 0, o = 0, k = y0 * w; i < w * rows; i++, o += 4, k++) {
-      red[k] = px[o];
+      red[k] = masked ? (px[o + 3] > 127 ? px[o] || 1 : 0) : px[o];
       if (al) al[k] = px[o + 3];
     }
   }
@@ -417,7 +421,7 @@ async function loadRaster(tileId, info, level = 1, product = 'heat') {
         throw new Error(`${file} is ${img.width}×${img.height}, meta says ${width}×${height}`);
       }
     }
-    const { red, alpha } = channels(img, { alpha: !v2 });
+    const { red, alpha } = channels(img, { alpha: !v2, masked: !!enc.lossy });
     if (v2) return red;
     for (let i = 0; i < red.length; i++) red[i] = alpha[i] ? red[i] + 1 : 0;
     return red;
@@ -458,7 +462,7 @@ async function loadStatic(tileId, info, level = 1, product = 'noise') {
   const v1 = enc.value_at_byte1 ?? enc.byte1_db;
   const step = enc.step ?? enc.step_db;
   const img = await loadImage(productUrl(tileId, file, info, product));
-  const { red: values, width: cols, height } = channels(img);
+  const { red: values, width: cols, height } = channels(img, { masked: !!enc.lossy });
   // A stack of years (the night sky) or epochs (the built ground): one image
   // each, oldest on top — an overview's rows are its height over the count.
   // Epochs written as changes from the one before are summed back here.
@@ -593,16 +597,28 @@ export async function streetSetAround(lat, lon, product = 'air_street') {
 const productUrl = (tileId, file, info, product = '') =>
   `${BASE}/${tileId}/${file.includes('/') ? file : `${product}/${file}`}?v=${encodeURIComponent(info.generated || '')}`;
 
-/** An image through the cache: fetch the blob, then decode it. */
+/**
+ * An image through the cache: fetch the blob, then decode it. A PNG goes
+ * through an <img>: Safari's createImageBitmap gives back a one-channel PNG
+ * larger than a thumbnail with one cell in four a byte or two off, and
+ * no-data cells with a value (measured on Safari 26.5: a million cells of a
+ * wind tile); the same file through an <img> is exact, and so are WebP and
+ * AVIF either way.
+ */
 const loadImage = async (src, { reload = false } = {}) => {
   const res = await cachedFetch(src, { reload });
   if (!res.ok) throw new Error(`could not load ${src}`);
   const blob = await res.blob();
-  if (typeof createImageBitmap === 'function') return createImageBitmap(blob);
-  return new Promise((ok, fail) => {
-    const img = new Image();
-    img.onload = () => { URL.revokeObjectURL(img.src); ok(img); };
-    img.onerror = () => fail(new Error(`could not decode ${src}`));
-    img.src = URL.createObjectURL(blob);
-  });
+  const png = blob.type === 'image/png' || /\.png(\?|$)/.test(src);
+  if (typeof createImageBitmap === 'function' && !png) return createImageBitmap(blob);
+  const img = new Image();
+  img.src = URL.createObjectURL(blob);
+  try {
+    await img.decode();
+  } catch {
+    throw new Error(`could not decode ${src}`);
+  } finally {
+    URL.revokeObjectURL(img.src);
+  }
+  return img;
 };

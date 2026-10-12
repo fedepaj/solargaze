@@ -1,0 +1,61 @@
+# Re-encodes the published rasters from one-channel PNG to what the builders
+# write now (pipeline/stored.py): heat and noise as AVIF, the rest as
+# lossless WebP. A tile is switched by its meta, and its PNGs stay until a
+# run with `prune`. Safe to run again: what is already done is skipped.
+#
+# In the pipeline's concurrency group: it rewrites the metas the nightly
+# build merges into, so the two never run at once.
+name: Re-encode
+
+on:
+  workflow_dispatch:
+    inputs:
+      shards: { description: 'jobs to split the tiles across', default: '20' }
+      prune: { description: 'remove the PNGs that were replaced (re-encodes nothing)', type: boolean, default: false }
+
+concurrency:
+  group: pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SHARDS: ${{ inputs.shards }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.shards.outputs.list }}
+    steps:
+      - id: shards
+        run: echo "list=$(python3 -c 'import json, os; print(json.dumps(list(range(int(os.environ["SHARDS"])))))')" >> "$GITHUB_OUTPUT"
+
+  reencode:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      PYTHONUNBUFFERED: '1'
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: solargaze-tiles
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    name: part ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
+      - run: pip install -r pipeline/requirements.txt
+      - name: Re-encode part ${{ matrix.shard }} of ${{ inputs.shards }}
+        working-directory: pipeline
+        run: |
+          set -o pipefail
+          python reencode.py --remote --shard "${{ matrix.shard }}/$SHARDS" --hours 5.5 \
+            ${{ inputs.prune && '--prune' || '' }} | tee run.log
+          tail -1 run.log >> "$GITHUB_STEP_SUMMARY"

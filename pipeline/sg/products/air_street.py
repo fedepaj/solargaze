@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from ..errors import Invalid, Upstream
 from ..product import Context, Product
@@ -47,9 +46,10 @@ class AirStreet(Product):
         return air_lur.build_street(Tile.parse(tile), stage, ctx.shared["air_street"])
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
+        import stored
         enc = info["encoding"]
         for var, file in info["files"].items():
-            b = np.asarray(Image.open(stage / Path(file).name))
+            b = stored.read(stage / Path(file).name)
             if b.shape != (info["rows"], info["cols"]):
                 raise Invalid(f"{file} is {b.shape}")
             if b.min() == b.max():

@@ -46,7 +46,7 @@ import netdns  # noqa: E402,F401  (falls back to DNS over HTTPS when the system 
 
 log = logging.getLogger("publish")
 
-TYPES = {".png": "image/png", ".json": "application/json", ".webp": "image/webp"}
+TYPES = {".png": "image/png", ".json": "application/json", ".webp": "image/webp", ".avif": "image/avif"}
 FRESH = "no-cache"
 FOREVER = "public, max-age=31536000, immutable"
 

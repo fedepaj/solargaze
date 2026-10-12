@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from ..errors import Invalid
 from ..product import Context, Product
@@ -47,14 +46,15 @@ class Built(Product):
         return built_ghsl.build(Tile.parse(tile), stage, self._cache(ctx))
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
-        img = np.asarray(Image.open(stage / "built.png"))
+        import stored
+        img = stored.read(stage / Path(info["files"]["built"]).name)
         want = (info["rows"] * len(info["years"]), info["cols"])
         if img.shape != want:
-            raise Invalid(f"built.png is {img.shape}, meta says {len(info['years'])} epochs of {info['rows']}×{info['cols']}")
+            raise Invalid(f"built is {img.shape}, meta says {len(info['years'])} epochs of {info['rows']}×{info['cols']}")
         import built_ghsl
         f = built_ghsl.decode(img, len(info["years"]))
         if f.min() < -1e-6 or f.max() > 1 + 1e-6:
-            raise Invalid(f"built.png decodes to shares {f.min():.2f}–{f.max():.2f}, outside 0–1")
+            raise Invalid(f"built decodes to shares {f.min():.2f}–{f.max():.2f}, outside 0–1")
         for k in info.get("overviews", []):
-            if not (stage / f"built.o{k}.png").exists():
+            if not (stage / Path(info["files"].get(f"built.o{k}", "missing")).name).exists():
                 raise Invalid(f"overview o{k} missing")

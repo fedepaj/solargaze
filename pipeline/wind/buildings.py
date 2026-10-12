@@ -27,7 +27,7 @@ The raster is a regular lat/lon grid of ``n × n`` cells over the tile, row
 when more than half its area is covered — footprints are burned at twice
 the resolution and pooled — so that a 7 m wide vicolo stays open and a
 bin shed does not become an obstacle. The value is the tallest building
-touching the cell, in metres, float32; ``heights.png`` holds the same
+touching the cell, in metres, float32; ``heights.webp`` holds the same
 rounded up to whole metres in one 8-bit channel.
 """
 
@@ -48,6 +48,7 @@ import requests
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import stored  # noqa: E402
 from tiles import Tile  # noqa: E402
 
 log = logging.getLogger("wind.buildings")
@@ -64,7 +65,8 @@ HEIGHT_RULE = (
     "height tag (metres, or feet if so marked); else building:levels x 3.2 m; "
     "else 10 m. building:part is ignored; the tallest footprint wins where they overlap."
 )
-METRES_PER_LSB = 1.0  # heights.png: byte = ceil(height), so 255 m saturates
+METRES_PER_LSB = 1.0  # the heights image: byte = ceil(height), so 255 m saturates
+HEIGHTS_FILE = "heights.webp"   # lossless (stored.py); the meta entry keeps its first name, heights_png
 
 QUERY = """[out:json][timeout:900][maxsize:1073741824];
 (
@@ -286,12 +288,12 @@ def rasterize_heights(polys, tile: Tile, n: int, oversample: int = 2) -> np.ndar
     return heights
 
 
-def save_heights_png(heights: np.ndarray, path: Path) -> None:
+def save_heights(heights: np.ndarray, path: Path) -> None:
     # Rounded up, so that "byte > slice" picks exactly the cells the solver
     # treated as walls: a 5.3 m shed is an obstacle at 5 m and must not
     # read back as 5.
     byte = np.clip(np.ceil(heights / METRES_PER_LSB), 0, 255).astype(np.uint8)
-    Image.fromarray(byte, "L").save(path, optimize=True)
+    stored.exact(byte, path)
 
 
 def build(tile: Tile, n: int, out_dir: Path) -> tuple[np.ndarray, dict]:
@@ -305,7 +307,7 @@ def build(tile: Tile, n: int, out_dir: Path) -> tuple[np.ndarray, dict]:
     log.info("%d buildings (%s) in %.0f s", len(polys), sources, time.time() - t0)
     heights = rasterize_heights(polys, tile, n)
     out_dir.mkdir(parents=True, exist_ok=True)
-    save_heights_png(heights, out_dir / "heights.png")
+    save_heights(heights, out_dir / HEIGHTS_FILE)
     # The raw Overpass answer is only worth keeping while this tile is being
     # built: at up to 70 MB a tile, a region's worth would fill the disk.
     _cache_path(tile.bounds).unlink(missing_ok=True)
@@ -313,7 +315,7 @@ def build(tile: Tile, n: int, out_dir: Path) -> tuple[np.ndarray, dict]:
         "osm_buildings": len(polys),
         "height_source_counts": sources,
         "height_rule": HEIGHT_RULE,
-        "heights_png": {"file": "heights.png", "metres_per_lsb": METRES_PER_LSB, "rounding": "up",
+        "heights_png": {"file": HEIGHTS_FILE, "metres_per_lsb": METRES_PER_LSB, "rounding": "up",
                         "cell_rule": "building where >50% of the cell is covered; value = tallest footprint"},
     }
     return heights, info

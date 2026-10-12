@@ -43,6 +43,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import stored
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tiles import STEP, Tile  # noqa: E402
 import netdns  # noqa: E402,F401  (falls back to DNS over HTTPS when the system resolver drops a name)
@@ -308,8 +310,8 @@ def build_street(tile: Tile, out: Path, models: dict) -> dict:
     for var in STREET_VARS:
         lr = apply_model(models[var], f).reshape(CELLS, CELLS)
         byte = np.clip(np.round((lr - LR_MIN) / LR_STEP) + 1, 1, 255).astype(np.uint8)
-        Image.fromarray(byte, "L").save(out / f"{var}.png", optimize=True)
-        files[var] = f"air_street/{var}.png"
+        stored.exact(byte, out / f"{var}.webp")
+        files[var] = f"air_street/{var}.webp"
         log.info("  %s %s: ratio median %.2f, 99th pct %.2f", tile.id, var, float(np.exp(np.median(lr))),
                  float(np.exp(np.percentile(lr, 99))))
     info = {

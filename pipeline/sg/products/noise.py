@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from ..errors import Invalid
 from ..product import Context, Product
@@ -34,11 +33,12 @@ class Noise(Product):
         return noise_osm.build(Tile.parse(tile), stage)
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
-        img = np.asarray(Image.open(stage / "lden.png"))
+        import stored
+        img = stored.read(stage / Path(info["files"]["lden"]).name)
         if img.shape != (info["rows"], info["cols"]):
-            raise Invalid(f"lden.png is {img.shape}, meta says {info['rows']}×{info['cols']}")
+            raise Invalid(f"lden is {img.shape}, meta says {info['rows']}×{info['cols']}")
         for k in info.get("overviews", []):
-            if not (stage / f"lden.o{k}.png").exists():
+            if not (stage / Path(info["files"].get(f"lden.o{k}", "missing")).name).exists():
                 raise Invalid(f"overview o{k} missing")
         values = img[img > 0]
         if not values.size:

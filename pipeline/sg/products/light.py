@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from ..errors import Invalid
 from ..product import Context, Product
@@ -114,11 +113,12 @@ class Light(Product):
         return {"last_year": ctx.shared.get("light_last_year")}
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
-        img = np.asarray(Image.open(stage / "sky.png"))
+        import stored
+        img = stored.read(stage / Path(info["files"]["sky"]).name)
         want = (info["rows"] * len(info["years"]), info["cols"])
         if img.shape != want:
-            raise Invalid(f"sky.png is {img.shape}, meta says {len(info['years'])} years of {info['rows']}×{info['cols']}")
+            raise Invalid(f"sky is {img.shape}, meta says {len(info['years'])} years of {info['rows']}×{info['cols']}")
         if (img == 0).any():
-            raise Invalid("sky.png has cells with no value")
+            raise Invalid("sky has cells with no value")
         if not (14.0 < info["mag_min"] <= info["mag_max"] <= 22.0 + 1e-6):
             raise Invalid(f"implausible sky brightness {info['mag_min']}–{info['mag_max']} mag/arcsec²")

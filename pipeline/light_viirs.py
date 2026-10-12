@@ -55,6 +55,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import stored
+
 log = logging.getLogger("light")
 
 COLLECTION = "VNP46A4"
@@ -343,19 +345,19 @@ def _encode(m: np.ndarray) -> Image.Image:
 
 
 def build(tile, out_dir: Path, cache: Path, last_year: int | None = None) -> dict:
-    """sky.png into out_dir — every year's sky, stacked top to bottom, oldest
+    """sky.webp into out_dir — every year's sky, stacked top to bottom, oldest
     first — and the meta entry."""
     years = years_to(last_year or latest_year())
     art, rad = artificial(years, tile.bounds, cache)
     m = mag(art)
     rows, cols = m.shape[1:]
     out_dir.mkdir(parents=True, exist_ok=True)
-    _encode(m.reshape(-1, cols)).save(out_dir / "sky.png", optimize=True)
+    stored.exact(_encode(m.reshape(-1, cols)), out_dir / "sky.webp")
     now = m[-1]
     return {
         "product": "Zenith night-sky brightness from VIIRS night lights (Black Marble) and a fitted glow kernel",
         "years": years, "stack": "years", "rows": int(rows), "cols": int(cols), "arcsec_per_pixel": 3600 // NATIVE,
-        "encoding": ENCODING, "files": {"sky": "light/sky.png"},
+        "encoding": ENCODING, "files": {"sky": "light/sky.webp"},
         "mag_min": round(float(now.min()), 2), "mag_median": round(float(np.median(now)), 2), "mag_max": round(float(now.max()), 2),
         "mag_median_by_year": {str(y): round(float(np.median(a)), 2) for y, a in zip(years, m)},
         "share_milky_way_hidden": round(float((now < 20.5).mean()), 3),

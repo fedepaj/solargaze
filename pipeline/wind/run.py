@@ -4,7 +4,7 @@ Build the wind product for one tile::
     pipeline/.venv/bin/python pipeline/wind/run.py N41.75E12.25 [--fields]
 
 Fetches the buildings, rasterises them, and writes ``data/tiles/<id>/wind/
-heights.png`` plus the ``wind`` entry of ``meta.json``. That mask — 0.4 MB
+heights.webp`` plus the ``wind`` entry of ``meta.json``. That mask — 0.4 MB
 — is the whole product: the flow itself is a linear problem on it, and the
 app solves it in a worker (js/atmo/flow.worker.js) for the window around
 the point and the wind of the moment. Shipping the sixteen solved fields
@@ -114,7 +114,7 @@ def build(tile: Tile, out: Path, fields: bool = False) -> dict:
         "directions": directions,
         "field_encoding_when_written": {
             "red": "u east", "green": "v north",
-            "blue": "255 inside a building, 0 elsewhere; this is the authoritative obstacle mask (heights.png > 5 agrees)",
+            "blue": "255 inside a building, 0 elsewhere; this is the authoritative obstacle mask (heights.webp > 5 agrees)",
             "offset": ENCODE_OFFSET, "scale": ENCODE_SCALE,
             "decode": "value = (byte - 128) / 40  [m/s per 1 m/s of inflow]",
             "range_m_per_s": [-ENCODE_OFFSET / ENCODE_SCALE, (255 - ENCODE_OFFSET) / ENCODE_SCALE],

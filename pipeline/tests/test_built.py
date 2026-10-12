@@ -8,7 +8,7 @@ HERE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(HERE), str(HERE / "wind")]
 
 import numpy as np
-from PIL import Image
+import stored
 
 import built_ghsl as bg
 from tiles import Tile
@@ -36,7 +36,7 @@ class Build(unittest.TestCase):
             return a
         with tempfile.TemporaryDirectory() as d, mock.patch.object(bg, "surface", surface):
             info = bg.build(tile, Path(d) / "out", Path(d))
-            img = np.asarray(Image.open(Path(d) / "out" / "built.png"))
+            img = stored.read(Path(d) / "out" / "built.webp")
         self.assertEqual(img.shape, (300 * len(bg.EPOCHS), 300))
         share = bg.decode(img, len(bg.EPOCHS))
         k1995, k2000 = bg.EPOCHS.index(1995), bg.EPOCHS.index(2000)

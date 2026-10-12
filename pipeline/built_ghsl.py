@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import stored
+
 log = logging.getLogger("built")
 
 EPOCHS = list(range(1975, 2021, 5))
@@ -155,16 +157,16 @@ def _overview(f: np.ndarray, k: int) -> np.ndarray:
 
 
 def build(tile, out_dir: Path, cache: Path) -> dict:
-    """built.png — every epoch's built share, stacked top to bottom, oldest
+    """built.webp — every epoch's built share, stacked top to bottom, oldest
     first — and the meta entry."""
     f = shares(tile.bounds, cache)
     rows, cols = f.shape[1:]
     out_dir.mkdir(parents=True, exist_ok=True)
-    _encode(f).save(out_dir / "built.png", optimize=True)
-    files = {"built": "built/built.png"}
+    stored.exact(_encode(f), out_dir / "built.webp")
+    files = {"built": "built/built.webp"}
     for k in OVERVIEWS:
-        _encode(_overview(f, k)).save(out_dir / f"built.o{k}.png", optimize=True)
-        files[f"built.o{k}"] = f"built/built.o{k}.png"
+        stored.exact(_encode(_overview(f, k)), out_dir / f"built.o{k}.webp")
+        files[f"built.o{k}"] = f"built/built.o{k}.webp"
     built = {str(ep): round(float(a.mean()), 4) for ep, a in zip(EPOCHS, f)}
     return {
         "product": "Built-up share of the ground by epoch, 1975–2020 (GHS-BUILT-S R2023A)",

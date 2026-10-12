@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from ..errors import Invalid, NoData
 from ..product import Context, Product
@@ -31,8 +30,9 @@ class Wind(Product):
         return info
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
-        h = np.asarray(Image.open(stage / "heights.png"))
+        import stored
+        h = stored.read(stage / info["heights_png"]["file"])
         if h.shape != (info["rows"], info["cols"]):
-            raise Invalid(f"heights.png is {h.shape}, meta says {info['rows']}×{info['cols']}")
+            raise Invalid(f"the heights are {h.shape}, meta says {info['rows']}×{info['cols']}")
         if not (h > 0).any():
             raise Invalid(f"{info['osm_buildings']} buildings but an empty mask")

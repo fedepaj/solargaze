@@ -8,7 +8,7 @@ HERE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(HERE), str(HERE / "wind")]
 
 import numpy as np
-from PIL import Image
+import stored
 
 import light_viirs as lv
 from tiles import Tile
@@ -77,7 +77,7 @@ class Mosaic(unittest.TestCase):
             near, rad = lv.artificial([2012, 2013, 2014], Tile.parse("N44.75E15.00").bounds, Path(d))
             far, _ = lv.artificial([2012, 2013, 2014], Tile.parse("N44.75E16.50").bounds, Path(d))
             info = lv.build(Tile.parse("N44.75E15.00"), Path(d) / "out", Path(d), last_year=2014)
-            img = np.asarray(Image.open(Path(d) / "out" / "sky.png"))
+            img = stored.read(Path(d) / "out" / "sky.webp")
         self.assertEqual(near.shape, (3, 60, 60))
         self.assertEqual(rad.shape, (3, 30, 30))
         self.assertAlmostEqual(float(near[2].max() / near[1].max()), 4.0, places=3)   # the glow is linear in the lights

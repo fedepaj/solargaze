@@ -30,6 +30,8 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage, signal
 
+import stored
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 CELL_M = 10.0
@@ -325,7 +327,7 @@ def compare(model: np.ndarray, end_mid: np.ndarray, inside: np.ndarray, blocked:
 
 # ---------------------------------------------------------------- a tile
 
-ENCODING = {"byte1_db": 25.0, "step_db": 0.5, "nodata_byte": 0,
+ENCODING = {"byte1_db": 25.0, "step_db": 0.5, "nodata_byte": 0, "lossy": stored.LOSSY,
             "note": "Lden in dB; byte 0 = inside a building (no level is given there)"}
 OVERVIEWS = (3, 9)
 
@@ -370,7 +372,7 @@ def _encode(l: np.ndarray) -> Image.Image:
 
 
 def build(tile, out_dir: Path) -> dict:
-    """lden.png and its overviews into out_dir; returns the meta entry."""
+    """lden.avif and its overviews into out_dir; returns the meta entry."""
     import osm_extract
     from datetime import datetime, timezone
     from sg.errors import NoData, NotCovered
@@ -384,11 +386,11 @@ def build(tile, out_dir: Path) -> dict:
     l = levels(f, LW_FITTED).astype(np.float32)
     l[f["blocked"]] = np.nan
     out_dir.mkdir(parents=True, exist_ok=True)
-    _encode(l).save(out_dir / "lden.png", optimize=True)
-    files = {"lden": "noise/lden.png"}
+    stored.lossy(_encode(l), out_dir / "lden.avif")
+    files = {"lden": "noise/lden.avif"}
     for k in OVERVIEWS:
-        _encode(_overview(l, k)).save(out_dir / f"lden.o{k}.png", optimize=True)
-        files[f"lden.o{k}"] = f"noise/lden.o{k}.png"
+        stored.lossy(_encode(_overview(l, k)), out_dir / f"lden.o{k}.avif")
+        files[f"lden.o{k}"] = f"noise/lden.o{k}.avif"
     open_ = np.isfinite(l)
     share = lambda db: round(float((l[open_] >= db).mean()), 3) if open_.any() else 0.0
     return {

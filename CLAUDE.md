@@ -62,6 +62,9 @@ cd pipeline && .venv/bin/python -m sg run --bbox 11.5,41.25,13.25,42.5 --product
   remembered (`fetchJson` in `tiles.js`); a set with tiles that failed is `incomplete`; the engine asks
   again after 4, 15 and 60 s and when the connection comes back (`fetchNeeded`). Only a 404 is "not
   computed here yet".
+- **A PNG is read through an `<img>`** (`loadImage` in `tiles.js`): Safari's `createImageBitmap` gives back a
+  one-channel PNG with one cell in four a byte or two off and no-data cells with a value. WebP and AVIF are
+  exact either way. A file with `encoding.lossy` says where it has no data in its alpha (`channels`).
 - **Coarse data is drawn coarse**: `card.resolution_m >= 300` is drawn eight pixels a cell with a seam
   between cells (while a tile stays under 512 px); `card.coarse` or a year before `card.coarse_before`
   is read in 2 × 2 blocks.
@@ -88,6 +91,10 @@ bucket** (public).
   with a `card`, `validate`, and where needed `prepare` (region-wide downloads), `unavailable`
   (a missing credential) and `reason` (when a done tile is due again). Register it in
   `products/__init__.py` (`PRODUCTS`, `ORDER`) and in the workflow's default `products`.
+- **How a raster is stored** (`pipeline/stored.py`): heat and noise lossy, as AVIF at quality 90 with the
+  no-data mask exact in the alpha (0.2 °C and 0.3 dB rms, 37 % of the PNG); everything else as lossless WebP.
+  Never a one-channel PNG (see the app's page). `pipeline/reencode.py` and the Re-encode workflow convert
+  tiles already published; the PNGs they replace stay until a run with `--prune`.
 - **Border tiles** need buildings and roads from the neighbouring region. Each region leaves *pieces* on
   the ops bucket (`sg/border.py`); a tile waits (`NotCovered`, never given up on) until all are there.
   Pieces carry a `FORMAT`: bump it when what a piece holds changes, or old pieces poison new code.
