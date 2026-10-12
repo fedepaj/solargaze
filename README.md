@@ -11,7 +11,7 @@
   <a href="#how-to-use-it">Guide</a> ·
   <a href="#getting-the-3d-mesh">Setup</a> ·
   <a href="#running-it-locally">Develop</a> ·
-  <a href="LICENSE">MIT</a>
+  <a href="LICENSE">AGPL-3.0</a>
 </p>
 
 </div>
@@ -369,8 +369,11 @@ source a browser can query directly.
 
 ## Licence and attribution
 
-SolarGaze is MIT — see [LICENSE](LICENSE). The pieces it stands on are not
-yours to relicense:
+SolarGaze is free software under the GNU Affero General Public License, version 3
+or any later version (AGPL-3.0-or-later) — see [LICENSE](LICENSE). Copyright © 2026
+SolarGaze contributors. If you run a modified copy for others to use, the licence
+asks that you offer them its source. The pieces it stands on are not yours to
+relicense:
 
 - **CesiumJS** — Apache-2.0.
 - **Google Photorealistic 3D Tiles** — governed by the

@@ -645,7 +645,7 @@ function openHelp() {
     <p>Sun geometry is good to well under a tenth of a degree. What limits the result is the mesh: Google's tiles are photogrammetry, so trees, awnings and thin structures are approximate, and shading baked into the imagery is not removed. Treat it as a very good study, not a survey.</p>
 
     <h3>CREDITS</h3>
-    <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is MIT licensed.</p>
+    <p>Built on <a href="https://cesium.com/platform/cesiumjs/" target="_blank" rel="noopener">CesiumJS</a> (Apache-2.0), with Google Photorealistic 3D Tiles served through <a href="https://cesium.com/platform/cesium-ion/" target="_blank" rel="noopener">Cesium ion</a>. Timezone boundaries by <code>tz-lookup</code>. SolarGaze itself is free software under the AGPL-3.0; its <a href="https://github.com/fedepaj/solargaze" target="_blank" rel="noopener">source is on GitHub</a>.</p>
 
     <h3>DATA SOURCES</h3>
     <p>The heat, air, noise, light, growth and wind tiles are derived from these sources. They are our processing, not the

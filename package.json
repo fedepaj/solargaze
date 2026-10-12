@@ -2,7 +2,7 @@
   "name": "solargaze",
   "version": "1.0.0",
   "description": "Open-source sun and shadow simulator on Google's photorealistic 3D tiles. No build step.",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "type": "module",
   "scripts": {
