@@ -17,7 +17,7 @@ import { TILES_BASE, TILES_REMOTE } from '../config.js';
 import { profile } from '../device.js';
 import { cardOf } from './catalog.js';
 
-const STEP = 0.25;
+export const STEP = 0.25;
 
 let index = null;
 const metas = new Map();
@@ -65,9 +65,10 @@ const MAX_TILES = 600;
  * A raster product for every built tile inside a view rectangle, at the
  * level the rectangle earns, plus the tile under the pin at full resolution
  * as `centre` — the one the legend's medians and the pane's reading use.
- * Returns null when not even the centre exists.
+ * Returns null when not even the centre exists. `watch`, if given, is told
+ * the tiles being fetched (`plan`) and each one as it arrives (`landed`).
  */
-export async function tileProductsInView(rect, lat, lon, product) {
+export async function tileProductsInView(rect, lat, lon, product, watch = null) {
   const idx = await getIndex();
   const [west, south, east, north] = rect;
   const level = levelFor(rect);
@@ -80,6 +81,7 @@ export async function tileProductsInView(rect, lat, lon, product) {
     inView = inView.sort((p, q) => d(p) - d(q)).slice(0, MAX_TILES);
   }
   const ids = inView.map(t => t.id);
+  watch?.plan(inView.map(t => t.bounds));
   const centreId = tileIdFor(lat, lon);
   // The tile under the pin at full resolution, for the reading — unless it
   // is larger than this device should hold for a number (a 10 m noise tile
@@ -89,7 +91,7 @@ export async function tileProductsInView(rect, lat, lon, product) {
   const big = info && info.rows * info.cols > profile.maxReadCells && (info.overviews || []).includes(3);
   const [first, ...rest] = await Promise.all([
     attempt(tileProduct(centreId, product, big ? 3 : 1)),
-    ...ids.map(id => attempt(tileProduct(id, product, level))),
+    ...inView.map(t => attempt(tileProduct(t.id, product, level)).finally(() => watch?.landed(t.bounds))),
   ]);
   const centre = first.value;
   const tiles = rest.map(r => r.value).filter(Boolean);

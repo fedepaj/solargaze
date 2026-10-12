@@ -14,6 +14,7 @@
  */
 
 import { requestRender } from '../scene.js';
+import { CELL, pendingGrid, pendingFrame } from './pending.js';
 
 const C = window.Cesium;
 
@@ -182,4 +183,88 @@ export function createDrape(scene) {
   }
 
   return { paint, paintCanvas, show };
+}
+
+/**
+ * The tiles of a view still on their way, pulsing in a wave from the pin
+ * until they land (atmo/pending.js writes the pixels). A view of a province
+ * is a few hundred small files, and for the seconds they take there was
+ * nothing to say they were coming.
+ *
+ * `watch(rect, lat, lon, step)` starts a new picture and returns what the
+ * loader calls: `plan(bounds[])` with the tiles it is fetching, `landed(bounds)`
+ * as each arrives, `done()` at the end. A set that is in memory lands before
+ * the picture's delay is up, and is never shown.
+ */
+const PENDING_DELAY_MS = 250;
+const PENDING_FRAME_MS = 80;
+
+export function createPending(scene) {
+  let now = null;   // { grid, waiting, left, origin, prim, mat, canvases, flip, t0, timer }
+  const still = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+  function stop() {
+    if (!now) return;
+    clearTimeout(now.timer);
+    clearInterval(now.timer);
+    if (now.prim) scene.primitives.remove(now.prim);
+    now = null;
+    requestRender();
+  }
+
+  function frame(p) {
+    p.flip ^= 1;
+    const cv = p.canvases[p.flip];
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(cv.width, cv.height);
+    pendingFrame(img.data, p.grid, p.waiting, p.origin, performance.now() - p.t0, still);
+    ctx.putImageData(img, 0, 0);
+    p.mat.uniforms.image = cv;
+    requestRender();
+  }
+
+  function begin(p, rect) {
+    if (now !== p || !p.left) return;
+    p.canvases = [0, 1].map(() => {
+      const cv = document.createElement('canvas');
+      cv.width = p.grid.cols * CELL;
+      cv.height = p.grid.rows * CELL;
+      return cv;
+    });
+    p.flip = 0;
+    ({ primitive: p.prim, material: p.mat } = groundRect(rect, p.canvases[0]));
+    scene.primitives.add(p.prim);
+    p.t0 = performance.now();
+    frame(p);
+    if (!still) p.timer = setInterval(() => frame(p), PENDING_FRAME_MS);
+  }
+
+  function watch(rect, lat, lon, step) {
+    stop();
+    const grid = pendingGrid(rect, step);
+    const p = { grid, waiting: new Uint8Array(grid.cols * grid.rows), left: 0, origin: grid.at(lat, lon), prim: null };
+    now = p;
+    const mark = (bounds, on) => {
+      const i = grid.cellOf(bounds);
+      if (i < 0 || !!p.waiting[i] === on) return;
+      p.waiting[i] = on ? 1 : 0;
+      p.left += on ? 1 : -1;
+    };
+    return {
+      plan(list) {
+        if (now !== p) return;
+        for (const bounds of list) mark(bounds, true);
+        p.timer = setTimeout(() => begin(p, rect), PENDING_DELAY_MS);
+      },
+      landed(bounds) {
+        if (now !== p) return;
+        mark(bounds, false);
+        // Without a wave there is no next frame to take the tile off the picture.
+        if (still && p.prim) frame(p);
+      },
+      done() { if (now === p) stop(); },
+    };
+  }
+
+  return { watch, stop };
 }

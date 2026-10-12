@@ -21,12 +21,12 @@ import { MONTHS } from './util.js';
 import { gridFor, monthFraction } from './atmo/field.js';
 import { rampLut } from './atmo/scales.js';
 import { dayOfYear, daysInYear } from './solar.js';
-import { tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, maskAround, maskSpot, getCatalog } from './atmo/tiles.js';
+import { STEP, tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, maskAround, maskSpot, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
 import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear } from './atmo/layers.js';
 import { setCatalog, cardOf } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
-import { createDrape } from './atmo/drape.js';
+import { createDrape, createPending } from './atmo/drape.js';
 import { mosaicLayout, mosaicSteps } from './atmo/mosaic.js';
 import { createWind } from './atmo/wind.js';
 
@@ -50,6 +50,8 @@ for (const id of Object.keys(SOURCES)) {
  * `paint` so the engine can repaint it as the clock moves.
  */
 const RENDERERS = {};
+/** The picture of the tiles of a view still on their way (atmo/drape.js). */
+let pending = null;
 
 let fetchTimer = null;
 const inflight = {};
@@ -59,6 +61,7 @@ const luts = new Map();
 
 export function initAtmo() {
   RENDERERS.drape = drapeRenderer(createDrape(viewer.scene));
+  pending = createPending(viewer.scene);
   RENDERERS.particles = particlesRenderer(createWind(viewer.scene, { count: profile.windParticles }));
 
   // Sunrise and sunset at the point switch the heat between its morning and
@@ -227,7 +230,11 @@ function fetchWant(want) {
   if (want.source.kind === 'tile') {
     // Rasters come as a mosaic of the tile and its neighbours, so a drape
     // does not end at a tile edge; the tables and the mask are per tile.
-    if (VIEW_KINDS.has(want.source.dataKind)) return tileProductsInView(want.rect, want.lat, want.lon, want.source.product);
+    if (VIEW_KINDS.has(want.source.dataKind)) {
+      // Only the view of the layer being drawn says it is loading: a card that is off reads one tile.
+      const watch = drawnFrom(want.source.id) ? pending?.watch(want.rect, want.lat, want.lon, STEP) : null;
+      return tileProductsInView(want.rect, want.lat, want.lon, want.source.product, watch).finally(() => watch?.done());
+    }
     // Street air reads the tile under the pin and its neighbours, each with
     // the CAMS table its ratios multiply.
     if (want.source.dataKind === 'street-air') return streetSetAround(want.lat, want.lon, want.source.product);
@@ -504,6 +511,8 @@ function schedulePaint() {
 /** Push the preferences into the scene: each renderer shows its enabled layer, or nothing. */
 function apply() {
   if (!RENDERERS.drape) return;
+  // A layer switched off while its view was loading is not loading to anyone.
+  if (!needsView()) pending?.stop();
   for (const [kind, renderer] of Object.entries(RENDERERS)) {
     const layer = enabledLayers().find(l => l.render === kind);
     const series = layer && atmo.series[currentSource(layer)];
