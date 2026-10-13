@@ -3,12 +3,16 @@
 # (made once with `claude setup-token`). Its use counts against the plan's
 # usage limits, like any Claude Code session.
 #
-#   - an issue labelled pipeline-alert by a person → the agent reads the
-#     failure digest and the code, and either explains why no change is
+#   - an issue the owner opened and the owner labelled pipeline-alert → the
+#     agent reads it and the code, and either explains why no change is
 #     needed or opens a pull request with a fix and a test reproducing it
 #     (the nightly run starts the same agent itself, in pipeline.yml's
 #     triage job: an issue opened by a workflow's own token starts no
 #     other workflow).
+#
+# The issue's text is what the agent is told to do, and it can read the web
+# and open pull requests: so it acts on the owner's words only. An issue
+# written by anyone else does not start it, whoever labels it.
 #
 # It does not answer @claude mentions: it acts on pipeline alerts only.
 #
@@ -35,6 +39,8 @@ jobs:
   alert:
     if: >
       github.event_name == 'issues' && github.event.label.name == 'pipeline-alert'
+      && github.event.issue.user.login == github.repository_owner
+      && github.event.sender.login == github.repository_owner
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -50,4 +56,9 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
           prompt: ${{ steps.prompt.outputs.text }}
-          claude_args: --max-turns 40
+          # Without a list the agent may use no tool at all: its first run ended in
+          # eight seconds with every call refused. The list of the nightly triage,
+          # and the web read-only (curl, WebFetch) to measure on a source's own data.
+          claude_args: >-
+            --max-turns 120
+            --allowedTools "Read,Glob,Grep,Edit,Write,WebFetch,Bash(gh issue:*),Bash(gh pr:*),Bash(gh run view:*),Bash(git:*),Bash(python:*),Bash(python3:*),Bash(cd:*),Bash(curl:*),Bash(ls:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(wc:*),Bash(find:*),Bash(grep:*),Bash(jq:*),Bash(mkdir:*)"
