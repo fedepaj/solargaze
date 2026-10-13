@@ -174,6 +174,25 @@ def run(tile: Tile) -> None:
 PLATFORMS = ("landsat-8", "landsat-9")
 
 
+def month_median(cube: np.ndarray, iterations: int = 4) -> np.ndarray:
+    """The month's per-pixel median of a (scenes, rows, cols) cube, with each
+    scene's own level taken out first. A scene is a warm or a cold day; where
+    only some scenes are clear (across a swath edge, or where a scene clips
+    the tile) a plain median is "the day that happened to be clear" and steps
+    at the footprint's edge. Fitted as scene level + ground, both by median
+    (T[s,p] = L[s] + G[p]); the levels are centred on zero, so the result
+    keeps the month's average level."""
+    level = np.zeros(cube.shape[0], np.float32)
+    for _ in range(iterations):
+        ground = np.nanmedian(cube - level[:, None, None], axis=0)
+        resid = (cube - ground).reshape(cube.shape[0], -1)
+        for s in range(cube.shape[0]):
+            ok = np.isfinite(resid[s])
+            level[s] = np.median(resid[s][ok]) if ok.any() else 0.0
+        level -= level.mean()
+    return np.nanmedian(cube - level[:, None, None], axis=0)
+
+
 def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, ...] = PLATFORMS,
           max_per_month: int | None = None, subdir: str = "heat") -> dict:
     """The packed months into out_dir; returns the meta entry, writes nothing
@@ -242,7 +261,7 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
         if not stack:
             continue
         cube = np.stack(stack).astype(np.float32)
-        median = np.nanmedian(cube, axis=0)
+        median = month_median(cube)
         count = np.isfinite(cube).sum(axis=0)
         # One clear look is not a climatology; ask for at least three.
         median[count < 3] = np.nan
