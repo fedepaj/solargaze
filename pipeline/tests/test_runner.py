@@ -158,6 +158,17 @@ class RunnerTest(unittest.TestCase):
         # 1000 s: the first takes 600, and 400 left is less than that.
         self.assertEqual((counts[DONE], counts["skipped"]), (1, 2))
 
+    def test_rebuilds_of_published_tiles_come_after_every_new_tile(self):
+        first, second = Scripted({}), Scripted({})
+        second.name = second.subdir = "noise"
+        for t in TILES[:2]:
+            self.state.record(t, "heat", DONE, version=1)
+        first.version = 2                                   # heat: a new version over two done tiles
+        jobs = plan([first, second], TILES, self.state, "")
+        self.assertEqual([(j.product.name, j.rebuild) for j in jobs],
+                         [("heat", False), ("noise", False), ("noise", False), ("noise", False),
+                          ("heat", True), ("heat", True)])
+
     def test_an_interrupted_swap_is_restored(self):
         self.go(Scripted({}), tiles=[TILES[0]])
         tile = self.data / TILES[0]

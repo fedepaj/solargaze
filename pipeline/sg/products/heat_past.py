@@ -41,6 +41,7 @@ class HeatPast(Heat):
     # heat (heat_landsat.COLDER_C); version 1 had them in a tile in two.
     version = 2
     depends = ("wind", "heat")
+    rebuild_order = -1   # half a minute a tile, and what a rebuild fixes are errors
 
     def __init__(self, start: int, end: int, platforms: tuple[str, ...]):
         self.start, self.end, self.platforms = start, end, platforms

@@ -41,6 +41,7 @@ class Product:
     max_attempts: int = 6         # failed this many times in a row: leave it until the code changes
     refresh_days: float | None = None  # rebuild a done tile after this long (sources that update)
     min_buildings: int = 0        # skip tiles whose wind product counted fewer OSM buildings
+    rebuild_order: int = 0        # among rebuilds of published tiles, lower goes first (runner.plan)
     # What the app is told about the product (catalog.json, sg/catalog.py):
     # the theme and variant it is shown under — none for a product other
     # products are built on — the kind of data, which decides how the app
