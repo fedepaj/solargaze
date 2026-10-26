@@ -58,7 +58,7 @@ export const FALLBACK = {
       label: 'Morning', title: 'Surface heat on clear mornings', when: 'mornings', daypart: 'day', span_c: 6, resolution_m: 90,
       source: 'Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer',
       licence: 'public domain',
-      note: 'A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by month: what the roofs and streets typically read, not the air. From afar it is shown coarser.',
+      note: 'A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2018, by month, each pass\'s own warmth taken out first so that which days happened to be clear does not show: what the roofs and streets typically read, not the air. From afar it is shown coarser.',
     },
     heat_night: {
       theme: 'heat', variant: 'night', order: 20, kind: 'raster-months',

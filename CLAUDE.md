@@ -82,7 +82,7 @@ bucket** (public).
 | `noise` | OSM roads + buildings | Line-source model, calibrated on Berlin's END map. |
 | `light` | NASA Black Marble (VIIRS) 2012+, harmonised DMSP 1992–2011 | Glow kernel fitted on the Falchi atlas. |
 | `built` | GHSL GHS-BUILT-S, epochs 1975–2020 | Stored as deltas between epochs. |
-| `heat`, `heat_night` | Landsat 8/9, ECOSTRESS | Twelve months per tile. |
+| `heat`, `heat_night` | Landsat 8/9, ECOSTRESS | Twelve months per tile. Morning heat takes each scene's level out before the median, fitted over a coarse window of the tile and its neighbours (`LEVEL_DEG` in `heat_landsat.py`, #24). |
 | `heat_1984/1994/2004` | Landsat 5 and 7 | Last in `ORDER`: built with what time is left. A scene far colder than the present `heat` of the month is a cloud the old mask missed, and dropped (`COLDER_C`). |
 | `air`, `air_street` | CAMS + stations | Built locally, not nightly. |
 | `air_past` | CAMS EAC4 2003–2019 | **Not a tile product and not built by the runner**: `pipeline/air_eac4.py --publish` on the owner's Mac (needs `~/.cdsapirc`). |
