@@ -65,7 +65,12 @@ def plan(products: list[Product], tiles: Iterable[str], state: State, git: str) 
     for product in products:
         fresh, retries = [], []
         for tile in tiles:
-            why = product.reason(tile, state.get(product.name, tile), git=git)
+            rec = state.get(product.name, tile)
+            why = product.reason(tile, rec, git=git)
+            if not why and rec.status == EMPTY and rec.inputs.get("empty_under"):
+                # Left empty because what it is built on was: due again once that is built.
+                if all(state.get(d, tile).status == DONE for d in rec.inputs["empty_under"]):
+                    why = "built on what is now there"
             if why:
                 (retries if why.startswith("retry") else fresh).append(Job(tile, product, why))
         jobs += fresh + retries
@@ -169,10 +174,15 @@ def _execute_groups(by_product, ctx, state, run, budget, publish, write_meta, gi
                     except Exception as exc:  # noqa: BLE001 — without the published meta we must not build
                         _record_failure(job, exc, 0.0, state, run, git, counts)
                         continue
-                why_not = product.applies(job.tile, ctx)
+                # A product on top of one that is empty here (wind with no
+                # building: a tile of sea, or of a country the extract does not
+                # map) is empty too. Waiting for it would wait for ever, and
+                # its jobs would hold a region's slot night after night.
+                under = [d for d in product.depends if state.get(d, job.tile).status == EMPTY]
+                why_not = f"{', '.join(under)} is empty here" if under else product.applies(job.tile, ctx)
                 if why_not:
                     state.record(job.tile, name, EMPTY, version=product.version, run=run.id, git=git,
-                                 kind=errors.NODATA, msg=why_not)
+                                 kind=errors.NODATA, msg=why_not, inputs={"empty_under": under} if under else None)
                     counts[EMPTY] += 1
                     run.outcome(job.tile, name, EMPTY, reason=why_not)
                 else:
@@ -193,8 +203,12 @@ def _execute_groups(by_product, ctx, state, run, budget, publish, write_meta, gi
                     _record_failure(job, exc, 0.0, state, run, git, counts)
                 continue
 
+            longest = 60.0
             for job in group:
-                if budget.left() < 60:
+                # A tile is started only if the longest one of this product so
+                # far would still end in time: a night tile can take 25 min,
+                # and the job has a hard limit behind the budget.
+                if budget.left() < longest:
                     run.warn("budget.time", msg="out of time; the rest waits for the next run", left=len(group))
                     counts["skipped"] += 1
                     run.outcome(job.tile, name, "skipped", reason="time budget")
@@ -206,7 +220,9 @@ def _execute_groups(by_product, ctx, state, run, budget, publish, write_meta, gi
                     counts["skipped"] += 1
                     run.outcome(job.tile, name, "skipped", reason=f"waiting for {', '.join(waiting)}")
                     continue
+                t0 = time.time()
                 status, exc = _one(job, ctx, state, run, publish, write_meta, git, tries, retry_base, sleep, counts)
+                longest = max(longest, time.time() - t0)
                 maybe_checkpoint()
                 if status == FAILED:
                     # A retry has nothing fresh behind it to protect, and a

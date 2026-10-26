@@ -180,6 +180,9 @@ def cmd_run(args) -> int:
 
 def _run_body(args, run, state, box) -> int:
     from .remote import Remote
+    # The budget counts from here, extract included: France's takes most of
+    # an hour to read, and the job's hard limit counts it too.
+    started = time.time()
     remote = None if args.no_publish else Remote.maybe(DATA_DIR, STATE, run)
     box["remote"] = remote
     if remote and not args.no_pull:
@@ -208,7 +211,7 @@ def _run_body(args, run, state, box) -> int:
     run.info("selected", tiles=len(tiles), jobs=len(jobs), shard=args.shard or "all")
     ctx = Context(DATA_DIR, CACHE, run=run, before_tile=remote.pull_meta if remote else None)
     try:
-        counts = execute(jobs, ctx, state, run, budget=Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb),
+        counts = execute(jobs, ctx, state, run, budget=Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb, started=started),
                          publish=remote.publish if remote else None,
                          checkpoint=(lambda: remote.push_delta(run.id, state)) if remote else None)
         run.info("counts", **counts)
@@ -324,13 +327,14 @@ def cmd_matrix(args) -> int:
     state = State(STATE)
     products = products_of(args)
     waiting = border.waiting_tiles(state)
-    rows, idle = [], []
+    rows, idle, tiles_by = [], [], {}
     for path in regions.SCOPES[args.scope]:
         try:
             tiles = regions.tiles_of(region_poly(path))
         except Exception as exc:  # noqa: BLE001 — one region's boundary is one region
             print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
             continue
+        tiles_by[path] = set(tiles)
         jobs = plan(products, tiles, state, git_sha())
         row = {"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": len(jobs),
                "support": False, "real": sum(j.tile not in waiting for j in jobs)}
@@ -340,17 +344,22 @@ def cmd_matrix(args) -> int:
             idle.append(row)
     # The catalogue's order is the priority: where people live first, so that
     # a week of runs has covered the cities rather than the tundra. A region
-    # whose only work is border tiles waiting for a neighbour comes after,
-    # and only once a neighbour has left pieces since it last looked —
-    # otherwise the first six would hold their slots for ever on tiles that
-    # wait for the seventh.
+    # whose only work is border tiles waiting for a neighbour runs only once
+    # a neighbour has left pieces since it last looked — otherwise the first
+    # six would hold their slots for ever on tiles that wait for the seventh —
+    # and then ahead of the rest, but in at most RIPE_SLOTS of the slots: at
+    # the back of the queue it would wait weeks behind regions with years of
+    # heat to build.
     if idle:
-        rows += _ripe(idle, args.scope)
+        ripe = _ripe(idle, args.scope)
+        rows = ripe[:RIPE_SLOTS] + rows + ripe[RIPE_SLOTS:]
     chosen = rows[:args.max]
     # Neighbours whose border pieces are missing or old go first: they take
-    # minutes, and the builds after them find their pieces.
+    # minutes, and the builds after them find their pieces. So do regions of
+    # the scope that have never left theirs and that tiles are waiting for:
+    # in the catalogue's order the last of them would run in months.
     if chosen:
-        support = _stale_neighbours(args.scope)
+        support = _stale_neighbours(args.scope) + _unpieced(args.scope, chosen, tiles_by, waiting)
         rows = support + rows
         chosen = support + chosen
     out = json.dumps({"include": chosen})
@@ -381,6 +390,37 @@ def _ripe(idle: list[dict], scope: str) -> list[dict]:
         near = [regions.name_of(p) for p, sh in shapes.items() if p != row["region"] and sh.intersects(me)]
         if border.ripe(row["name"], near, left, gathered):
             out.append(row)
+    return out
+
+
+RIPE_SLOTS = 2      # of a night's regions, at most this many only to close border tiles
+UNPIECED_MOST = 4   # regions of the scope sent to leave their pieces in one night
+
+
+def _unpieced(scope: str, chosen: list[dict], tiles_by: dict, waiting: set[str]) -> list[dict]:
+    """Regions of the scope that do not build tonight, have never left their
+    border pieces, and reach into tiles waiting for a neighbour: their pieces
+    only, the first UNPIECED_MOST in the catalogue's order."""
+    from . import border, regions
+    from .remote import Remote
+    remote = Remote.maybe(DATA_DIR, STATE)
+    if not remote:
+        return []
+    going = {r["region"] for r in chosen}
+    out = []
+    for path in regions.SCOPES[scope]:
+        if len(out) == UNPIECED_MOST:
+            break
+        if path in going or not (tiles_by.get(path, set()) & waiting):
+            continue
+        name = regions.name_of(path)
+        try:
+            age = border.pieces_age_days(remote, name)
+        except Exception as exc:  # noqa: BLE001 — a region skipped tonight is retried tomorrow
+            print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
+            continue
+        if age == float("inf"):
+            out.append({"region": path, "name": name, "tiles": 0, "jobs": 0, "support": True})
     return out
 
 
@@ -599,7 +639,7 @@ def main(argv=None) -> int:
     tile_args(p)
     p = sub.add_parser("run", help="build, validate, install, record, publish")
     tile_args(p)
-    p.add_argument("--hours", type=float, default=float("inf"), help="time budget; stops cleanly before it runs out")
+    p.add_argument("--hours", type=float, default=float("inf"), help="time budget from the start, extract included; stops cleanly before it runs out")
     p.add_argument("--min-free-gb", type=float, default=2.0)
     p.add_argument("--limit", type=int, help="at most this many jobs")
     p.add_argument("--name", help="a name for the run, in its id")
