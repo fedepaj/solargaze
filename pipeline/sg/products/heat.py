@@ -18,15 +18,19 @@ def clipped() -> frozenset[str]:
 
 
 class Heat(Product):
-    name, version, subdir = "heat", 3, "heat"   # 3: one-channel 90 m, packed months, overviews
+    # 3: one-channel 90 m, packed months, overviews. 4: each scene's level
+    # taken out before the month's median, so that which days happened to be
+    # clear does not draw swaths across a tile (#24); a scale up to 66 °C.
+    name, version, subdir = "heat", 4, "heat"
     card = {
         "theme": "heat", "variant": "morning", "order": 10, "kind": "raster-months",
         "label": "Morning", "title": "Surface heat on clear mornings",
         "when": "mornings", "daypart": "day", "span_c": 6, "resolution_m": 90,
         "source": "Landsat 8/9 Collection 2 Level-2 surface temperature (USGS), via Microsoft Planetary Computer",
         "licence": "public domain",
-        "note": "A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2020, by "
-                "month: what the roofs and streets typically read, not the air. From afar it is shown coarser.",
+        "note": "A per-pixel median of clear mid-morning Landsat passes (about 10:30 local) since 2018, by "
+                "month, each pass's own warmth taken out first so that which days happened to be clear does not "
+                "show: what the roofs and streets typically read, not the air. From afar it is shown coarser.",
     }
     depends = ("wind",)
     min_buildings = 2000
@@ -35,7 +39,7 @@ class Heat(Product):
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:
         import heat_landsat
         from tiles import Tile
-        return heat_landsat.build(Tile.parse(tile), stage)
+        return heat_landsat.build(Tile.parse(tile), stage, levels=self.name == "heat")
 
     def inputs(self, tile: str, ctx: Context) -> dict:
         import heat_landsat
