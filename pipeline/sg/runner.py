@@ -52,6 +52,7 @@ class Job:
     tile: str
     product: Product
     reason: str
+    rebuild: bool = False      # it replaces what is already published
 
 
 def plan(products: list[Product], tiles: Iterable[str], state: State, git: str) -> list[Job]:
@@ -59,11 +60,17 @@ def plan(products: list[Product], tiles: Iterable[str], state: State, git: str) 
     (dependencies first), tiles in the order given within each — except that
     tiles being retried after a failure go last: a few that can never succeed
     (a border tile no single extract covers) must not trip the breaker ahead
-    of the fresh tiles and starve them night after night."""
+    of the fresh tiles and starve them night after night.
+
+    A tile that is done and due again (a new version, a rescale) is a
+    rebuild, and every rebuild comes after every new tile: what is published
+    is there in the meantime, and a version bump on a product of thousands of
+    tiles must not hold up the places that have nothing yet. Rebuilds go by
+    the products' rebuild_order, cheapest and most needed first."""
     tiles = list(tiles)
-    jobs = []
+    jobs, rebuilds = [], []
     for product in products:
-        fresh, retries = [], []
+        fresh, retries, again = [], [], []
         for tile in tiles:
             rec = state.get(product.name, tile)
             why = product.reason(tile, rec, git=git)
@@ -71,10 +78,13 @@ def plan(products: list[Product], tiles: Iterable[str], state: State, git: str) 
                 # Left empty because what it is built on was: due again once that is built.
                 if all(state.get(d, tile).status == DONE for d in rec.inputs["empty_under"]):
                     why = "built on what is now there"
-            if why:
+            if why and rec.status == DONE:
+                again.append(Job(tile, product, why, rebuild=True))
+            elif why:
                 (retries if why.startswith("retry") else fresh).append(Job(tile, product, why))
         jobs += fresh + retries
-    return jobs
+        rebuilds.append((getattr(product, "rebuild_order", 0), len(rebuilds), again))
+    return jobs + [j for _, _, again in sorted(rebuilds, key=lambda r: r[:2]) for j in again]
 
 
 class _Stop:
@@ -118,10 +128,11 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
     ctx.data_dir.mkdir(parents=True, exist_ok=True)   # a fresh runner has none
     _sweep_stale_stages(ctx.data_dir, run)
 
-    by_product: dict[str, list[Job]] = {}
+    by_product: dict[tuple[str, bool], list[Job]] = {}
     for job in jobs:
-        by_product.setdefault(job.product.name, []).append(job)
-    run.info("plan", jobs=len(jobs), by_product={k: len(v) for k, v in by_product.items()})
+        by_product.setdefault((job.product.name, job.rebuild), []).append(job)
+    run.info("plan", jobs=len(jobs),
+             by_product={name + (" rebuild" if again else ""): len(v) for (name, again), v in by_product.items()})
 
     last_saved = 0
 
@@ -150,7 +161,7 @@ def execute(jobs: list[Job], ctx: Context, state: State, run: Run, *,
 def _execute_groups(by_product, ctx, state, run, budget, publish, write_meta, git, tries, retry_base,
                     breaker, sleep, counts, recent, maybe_checkpoint):
     with _Stop():
-        for name, group in by_product.items():
+        for (name, _), group in by_product.items():
             product = group[0].product
             kept = []
             if budget.left() < 60:

@@ -327,7 +327,7 @@ def cmd_matrix(args) -> int:
     state = State(STATE)
     products = products_of(args)
     waiting = border.waiting_tiles(state)
-    rows, idle, tiles_by = [], [], {}
+    rows, again, idle, tiles_by = [], [], [], {}
     for path in regions.SCOPES[args.scope]:
         try:
             tiles = regions.tiles_of(region_poly(path))
@@ -337,9 +337,12 @@ def cmd_matrix(args) -> int:
         tiles_by[path] = set(tiles)
         jobs = plan(products, tiles, state, git_sha())
         row = {"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": len(jobs),
-               "support": False, "real": sum(j.tile not in waiting for j in jobs)}
-        if row["real"]:
+               "support": False, "real": sum(j.tile not in waiting for j in jobs),
+               "new": sum(j.tile not in waiting and not j.rebuild for j in jobs)}
+        if row["new"]:
             rows.append(row)
+        elif row["real"]:
+            again.append(row)
         elif jobs:
             idle.append(row)
     # The catalogue's order is the priority: where people live first, so that
@@ -350,9 +353,12 @@ def cmd_matrix(args) -> int:
     # and then ahead of the rest, but in at most RIPE_SLOTS of the slots: at
     # the back of the queue it would wait weeks behind regions with years of
     # heat to build.
-    if idle:
-        ripe = _ripe(idle, args.scope)
-        rows = ripe[:RIPE_SLOTS] + rows + ripe[RIPE_SLOTS:]
+    # A region whose only work is rebuilding what it has published (a new
+    # version of a product) has its pages up meanwhile: it takes at most
+    # REBUILD_SLOTS of the night, after the waiting tiles, and the rest go
+    # to places that have nothing yet.
+    ripe = _ripe(idle, args.scope) if idle else []
+    rows = ripe[:RIPE_SLOTS] + again[:REBUILD_SLOTS] + rows + ripe[RIPE_SLOTS:] + again[REBUILD_SLOTS:]
     chosen = rows[:args.max]
     # Neighbours whose border pieces are missing or old go first: they take
     # minutes, and the builds after them find their pieces. So do regions of
@@ -369,7 +375,8 @@ def cmd_matrix(args) -> int:
         with open(gh, "a") as f:
             f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
     for r in rows:
-        what = "pieces only" if r["support"] else f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting)"
+        what = "pieces only" if r["support"] else (f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting, "
+                                                  f"{r['real'] - r.get('new', r['real'])} of them rebuilds)")
         print(f"  {r['region']:38} {what}", file=sys.stderr)
     return 0
 
@@ -394,6 +401,7 @@ def _ripe(idle: list[dict], scope: str) -> list[dict]:
 
 
 RIPE_SLOTS = 2      # of a night's regions, at most this many only to close border tiles
+REBUILD_SLOTS = 2   # and at most this many only to rebuild what they have published
 UNPIECED_MOST = 4   # regions of the scope sent to leave their pieces in one night
 
 

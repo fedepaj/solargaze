@@ -133,3 +133,9 @@ few a night) rather than when its turn to build comes, which for the last
 ones is months away. A region whose only work is waiting tiles runs once a
 neighbour has left pieces since it last gathered, ahead of the queue in at
 most two of the night's slots.
+
+A tile that is published and due again (a new version of its product) is a
+rebuild. Within a run every rebuild comes after every new tile, and a
+region whose only work is rebuilds takes at most two of the night's slots:
+what it has is up meanwhile, and a version bump on thousands of tiles must
+not hold up the places that have nothing yet.
