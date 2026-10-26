@@ -83,7 +83,7 @@ bucket** (public).
 | `light` | NASA Black Marble (VIIRS) 2012+, harmonised DMSP 1992–2011 | Glow kernel fitted on the Falchi atlas. |
 | `built` | GHSL GHS-BUILT-S, epochs 1975–2020 | Stored as deltas between epochs. |
 | `heat`, `heat_night` | Landsat 8/9, ECOSTRESS | Twelve months per tile. |
-| `heat_1984/1994/2004` | Landsat 5 and 7 | Last in `ORDER`: built with what time is left. |
+| `heat_1984/1994/2004` | Landsat 5 and 7 | Last in `ORDER`: built with what time is left. A scene far colder than the present `heat` of the month is a cloud the old mask missed, and dropped (`COLDER_C`). |
 | `air`, `air_street` | CAMS + stations | Built locally, not nightly. |
 | `air_past` | CAMS EAC4 2003–2019 | **Not a tile product and not built by the runner**: `pipeline/air_eac4.py --publish` on the owner's Mac (needs `~/.cdsapirc`). |
 
@@ -94,7 +94,9 @@ bucket** (public).
 - **How a raster is stored** (`pipeline/stored.py`): heat and noise lossy, as AVIF at quality 90 with the
   no-data mask exact in the alpha (0.2 °C and 0.3 dB rms, 37 % of the PNG); everything else as lossless WebP.
   Never a one-channel PNG (see the app's page). `pipeline/reencode.py` and the Re-encode workflow convert
-  tiles already published; the PNGs they replace stay until a run with `--prune`.
+  tiles already published; the PNGs they replace stay until a run with `--prune`. Morning heat is now written
+  0.3 °C a step from -10 (`heat_landsat.SCALE`, up to 66 °C, 0.25 °C rms); the first scale stopped at 53.5 °C.
+  Each tile's meta says its scale: never decode heat with fixed constants.
 - **Border tiles** need buildings and roads from the neighbouring region. Each region leaves *pieces* on
   the ops bucket (`sg/border.py`); a tile waits (`NotCovered`, never given up on) until all are there.
   Pieces carry a `FORMAT`: bump it when what a piece holds changes, or old pieces poison new code.
@@ -103,7 +105,7 @@ bucket** (public).
 - **The breaker**: eight first-attempt failures in a row with the same signature stop the job
   (`Systemic`). A per-tile cause must raise an error with `per_tile` set, or it takes the region down.
 - **The nightly workflow**: `plan` (matrix of the regions with most work, six at a time) → `build` (one
-  job per region, 4.5 h budget) → `report` → `gaps` → `triage` (an agent writes the digest, in Italian,
+  job per region, 5 h budget counted from its start) → `report` → `gaps` → `triage` (an agent writes the digest, in Italian,
   on issue #1 "Pipeline runs", and opens an issue when a run needs a look).
 
 ## Debugging
