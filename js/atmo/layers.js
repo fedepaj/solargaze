@@ -276,7 +276,8 @@ export const KINDS = {
         value: v,
         text: `${v.toFixed(0)} ${AIR_METRICS[option].unit}`,
         sub: `${monthName(ctx.monthFrac)} ${y} mean · CAMS global reanalysis, an 80 km cell: the region, not the street` +
-          (y !== ctx.year ? ` · ${y < ctx.year ? 'its last year' : 'its first year'}` : ''),
+          (y !== ctx.year ? ` · ${y < ctx.year ? 'its last year' : 'its first year'}` : '') +
+          (s.standIn ? ' · no street-scale air here yet' : ''),
         band: bandOf(option, v),
       };
     },
@@ -315,13 +316,16 @@ export const KINDS = {
  */
 function theme(spec) {
   const kindOf = ctx => KINDS[cardOf(ctx.mode)?.kind] || null;
+  // A series standing in for the variant in use (the reanalysis grid where
+  // no street has been modelled) is read and drawn as its own kind.
+  const kindFor = (s, ctx) => (s?.standIn && KINDS[s.kind]) || kindOf(ctx);
   return {
     ...spec,
-    field: (s, lat, lon, t, ctx) => kindOf(ctx)?.field(s, lat, lon, t, ctx) ?? NaN,
-    domain: (s, ctx) => kindOf(ctx)?.domain(s, ctx, cardOf(ctx.mode)) ?? null,
+    field: (s, lat, lon, t, ctx) => kindFor(s, ctx)?.field(s, lat, lon, t, ctx) ?? NaN,
+    domain: (s, ctx) => kindFor(s, ctx)?.domain(s, ctx, cardOf(ctx.mode)) ?? null,
     stops: ctx => (kindOf(ctx) || KINDS[spec.defaultKind]).stops(ctx, cardOf(ctx.mode)),
     legend: (domain, ctx) => (kindOf(ctx) || KINDS[spec.defaultKind]).legend(domain, ctx, cardOf(ctx.mode)),
-    reading: (s, lat, lon, t, ctx) => kindOf(ctx)?.reading(s, lat, lon, t, ctx, cardOf(ctx.mode)) ?? null,
+    reading: (s, lat, lon, t, ctx) => kindFor(s, ctx)?.reading(s, lat, lon, t, ctx, cardOf(ctx.mode)) ?? null,
   };
 }
 

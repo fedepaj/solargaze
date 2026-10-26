@@ -286,14 +286,21 @@ test('the air of earlier years: the cell under the point, the month and year on 
   assert.ok(Number.isNaN(air.field(s, 45.1, 10.8, 0, { ...ctx, year: 2003 })), 'no value that year');
   assert.match(air.reading(s, 45.1, 10.8, 0, { ...ctx, year: 2010 }).sub, /Jul 2004 mean .* its last year/);
   assert.ok(Number.isNaN(air.field(s, 50, 10.8, 0, ctx)), 'outside the grid');
-  // The slider picks the variant: before 2020 the past, after it the street habit.
+  // The slider picks the variant: a year in the grid's span is that year,
+  // the present is the street habit.
   setViewYear(2008);
   assert.equal(modeOf(air, {}), 'air_past');
   setViewYear(1990);
   assert.equal(modeOf(air, {}), 'air_past');
   setViewYear(2023);
-  assert.equal(modeOf(air, {}), 'air_street');
+  assert.equal(modeOf(air, {}), 'air_past');
   setViewYear(null);
+  assert.equal(modeOf(air, {}), 'air_street');
+  // Where no street has been modelled the grid stands in for it, read as a grid and saying so.
+  const standIn = { ...s, standIn: true };
+  const street = { ...ctx, mode: 'air_street', year: 2026 };
+  assert.equal(air.field(standIn, 45.1, 10.8, 0, { ...street, year: 2004 }), 40);
+  assert.match(air.reading(standIn, 45.1, 10.8, 0, street).sub, /Jul 2004 mean .* its last year · no street-scale air here yet/);
 });
 
 test('pollen bands differ by taxon, and under a grain there is none', () => {
@@ -373,4 +380,22 @@ test('street air: modelled pollutants scale CAMS, ozone titrates, PM2.5 is left 
   assert.equal(streetValue('ozone', c, n => (n === 'nitrogen_dioxide' ? 20 : NaN)), 0);
   // no ratio here: CAMS as it is
   assert.equal(streetValue('nitrogen_dioxide', c, () => NaN), 20);
+});
+
+import { gridAreaFor } from '../js/atmo/field.js';
+
+test('the air by year: the area under the pin, or none', () => {
+  const grid = (north, west, rows, cols) => ({ north, west, rows, cols, step: 0.75 });
+  const meta = { areas: [
+    { name: 'europe', grid: grid(72, -25, 51, 94) },
+    { name: 'north_america', grid: grid(55.5, -168, 55, 145) },
+    { name: 'japan', grid: grid(46.5, 122.25, 31, 33) },
+  ] };
+  assert.equal(gridAreaFor(meta, 41.9, 12.5).name, 'europe');
+  assert.equal(gridAreaFor(meta, 34.05, -118.25).name, 'north_america');
+  assert.equal(gridAreaFor(meta, 35.68, 139.77).name, 'japan');
+  assert.equal(gridAreaFor(meta, -23.5, -46.6), null);                  // São Paulo: none yet
+  // A meta from before the areas is Europe's alone.
+  assert.equal(gridAreaFor({ grid: grid(72, -25, 51, 94), files: {} }, 41.9, 12.5).name, 'europe');
+  assert.equal(gridAreaFor({ grid: grid(72, -25, 51, 94), files: {} }, 35.68, 139.77), null);
 });

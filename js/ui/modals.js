@@ -603,9 +603,11 @@ function openHelp() {
        morning than today's satellites pass, so part of any difference is the clock.
        <b>Air</b> is the five-year habit for that month and
        hour, street by street at 50 m: CAMS corrected for the roads, buildings and green around
-       each street by a model fitted to the monitoring stations, ozone from NO₂ by titration. Before
-       2020 it becomes that month of that year since 2003, from the CAMS global reanalysis: 80 km
-       blocks, a region's air rather than a street's.
+       each street by a model fitted to the monitoring stations, ozone from NO₂ by titration — so far
+       around Rome and Naples. Slide the year back and it becomes that month of that year since 2003,
+       from the CAMS global reanalysis: 80 km blocks, a region's air rather than a street's; and
+       wherever no street has been modelled, that is the air you see today too, from its last year,
+       over Europe, North America and Japan.
        <b>Noise</b> is road traffic as a day–evening–night level (Lden), at 10 m: a model from the
        class of every road and the buildings that screen it, calibrated on Berlin's official noise
        map and checked on Hamburg's, where it falls within one 5 dB band nine times in ten. It knows no
@@ -661,7 +663,7 @@ function openHelp() {
       <li><b>Air, monitoring stations, Brazil</b>: <a href="https://dados.mma.gov.br/dataset/5be05b46-3bda-4f6e-9bf2-810e716fff33" target="_blank" rel="noopener">MonitorAr</a>, Ministério do Meio Ambiente e Mudança do Clima, with the state and municipal networks (CC BY).</li>
       <li><b>Light pollution</b>: NASA <a href="https://blackmarble.gsfc.nasa.gov/" target="_blank" rel="noopener">Black Marble</a> VNP46A4 yearly night lights (public domain), from the LAADS DAAC. The glow model is fitted on <a href="https://doi.org/10.5880/GFZ.1.4.2016.001" target="_blank" rel="noopener">The New World Atlas of Artificial Night Sky Brightness</a> (Falchi et al. 2016, <a href="https://doi.org/10.1126/sciadv.1600377" target="_blank" rel="noopener">Science Advances</a>), which is used for that fit only and not shown.</li>
       <li><b>Night sky before 2012</b>: Li, Zhou et al., <a href="https://doi.org/10.6084/m9.figshare.9828827" target="_blank" rel="noopener">Harmonization of DMSP and VIIRS nighttime light data</a> (Scientific Data, 2020; CC BY 4.0), chained by us to the VIIRS sky of 2012.</li>
-      <li><b>Air before 2020</b>: generated using Copernicus Atmosphere Monitoring Service information, CAMS global reanalysis (EAC4) monthly means 2003–2019 (Copernicus licence).</li>
+      <li><b>Air by year</b>: generated using Copernicus Atmosphere Monitoring Service information, CAMS global reanalysis (EAC4) monthly means 2003–2024 (Copernicus licence).</li>
       <li><b>Growth</b>: <a href="https://human-settlement.emergency.copernicus.eu/" target="_blank" rel="noopener">GHS-BUILT-S R2023A</a>, Global Human Settlement Layer, © European Union, European Commission Joint Research Centre (CC BY 4.0); epochs 1975–2020, reprojected and encoded by us.</li>
       <li><b>Buildings and roads</b> (wind and street-scale air): © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL, from <a href="https://download.geofabrik.de" target="_blank" rel="noopener">Geofabrik</a> extracts.</li>
       <li><b>Land cover and terrain</b> (street-scale air): ESA WorldCover 2021 (© ESA WorldCover project, CC-BY 4.0) and Copernicus DEM GLO-30 (© DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA).</li>

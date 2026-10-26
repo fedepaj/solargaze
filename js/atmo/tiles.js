@@ -16,6 +16,7 @@ import { cachedFetch } from './cache.js';
 import { TILES_BASE, TILES_REMOTE } from '../config.js';
 import { profile } from '../device.js';
 import { cardOf } from './catalog.js';
+import { gridAreaFor } from './field.js';
 
 export const STEP = 0.25;
 
@@ -229,25 +230,37 @@ export function gridPast(product) {
   if (!grids.has(product)) {
     const load = async () => {
       const card = cardOf(product);
-      const meta = await fetchJson(`${BASE}/${card.meta}`, { cache: 'no-cache' });
-      if (!meta) return null;
-      const data = {};
-      await Promise.all(Object.entries(meta.files).map(async ([name, file]) => {
-        const img = await loadImage(`${BASE}/${file}?v=${encodeURIComponent(meta.generated || '')}`);
-        data[name] = channels(img).red;
-      }));
-      return { meta, data };
+      return fetchJson(`${BASE}/${card.meta}`, { cache: 'no-cache' });
     };
     grids.set(product, load().catch(err => { grids.delete(product); throw err; }));
   }
   return grids.get(product);
 }
 
+/** One area's images of a grid of earlier years: only the area under the pin is fetched. */
+function gridAreaData(product, meta, area) {
+  const key = `${product}|${area.name}`;
+  if (!grids.has(key)) {
+    const load = async () => {
+      const data = {};
+      await Promise.all(Object.entries(area.files).map(async ([name, file]) => {
+        const img = await loadImage(`${BASE}/${file}?v=${encodeURIComponent(meta.generated || '')}`);
+        data[name] = channels(img).red;
+      }));
+      return data;
+    };
+    grids.set(key, load().catch(err => { grids.delete(key); throw err; }));
+  }
+  return grids.get(key);
+}
+
 /** The grid of earlier years around a point: a few degrees each way, on its own cell edges. */
 export async function gridPastAround(lat, lon, product) {
-  const g = await gridPast(product);
-  if (!g) return null;
-  const { north, west, step, rows, cols } = g.meta.grid;
+  const meta = await gridPast(product);
+  const area = gridAreaFor(meta, lat, lon);
+  if (!area) return null;
+  const data = await gridAreaData(product, meta, area);
+  const { north, west, step, rows, cols } = area.grid;
   const span = 4;
   const r0 = Math.max(0, Math.round((north - (lat + span)) / step));
   const r1 = Math.min(rows - 1, Math.round((north - (lat - span)) / step));
@@ -257,9 +270,9 @@ export async function gridPastAround(lat, lon, product) {
   const grid = {
     north: north - r0 * step + step / 2, south: north - r1 * step - step / 2,
     west: west + c0 * step - step / 2, east: west + c1 * step + step / 2,
-    key: `${product}|${r0},${r1},${c0},${c1}`,
+    key: `${product}|${area.name}|${r0},${r1},${c0},${c1}`,
   };
-  return { kind: 'grid-past', grid, data: g.data, meta: g.meta, key: grid.key };
+  return { kind: 'grid-past', grid, data, meta: { ...meta, grid: area.grid, files: area.files }, key: grid.key };
 }
 
 /**

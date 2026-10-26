@@ -1,6 +1,9 @@
 """
-The air of earlier years, 2003–2019: monthly means from the CAMS global
-reanalysis (EAC4), on its 0.75° grid (about 80 km) over Europe.
+The air by year, 2003–2024: monthly means from the CAMS global reanalysis
+(EAC4), on its 0.75° grid (about 80 km), over Europe, North America and
+Japan. In the app it is the air of earlier years everywhere, and the air of
+the present wherever there is no street-scale layer — which outside the few
+regions built at 50 m is everywhere.
 
 What the number is: the model's mean at the surface for a calendar month of
 a given year — PM2.5 and PM10 as delivered (kg/m³), NO₂ and ozone from the
@@ -17,12 +20,17 @@ has: the nightly pipeline does not run it). Generated using Copernicus
 Atmosphere Monitoring Service information; neither the European Commission
 nor ECMWF is responsible for any use of it.
 
-Output: one PNG per pollutant under ``data/tiles/air_past/``: the grid's
-rows for every (year, month), stacked oldest first, a byte a cell
-(µg/m³ + 1, 0 = no value), and ``air_past/meta.json`` with the grid.
+Output: per area, one PNG per pollutant: the grid's rows for every
+(year, month), stacked oldest first, a byte a cell (µg/m³ + 1, 0 = no
+value) — Europe's under ``data/tiles/air_past/`` as it has always been, the
+others under ``air_past/<area>/`` — and ``air_past/meta.json`` with every
+area's grid (``areas``; Europe's also at the top, for the app of before).
 
     pipeline/.venv/bin/python pipeline/air_eac4.py            # fetch, fold, write
     pipeline/.venv/bin/python pipeline/air_eac4.py --publish  # and send to R2
+
+The downloads are kept under ``pipeline/cache/eac4`` or, when the cache
+disk is not there, wherever ``SG_EAC4_CACHE`` says.
 """
 
 from __future__ import annotations
@@ -30,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import zipfile
 from datetime import datetime, timezone
@@ -44,8 +53,20 @@ sys.path[:0] = [str(HERE), str(HERE / "wind")]
 log = logging.getLogger("eac4")
 
 DATASET = "cams-global-reanalysis-eac4-monthly"
-YEARS = list(range(2003, 2020))     # the present air (CAMS Europe) begins in 2020
-AREA = (72.0, -25.0, 34.5, 45.0)    # north, west, south, east: the European scope
+YEARS = list(range(2003, 2025))
+# north, west, south, east. Europe's is the European scope; North America's
+# reaches from Hawaii to Puerto Rico and from Mexico's north to Canada's
+# cities; Japan's from Kyushu's islands to Hokkaido.
+AREAS = {
+    "europe": (72.0, -25.0, 34.5, 45.0),
+    "north_america": (55.5, -168.0, 15.0, -60.0),
+    "japan": (46.5, 122.25, 23.25, 146.25),
+}
+# Outside Europe a cell is kept only where it touches a region the pipeline
+# builds: the reanalysis reads Mexico City's PM2.5 at 128 µg/m³ and Seoul's
+# at 112 (the stations, 20–25), and a grid there would show it to anyone.
+KEEP = {"north_america": "north-america/us/", "japan": "asia/japan/"}
+YEARS_A_REQUEST = 6                 # what the Data Store hands over in one go without a long queue
 STEP = 0.75
 AIR_DENSITY = 1.2                   # kg/m³, for a mixing ratio near the ground
 VARS = {   # the app's name → (ADS variable, NetCDF variable, model level or None)
@@ -54,69 +75,107 @@ VARS = {   # the app's name → (ADS variable, NetCDF variable, model level or N
     "nitrogen_dioxide": ("nitrogen_dioxide", "no2", "60"),
     "ozone": ("ozone", "go3", "60"),
 }
-CACHE = HERE / "cache" / "eac4"
+CACHE = Path(os.environ["SG_EAC4_CACHE"]) if os.environ.get("SG_EAC4_CACHE") else HERE / "cache" / "eac4"
 OUT = HERE.parent / "data" / "tiles" / "air_past"
 
 
-def fetch_year(year: int) -> list[Path]:
-    """The year's twelve monthly means, every variable, as NetCDFs (cached)."""
+def fetch(area: str, years: list[int]) -> list[Path]:
+    """Those years' monthly means over the area, every variable, as NetCDFs (cached)."""
     import cdsapi
-    done = sorted(CACHE.glob(f"{year}/*.nc"))
+    where = CACHE / area / f"{years[0]}-{years[-1]}"
+    done = sorted(where.glob("*.nc"))
     if len(done) == 2:
         return done
-    (CACHE / str(year)).mkdir(parents=True, exist_ok=True)
-    zpath = CACHE / f"{year}.zip"
-    log.info("requesting %d", year)
+    where.mkdir(parents=True, exist_ok=True)
+    zpath = where.with_suffix(".zip")
+    log.info("requesting %s %d–%d", area, years[0], years[-1])
     cdsapi.Client(quiet=True, timeout=300).retrieve(DATASET, {
         "variable": [v[0] for v in VARS.values()], "model_level": ["60"], "product_type": ["monthly_mean"],
-        "year": [str(year)], "month": [f"{m:02d}" for m in range(1, 13)],
-        "area": list(AREA), "data_format": "netcdf_zip",
+        "year": [str(y) for y in years], "month": [f"{m:02d}" for m in range(1, 13)],
+        "area": list(AREAS[area]), "data_format": "netcdf_zip",
     }, str(zpath))
     with zipfile.ZipFile(zpath) as z:
-        z.extractall(CACHE / str(year))
+        z.extractall(where)
     zpath.unlink()
-    return sorted(CACHE.glob(f"{year}/*.nc"))
+    return sorted(where.glob("*.nc"))
 
 
-def fold() -> tuple[dict, dict[str, np.ndarray]]:
-    """(grid, {pollutant: (years, 12, rows, cols) µg/m³})."""
+def fold(area: str) -> tuple[dict, dict[str, np.ndarray]]:
+    """(grid, {pollutant: (years, 12, rows, cols) µg/m³}) for one area."""
     import xarray as xr
     out = {v: [] for v in VARS}
     grid = None
-    for year in YEARS:
+    for k in range(0, len(YEARS), YEARS_A_REQUEST):
+        years = YEARS[k:k + YEARS_A_REQUEST]
         # Surface fields and the lowest model level come as two files, stamped
         # at different hours of the month's first day: read each on its own.
-        files = [xr.open_dataset(p) for p in fetch_year(year)]
+        files = [xr.open_dataset(p) for p in fetch(area, years)]
         for name, (_, nc, level) in VARS.items():
             ds = next(f for f in files if nc in f)
             a = ds[nc]
             if level is not None:
                 a = a.isel(model_level=0) * AIR_DENSITY
             a = a.sortby("valid_time").values * 1e9            # kg/m³ → µg/m³
-            if a.shape[0] != 12:
-                raise ValueError(f"{year} {name}: {a.shape[0]} months")
-            out[name].append(a.astype(np.float32))
+            if a.shape[0] != 12 * len(years):
+                raise ValueError(f"{area} {years[0]}–{years[-1]} {name}: {a.shape[0]} months")
+            out[name].append(a.astype(np.float32).reshape(len(years), 12, *a.shape[1:]))
         if grid is None:
             lats, lons = ds.latitude.values, ds.longitude.values
-            grid = {"north": float(lats[0]), "west": float(lons[0]), "step": STEP,
+            # West of Greenwich the reanalysis counts longitude from 0 to 360.
+            grid = {"north": float(lats[0]), "west": float((lons[0] + 180) % 360 - 180), "step": STEP,
                     "rows": int(len(lats)), "cols": int(len(lons)),
                     "note": "cell centres: row 0 is `north`, column 0 is `west`; a cell spans ±step/2"}
         for f in files:
             f.close()
-    return grid, {k: np.stack(v) for k, v in out.items()}
+    return grid, {k: np.concatenate(v) for k, v in out.items()}
 
 
-def write(grid: dict, data: dict[str, np.ndarray]) -> dict:
-    OUT.mkdir(parents=True, exist_ok=True)
-    files = {}
-    for name, a in data.items():
-        byte = np.where(np.isfinite(a), np.clip(np.round(a) + 1, 1, 255), 0).astype(np.uint8)
-        Image.fromarray(byte.reshape(-1, grid["cols"]), "L").save(OUT / f"{name}.png", optimize=True)
-        files[name] = f"air_past/{name}.png"
+def kept(area: str, grid: dict) -> np.ndarray | None:
+    """(rows, cols): the cells whose square touches one of the area's regions, or None to keep all."""
+    if area not in KEEP:
+        return None
+    import requests
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    import osm_extract
+    from sg import regions
+    shapes = []
+    for path in (p for p in regions.SCOPES["world"] if p.startswith(KEEP[area])):
+        poly = CACHE / "polys" / f"{regions.name_of(path)}.poly"
+        if not poly.exists():
+            poly.parent.mkdir(parents=True, exist_ok=True)
+            r = requests.get(f"{regions.GEOFABRIK}/{path}.poly", timeout=60)
+            r.raise_for_status()
+            poly.write_bytes(r.content)
+        shapes.append(osm_extract.read_poly(poly))
+    land = unary_union(shapes)
+    h = STEP / 2
+    return np.array([[land.intersects(box(grid["west"] + c * STEP - h, grid["north"] - r * STEP - h,
+                                          grid["west"] + c * STEP + h, grid["north"] - r * STEP + h))
+                      for c in range(grid["cols"])] for r in range(grid["rows"])])
+
+
+def write(folded: dict[str, tuple[dict, dict[str, np.ndarray]]]) -> dict:
+    areas = []
+    for area, (grid, data) in folded.items():
+        keep = kept(area, grid)
+        where = OUT if area == "europe" else OUT / area
+        where.mkdir(parents=True, exist_ok=True)
+        files = {}
+        for name, a in data.items():
+            ok = np.isfinite(a) if keep is None else np.isfinite(a) & keep
+            byte = np.where(ok, np.clip(np.round(a) + 1, 1, 255), 0).astype(np.uint8)
+            Image.fromarray(byte.reshape(-1, grid["cols"]), "L").save(where / f"{name}.png", optimize=True)
+            files[name] = (where / f"{name}.png").relative_to(OUT.parent).as_posix()
+        areas.append({"name": area, "grid": grid, "files": files})
+    europe = next(a for a in areas if a["name"] == "europe")
+    grid, data = folded["europe"]
     rome = (int(round((grid["north"] - 41.9) / STEP)), int(round((12.5 - grid["west"]) / STEP)))
     meta = {
         "product": "CAMS global reanalysis (EAC4), monthly means at the surface, 0.75°",
-        "years": YEARS, "grid": grid, "files": files, "vars": list(VARS),
+        "years": YEARS, "areas": areas,
+        # Europe's grid where the app of before looks for it.
+        "grid": europe["grid"], "files": europe["files"], "vars": list(VARS),
         "packing": "rows of the grid for each (year, month), stacked oldest first; byte = µg/m³ + 1, 0 = no value",
         "rome_annual_no2": {str(y): round(float(data["nitrogen_dioxide"][k, :, rome[0], rome[1]].mean()), 1)
                             for k, y in enumerate(YEARS)},
@@ -138,15 +197,16 @@ def main():
     import socket
     import netdns
     socket.getaddrinfo = netdns.getaddrinfo
-    grid, data = fold()
-    meta = write(grid, data)
+    meta = write({area: fold(area) for area in AREAS})
     log.info("wrote %s: NO₂ over Rome by year %s", OUT, meta["rome_annual_no2"])
     if args.publish:
         from sg.remote import Remote
         remote = Remote.maybe(HERE.parent / "data" / "tiles", HERE / "cache" / "state")
-        for p in sorted(OUT.iterdir()):
+        # The images first and the meta last: an app that reads the new meta
+        # finds every file it names.
+        for p in sorted((p for p in OUT.rglob("*") if p.is_file()), key=lambda p: p.name == "meta.json"):
             remote.publish_file(p)
-            log.info("published %s", p.name)
+            log.info("published %s", p.relative_to(OUT))
 
 
 if __name__ == "__main__":
