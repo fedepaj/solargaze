@@ -333,15 +333,38 @@ def cmd_prune_pieces(args) -> int:
 
 
 def cmd_matrix(args) -> int:
-    """The regions with the most work, as a GitHub Actions matrix."""
-    from . import regions
-    from .log import git_sha
+    """The regions with the most work, as a GitHub Actions matrix. The scope
+    may be several, each with its own slots: europe:6,world:4."""
     from . import border
     state = State(STATE)
-    products = products_of(args)
     waiting = border.waiting_tiles(state)
+    chosen, rows = [], []
+    for spec in args.scope.split(","):
+        scope, _, n = spec.partition(":")
+        c, r = _matrix_scope(scope, int(n) if n else args.max, args, state, waiting)
+        chosen += c
+        rows += r
+    out = json.dumps({"include": chosen})
+    print(out)
+    gh = os.environ.get("GITHUB_OUTPUT")
+    if gh:
+        with open(gh, "a") as f:
+            f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
+    for r in rows:
+        what = "pieces only" if r["support"] else (f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting, "
+                                                  f"{r['real'] - r.get('new', r['real'])} of them rebuilds)")
+        print(f"  {r['region']:38} {what}", file=sys.stderr)
+    return 0
+
+
+def _matrix_scope(scope: str, most: int, args, state, waiting) -> tuple[list[dict], list[dict]]:
+    """One scope's share of the night: (the rows chosen, every row in order)."""
+    from . import regions
+    from .log import git_sha
+    products = [p for p in products_of(args) if p.name in regions.products_for(scope, [p.name for p in products_of(args)])]
+    names = ",".join(p.name for p in products)
     rows, again, idle, tiles_by = [], [], [], {}
-    for path in regions.SCOPES[args.scope]:
+    for path in regions.SCOPES[scope]:
         try:
             tiles = regions.tiles_of(region_poly(path))
         except Exception as exc:  # noqa: BLE001 — one region's boundary is one region
@@ -351,7 +374,7 @@ def cmd_matrix(args) -> int:
         jobs = plan(products, tiles, state, git_sha())
         row = {"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": len(jobs),
                "support": False, "real": sum(j.tile not in waiting for j in jobs),
-               "new": sum(j.tile not in waiting and not j.rebuild for j in jobs)}
+               "new": sum(j.tile not in waiting and not j.rebuild for j in jobs), "products": names}
         if row["new"]:
             rows.append(row)
         elif row["real"]:
@@ -370,28 +393,19 @@ def cmd_matrix(args) -> int:
     # version of a product) has its pages up meanwhile: it takes at most
     # REBUILD_SLOTS of the night, after the waiting tiles, and the rest go
     # to places that have nothing yet.
-    ripe = _ripe(idle, args.scope) if idle else []
+    ripe = _ripe(idle, scope) if idle else []
     rows = ripe[:RIPE_SLOTS] + again[:REBUILD_SLOTS] + rows + ripe[RIPE_SLOTS:] + again[REBUILD_SLOTS:]
-    chosen = rows[:args.max]
+    chosen = rows[:most]
     # Neighbours whose border pieces are missing or old go first: they take
     # minutes, and the builds after them find their pieces. So do regions of
     # the scope that have never left theirs and that tiles are waiting for:
     # in the catalogue's order the last of them would run in months.
     if chosen:
-        support = _stale_neighbours(args.scope) + _unpieced(args.scope, chosen, tiles_by, waiting)
+        support = [dict(r, products=names) for r in
+                   _stale_neighbours(scope) + _unpieced(scope, chosen, tiles_by, waiting)]
         rows = support + rows
         chosen = support + chosen
-    out = json.dumps({"include": chosen})
-    print(out)
-    gh = os.environ.get("GITHUB_OUTPUT")
-    if gh:
-        with open(gh, "a") as f:
-            f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
-    for r in rows:
-        what = "pieces only" if r["support"] else (f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting, "
-                                                  f"{r['real'] - r.get('new', r['real'])} of them rebuilds)")
-        print(f"  {r['region']:38} {what}", file=sys.stderr)
-    return 0
+    return chosen, rows
 
 
 def _ripe(idle: list[dict], scope: str) -> list[dict]:
@@ -677,8 +691,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("prune-pieces", help="delete the border pieces of tiles that are finished")
     p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("matrix", help="the regions with most work, as a GitHub Actions matrix")
-    p.add_argument("--scope", default="europe")
-    p.add_argument("--max", type=int, default=8)
+    p.add_argument("--scope", default="europe", help="a scope, or several with their slots: europe:6,world:4")
+    p.add_argument("--max", type=int, default=8, help="slots for a scope that does not give its own")
     p.add_argument("--products")
     p = sub.add_parser("gaps", help="what the pipeline cannot do yet; --sync makes them GitHub issues")
     p.add_argument("--scope", default="test", help="a gap scope (test, americas, next) or ISO codes, comma-separated")
