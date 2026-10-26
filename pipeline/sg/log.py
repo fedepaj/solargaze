@@ -156,7 +156,7 @@ class Run:
         digest = sorted(
             ({"signature": sig, "count": len(hits), "kind": hits[0][2],
               "products": sorted({p for _, p, _, _ in hits}),
-              "tiles": sorted({t for t, _, _, _ in hits})[:20], "example": hits[0][3]}
+              "tiles": sorted({t for t, _, _, _ in hits})[:20], "example": hits[0][3], "example_tile": hits[0][0]}
              for sig, hits in self.failures.items()),
             key=lambda d: -d["count"])
         return {
@@ -188,6 +188,14 @@ class Run:
             for f in s["failures"][:15]:
                 tiles = ", ".join(f["tiles"][:5]) + (" …" if f["count"] > 5 else "")
                 lines.append(f"| {f['count']} | {f['kind']} | `{f['signature']}` | {tiles} |")
+            # The signature strips the numbers; whoever reads the digest needs
+            # one message whole (an implausible value, a path) to judge a cause
+            # that is not the network's or a border's.
+            examples = [f for f in s["failures"][:15] if f["kind"] not in (errors.TRANSIENT,)
+                        and not f["signature"].startswith("NotCovered") and f.get("example")]
+            if examples:
+                lines += ["", "Examples, one message whole:"]
+                lines += [f"- {f.get('example_tile', '')}: `{f['example'][:240]}`" for f in examples]
         if s["slowest"]:
             lines += ["", "Slowest: " + ", ".join(f"{d['tile']} {d['product']} {d['seconds']:.0f}s" for d in s["slowest"][:5])]
         return "\n".join(lines) + "\n"

@@ -90,6 +90,8 @@ class RunLog(unittest.TestCase):
             self.assertEqual(len(s["failures"]), 1)            # two tiles, one cause
             self.assertEqual(s["failures"][0]["count"], 2)
             self.assertIn("run.end", out.getvalue())
+            # The table strips the numbers; one message is shown whole.
+            self.assertIn("- N41.75E12.25: `N41.75E12.25: 30 of 200 scenes", run.markdown(s))
 
 
 if __name__ == "__main__":
