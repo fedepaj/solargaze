@@ -368,3 +368,16 @@ export function sampleStreet(set, option, lat, lon, monthFrac, hourFrac) {
     name => sampleClimatology(tile.clim, name, lat, lon, monthFrac, hourFrac),
     name => streetRatio(tile, name, lat, lon));
 }
+
+/**
+ * The area of a grid of earlier years (the air since 2003) that holds a
+ * point, or null. A meta from before the areas has one grid, Europe's.
+ */
+export function gridAreaFor(meta, lat, lon) {
+  const areas = meta?.areas || (meta?.grid ? [{ name: 'europe', grid: meta.grid, files: meta.files }] : []);
+  return areas.find(({ grid: g }) => {
+    const r = Math.round((g.north - lat) / g.step);
+    const c = Math.round((lon - g.west) / g.step);
+    return r >= 0 && c >= 0 && r < g.rows && c < g.cols;
+  }) || null;
+}

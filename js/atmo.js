@@ -24,7 +24,7 @@ import { dayOfYear, daysInYear } from './solar.js';
 import { STEP, tileIdFor, tileProduct, tileProductsInView, snapRect, levelFor, streetSetAround, gridPastAround, maskAround, maskSpot, getCatalog } from './atmo/tiles.js';
 import { SOURCES, resolveDate, registerTileSources } from './atmo/sources.js';
 import { LAYERS, layerById, rivalsOf, modeOf, sourceOf, optionsOf, applyCatalog, available, setDaylight, setViewYear } from './atmo/layers.js';
-import { setCatalog, cardOf } from './atmo/catalog.js';
+import { setCatalog, cardOf, variantsOf } from './atmo/catalog.js';
 import { fetchSeries, seriesKey } from './atmo/openmeteo.js';
 import { createDrape, createPending } from './atmo/drape.js';
 import { mosaicLayout, mosaicSteps } from './atmo/mosaic.js';
@@ -237,13 +237,25 @@ function fetchWant(want) {
     }
     // Street air reads the tile under the pin and its neighbours, each with
     // the CAMS table its ratios multiply.
-    if (want.source.dataKind === 'street-air') return streetSetAround(want.lat, want.lon, want.source.product);
-    // The air of earlier years is one file for Europe, read around the pin.
+    // Where no street has been modelled — everywhere but a few regions — the
+    // air of the present is the latest year of the regional reanalysis, and
+    // says so.
+    if (want.source.dataKind === 'street-air') {
+      return streetSetAround(want.lat, want.lon, want.source.product).then(s => s ?? regionalAir(want.lat, want.lon));
+    }
+    // The air of earlier years is a grid per continent, read around the pin.
     if (want.source.dataKind === 'grid-past') return gridPastAround(want.lat, want.lon, want.source.product);
     if (want.source.dataKind === 'building-mask') return maskAround(want.lat, want.lon, want.source.product);
     return tileProduct(want.tileId, want.source.product);
   }
   return fetchSeries(want);
+}
+
+/** The reanalysis grid standing in for street air, or null where it has nothing either. */
+async function regionalAir(lat, lon) {
+  const product = variantsOf('air').find(v => v.card.kind === 'grid-past')?.name;
+  const g = product ? await gridPastAround(lat, lon, product) : null;
+  return g && { ...g, standIn: true, key: `${g.key}|present` };
 }
 
 function scheduleFetch(immediate = false) {
