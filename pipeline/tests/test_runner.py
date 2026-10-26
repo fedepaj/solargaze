@@ -127,6 +127,37 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(counts["skipped"], 3)
         self.assertEqual(self.state.get("heat", TILES[0]).status, "")
 
+    def test_a_product_on_an_empty_one_is_empty_and_due_again_when_it_is_built(self):
+        on_top = Scripted({})
+        on_top.depends = ("wind",)
+        self.state.record(TILES[0], "wind", EMPTY, version=1, msg="no OSM building in the tile")
+        counts, _ = self.go(on_top, tiles=[TILES[0]])
+        self.assertEqual(counts, {DONE: 0, EMPTY: 1, FAILED: 0, "skipped": 0})
+        self.assertEqual(self.state.get("heat", TILES[0]).status, EMPTY)
+        self.assertEqual(plan([on_top], [TILES[0]], self.state, ""), [])   # not waiting for ever
+        self.state.record(TILES[0], "wind", DONE, version=2)
+        self.assertEqual([j.reason for j in plan([on_top], [TILES[0]], self.state, "")], ["built on what is now there"])
+        counts, _ = self.go(on_top, tiles=[TILES[0]])
+        self.assertEqual(counts[DONE], 1)
+
+    def test_a_tile_is_not_started_when_the_longest_so_far_would_overrun(self):
+        clock = [0.0]
+
+        class Slow(Scripted):
+            def build(self, tile, stage, ctx):
+                clock[0] += 600                      # ten minutes a tile
+                return super().build(tile, stage, ctx)
+
+        import sg.runner as runner
+        real = runner.time.time
+        runner.time.time = lambda: clock[0]
+        try:
+            counts, _ = self.go(Slow({}), budget=Budget(seconds=1000, started=1e-9))
+        finally:
+            runner.time.time = real
+        # 1000 s: the first takes 600, and 400 left is less than that.
+        self.assertEqual((counts[DONE], counts["skipped"]), (1, 2))
+
     def test_an_interrupted_swap_is_restored(self):
         self.go(Scripted({}), tiles=[TILES[0]])
         tile = self.data / TILES[0]

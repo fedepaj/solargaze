@@ -33,7 +33,7 @@ on:
       scope: { description: 'build scope (pipeline/sg/regions.py)', default: 'europe' }
       max: { description: 'regions in parallel', default: '6' }
       products: { description: 'products', default: 'wind,noise,light,built,heat,heat_night,heat_2004,heat_1994,heat_1984' }
-      hours: { description: 'build budget per region, hours', default: '4.5' }
+      hours: { description: 'budget per region, hours, extract included', default: '5' }
       gap_scope: { description: 'countries whose gaps to track (pipeline/sg/gaps.py)', default: 'next' }
       gaps_only: { description: 'skip the build: only scan the gaps and let the agent work on one', type: boolean, default: false }
 
@@ -51,7 +51,7 @@ env:
   SCOPE: ${{ inputs.scope || 'europe' }}
   MAX: ${{ inputs.max || '6' }}
   PRODUCTS: ${{ inputs.products || 'wind,noise,light,built,heat,heat_night,heat_2004,heat_1994,heat_1984' }}
-  HOURS: ${{ inputs.hours || '4.5' }}
+  HOURS: ${{ inputs.hours || '5' }}   # + the longest tile + publishing, inside the 350 min below
   GAP_SCOPE: ${{ inputs.gap_scope || 'next' }}
 
 jobs:
@@ -207,7 +207,11 @@ jobs:
         run: |
           gh label create pipeline-alert --color B60205 --description "The pipeline needs a look" 2>/dev/null || true
           url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          open=$(gh issue list --label pipeline-alert --state open --json number --jq '.[0].number')
+          # Only an alarm this step raised: the owner labels other issues
+          # pipeline-alert too (to hand them to the agent), and a run's report
+          # does not belong on them.
+          open=$(gh issue list --label pipeline-alert --state open --json number,title \
+                   --jq '[.[] | select(.title | startswith("Pipeline: run "))][0].number // empty')
           if [ -n "$open" ]; then
             { echo "Again in [run ${{ github.run_id }}]($url):"; echo; cat report.md; } | gh issue comment "$open" --body-file -
             echo "issue=$open" >> "$GITHUB_OUTPUT"

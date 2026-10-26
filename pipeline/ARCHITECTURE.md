@@ -67,7 +67,7 @@ The runner installs a validated product atomically and records it.
 | class | examples | what happens |
 |---|---|---|
 | `Transient` | DNS, timeouts, 5xx, 429, a dropped connection, Overpass busy | retried in-run with backoff; if still failing, recorded and retried next run |
-| `NoData` | open sea, no clear Landsat scene, no station in a country | recorded as *empty* with the reason; not retried until the product version or its inputs change |
+| `NoData` | open sea, no clear Landsat scene, no station in a country | recorded as *empty* with the reason; not retried until the product version or its inputs change. A product on one that is empty on a tile is empty too, and due again when that one is built |
 | `Upstream` | a source changed its format, a 4xx that is not ours | recorded as *failed*; retried next run, flagged in the digest |
 | `Bug` | any other exception, a validation failure | recorded as *failed* with its traceback signature; not retried until the code changes (the version of the product, or the git commit) |
 
@@ -126,3 +126,10 @@ it — Ukraine, Belarus, Turkey, Russia's north-west, Kaliningrad, Kosovo,
 Morocco and a few microstates — run with `--pieces-only`: they leave pieces
 and build nothing. With them every border tile of Europe can be closed
 (`sg/border.py`, `regions.NEIGHBOURS`).
+
+The planner sends a region of the catalogue that has never left its pieces,
+and that waiting tiles reach into, to leave them at once (`--pieces-only`, a
+few a night) rather than when its turn to build comes, which for the last
+ones is months away. A region whose only work is waiting tiles runs once a
+neighbour has left pieces since it last gathered, ahead of the queue in at
+most two of the night's slots.
