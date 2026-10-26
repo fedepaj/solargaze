@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from functools import cache
 from pathlib import Path
-
 
 from ..errors import Invalid
 from ..product import Context, Product
+from ..state import DONE, Record
+
+
+@cache
+def clipped() -> frozenset[str]:
+    """Tiles whose hottest pixels were cut at the first scale's 53.5 °C."""
+    lines = (Path(__file__).with_name("heat_clipped.txt")).read_text().splitlines()
+    return frozenset(x.strip() for x in lines if x.strip() and not x.startswith("#"))
 
 
 class Heat(Product):
@@ -28,6 +36,17 @@ class Heat(Product):
         import heat_landsat
         from tiles import Tile
         return heat_landsat.build(Tile.parse(tile), stage)
+
+    def inputs(self, tile: str, ctx: Context) -> dict:
+        import heat_landsat
+        return {"scale": list(heat_landsat.SCALE)}
+
+    def reason(self, tile: str, rec: Record, *, git: str = "") -> str | None:
+        why = super().reason(tile, rec, git=git)
+        if (why is None and self.name == "heat" and rec.status == DONE and "scale" not in rec.inputs
+                and tile in clipped()):
+            return "rescale: its hottest pixels were cut at 53.5 °C"
+        return why
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
         if not info.get("months"):

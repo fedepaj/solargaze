@@ -23,6 +23,9 @@ class HeatNight(Heat):
                 "Only between about 52° south and north, the reach of the Space Station it flies on.",
     }
 
+    def inputs(self, tile: str, ctx: Context) -> dict:
+        return {}   # ECOSTRESS keeps its own scale (heat_ecostress.py)
+
     def unavailable(self) -> str | None:
         """Without Earthdata credentials every tile would fail alike. The plan
         job holds no credentials, only whether they are set

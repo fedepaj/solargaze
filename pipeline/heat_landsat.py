@@ -55,8 +55,13 @@ MAX_CLOUD = 40
 CACHE = Path(__file__).resolve().parent / "cache" / "landsat"
 
 # One 8-bit channel: byte 0 is "no cloud-free observation", and from 1 up
-# the temperature climbs a quarter of a degree a step from T_MIN.
+# the temperature climbs a quarter of a degree a step from T_MIN. That first
+# scale stopped at 53.5 °C, and a July morning in Sicily has one roof in nine
+# above it: tiles are now written on SCALE, three tenths of a degree a step,
+# up to 66 °C. Each tile's meta says its scale and the app reads it from
+# there; T_MIN and T_STEP stay for the tiles written with them.
 T_MIN, T_STEP = -10.0, 0.25
+SCALE = (-10.0, 0.3)
 ENCODING = 2
 
 # Windowed reads over HTTP: do not list directories, do not probe sidecars.
@@ -174,13 +179,32 @@ def run(tile: Tile) -> None:
 PLATFORMS = ("landsat-8", "landsat-9")
 
 
+# Landsat 5 and 7 take whole decks of low cloud for clear ground: their cloud
+# mask has no cirrus band and leans on a thermal test that a winter stratus
+# passes, so a scene can read -50 °C over a tile at "0 % cloud" — and ranking
+# scenes by their cloud cover puts exactly those first. An earlier decade
+# therefore checks each scene against the present: a scene whose clear pixels
+# have a median more than COLDER_C under the same month of the present heat
+# (Landsat 8/9, a better mask and thirty-odd scenes) is a cloud, and is not
+# used. Measured on 34 tiles across Europe, 4657 scenes of 1984–93: one in
+# fifteen sits more than 25 °C under the present (the worst 167 °C under),
+# while the ground sits 3.7 °C under at the median and one scene in twenty
+# 11 °C or more under (the earlier overpass, the snow of the winters of
+# 1985–87). With the check, months more than 12 °C under the present went
+# from 18 of 408 to 2, and the share of pixels with a value did not drop.
+COLDER_C = 15.0
+
+
 def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, ...] = PLATFORMS,
-          max_per_month: int | None = None, subdir: str = "heat") -> dict:
+          max_per_month: int | None = None, subdir: str = "heat",
+          reference_c: dict[int, float] | None = None) -> dict:
     """The packed months into out_dir; returns the meta entry, writes nothing
     else. NoData where no scene covers the tile or none carries surface
     temperature; Transient when too many scenes would not read (the network,
     not the tile). An earlier decade (heat_past) passes its own years and
-    satellites, and a cap on the scenes a month: the clearest are kept."""
+    satellites, a cap on the scenes a month — the clearest are kept — and
+    each month's tile median of the present, against which a scene that
+    reads far colder is dropped as cloud (COLDER_C)."""
     shape = tile.shape(DEG_PER_PX)
     print(f"{tile.id}: {shape[0]}×{shape[1]} px at {DEG_PER_PX}°")
     cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
@@ -196,35 +220,48 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
     if items and not with_st:
         raise NoData(f"{tile.id}: Landsat has no surface temperature here ({len(items)} scenes, reflectance only)")
     items = with_st
-    if max_per_month:
-        kept: dict[int, list] = {}
-        for it in sorted(items, key=lambda it: it.properties.get("eo:cloud_cover", 100)):
-            if len(kept.setdefault(it.datetime.month, [])) < max_per_month:
-                kept[it.datetime.month].append(it)
-        items = [it for month in kept.values() for it in month]
-        print(f"  kept the clearest {max_per_month} a month: {len(items)} scenes")
+    cover = lambda it: it.properties.get("eo:cloud_cover", 100)  # noqa: E731
+    # Each month's scenes, clearest first. Without a cap every one is read in
+    # one go; with one, the cap's worth first, and for a month that lost some
+    # (a cloud, a scene that only clips the tile) the next ones, until the cap
+    # is full or the month has none left.
+    queue: dict[int, list] = {m: [] for m in range(1, 13)}
+    for it in sorted(items, key=cover):
+        queue[it.datetime.month].append(it)
+
+    def take(m: int, n: int | None) -> list:
+        out, queue[m] = (queue[m], []) if n is None else (queue[m][:n], queue[m][n:])
+        return out
 
     by_month: dict[int, list[np.ndarray]] = {m: [] for m in range(1, 13)}
+    clouds = {m: 0 for m in range(1, 13)}
     t0 = time.time()
-    failed = 0
+    failed = read = 0
     # Reading a scene is a few windowed requests to the archive and mostly
     # waiting, so several go at once: a runner far from the archive spent
     # ten minutes a tile reading them one by one.
     from concurrent.futures import ThreadPoolExecutor
-    ordered = sorted(items, key=lambda it: it.datetime)
-    with ThreadPoolExecutor(SCENE_WORKERS) as pool:
-        arrays = pool.map(lambda it: cached_scene(it, tile, shape), ordered)
-        pairs = list(zip(ordered, arrays))
-    for i, (item, arr) in enumerate(pairs):
-        if arr is None:
-            failed += 1
-            continue
-        # A scene that only clips the tile's corner adds noise, not signal.
-        if np.isfinite(arr).mean() < 0.05:
-            continue
-        by_month[item.datetime.month].append(arr)
-        if (i + 1) % 10 == 0:
-            print(f"  {i + 1}/{len(items)} scenes, {time.time() - t0:.0f}s")
+    batch = [it for m in queue for it in take(m, max_per_month)]
+    while batch:
+        with ThreadPoolExecutor(SCENE_WORKERS) as pool:
+            pairs = list(zip(batch, pool.map(lambda it: cached_scene(it, tile, shape), batch)))
+        read += len(pairs)
+        for item, arr in sorted(pairs, key=lambda p: cover(p[0])):
+            if arr is None:
+                failed += 1
+                continue
+            # A scene that only clips the tile's corner adds noise, not signal.
+            if np.isfinite(arr).mean() < 0.05:
+                continue
+            m = item.datetime.month
+            if reference_c and m in reference_c and float(np.nanmedian(arr)) < reference_c[m] - COLDER_C:
+                clouds[m] += 1
+                continue
+            if max_per_month and len(by_month[m]) >= max_per_month:
+                continue
+            by_month[m].append(arr)
+        batch = [it for m in queue for it in take(m, max_per_month - len(by_month[m]))] if max_per_month else []
+    print(f"  {read} scenes read, {time.time() - t0:.0f}s" + (f", {sum(clouds.values())} dropped as cloud" if reference_c else ""))
 
     # A scene or two that will not read is the archive's; many is the
     # network's, and a tile written from what happened to get through would
@@ -232,8 +269,8 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
     # write nothing, and let the next run pick it up.
     if not items:
         raise NoData(f"{tile.id}: no Landsat scene under {MAX_CLOUD}% cloud")
-    if failed > max(3, 0.05 * len(items)):
-        raise Transient(f"{tile.id}: {failed} of {len(items)} scenes failed to read; tile not written")
+    if failed > max(3, 0.05 * read):
+        raise Transient(f"{tile.id}: {failed} of {read} scenes failed to read; tile not written")
 
     out_dir.mkdir(parents=True, exist_ok=True)
     months = {}
@@ -254,11 +291,16 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
             "coverage": round(float(np.isfinite(median).mean()), 3),
             "tile_median_c": None if tile_median is None else round(tile_median, 2),
         }
-        print(f"  month {m:02d}: {len(stack)} scenes, coverage {months[f'{m:02d}']['coverage']:.0%}")
+        if reference_c:
+            months[f"{m:02d}"]["clouds_dropped"] = clouds[m]
+        print(f"  month {m:02d}: {len(stack)} scenes, coverage {months[f'{m:02d}']['coverage']:.0%}"
+              + (f", {clouds[m]} dropped as cloud" if clouds[m] else ""))
 
-    if not medians:
-        raise NoData(f"{tile.id}: no month with a clear look")
-    files = write_packed(medians, out_dir, subdir)
+    # Scenes, but no pixel with three clear looks in any month (an island
+    # under its weather): nothing to show, which is not a fault.
+    if not any(v["tile_median_c"] is not None for v in months.values()):
+        raise NoData(f"{tile.id}: no month with three clear looks")
+    files = write_packed(medians, out_dir, subdir, *SCALE)
 
     # The per-scene cache exists to resume an interrupted tile, not to keep
     # half a gigabyte per tile around: drop it once the months are written.
@@ -275,9 +317,11 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
         "degrees_per_pixel": DEG_PER_PX * DOWNSAMPLE,
         "native_degrees_per_pixel": DEG_PER_PX,
         "encoding": {"version": ENCODING, "channel": "L", "nodata_byte": 0, "lossy": stored.LOSSY,
-                     "byte1_c": T_MIN, "step_c": T_STEP,
+                     "byte1_c": SCALE[0], "step_c": SCALE[1],
                      "note": "median at 30 m, then a 3 x 3 mean; byte 0 = fewer than 3 clear scenes"},
         "files": files,
+        **({"cloud_check": {"reference": "the present heat's tile median of the same month",
+                            "colder_c": COLDER_C}} if reference_c else {}),
         "packing": PACKING,
         "overviews": list(OVERVIEWS),
         "months": months,
