@@ -30,8 +30,8 @@ on:
     - cron: '17 1 * * *'      # nightly, off the hour when GitHub is busiest
   workflow_dispatch:
     inputs:
-      scope: { description: 'build scope (pipeline/sg/regions.py)', default: 'europe' }
-      max: { description: 'regions in parallel', default: '6' }
+      scope: { description: 'build scopes and their slots (pipeline/sg/regions.py)', default: 'europe:6,world:4' }
+      max: { description: 'slots for a scope that names none', default: '6' }
       products: { description: 'products', default: 'wind,noise,light,built,heat,heat_night,heat_2004,heat_1994,heat_1984' }
       hours: { description: 'budget per region, hours, extract included', default: '5' }
       gap_scope: { description: 'countries whose gaps to track (pipeline/sg/gaps.py)', default: 'next' }
@@ -48,7 +48,7 @@ permissions:
 
 env:
   PYTHONUNBUFFERED: '1'
-  SCOPE: ${{ inputs.scope || 'europe' }}
+  SCOPE: ${{ inputs.scope || 'europe:6,world:4' }}
   MAX: ${{ inputs.max || '6' }}
   PRODUCTS: ${{ inputs.products || 'wind,noise,light,built,heat,heat_night,heat_2004,heat_1994,heat_1984' }}
   HOURS: ${{ inputs.hours || '5' }}   # + the longest tile + publishing, inside the 350 min below
@@ -118,7 +118,7 @@ jobs:
       EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 10
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: ${{ matrix.support && 'pieces' || 'build' }} ${{ matrix.name }}
     steps:
@@ -135,7 +135,7 @@ jobs:
       - name: Build ${{ matrix.region }}
         working-directory: pipeline
         run: |
-          python -m sg run --region "${{ matrix.region }}" --products "$PRODUCTS" \
+          python -m sg run --region "${{ matrix.region }}" --products "${{ matrix.products || env.PRODUCTS }}" \
             --hours "$HOURS" --min-free-gb 4 --name "gha-${{ github.run_id }}-${{ matrix.name }}" \
             ${{ matrix.support && '--pieces-only' || '' }}
       - name: Keep the log with the run as well

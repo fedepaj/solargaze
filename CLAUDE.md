@@ -104,7 +104,11 @@ bucket** (public).
   `light/dmsp/`), so one runner's download serves the rest.
 - **The breaker**: eight first-attempt failures in a row with the same signature stop the job
   (`Systemic`). A per-tile cause must raise an error with `per_tile` set, or it takes the region down.
-- **The nightly workflow**: `plan` (matrix of the regions with most work, six at a time) → `build` (one
+- **Scopes** (`pipeline/sg/regions.py`): `europe` (countries) and `world` (the United States by state, Japan in
+  eight regions; Canada's border provinces and Mexico as neighbours; no Alaska: it crosses the date line). A
+  scope can do without a product (`SCOPE_WITHOUT`: no noise in `world`). Names on the bucket: `us-georgia`,
+  `japan-kanto`; Europe's stay bare.
+- **The nightly workflow**: `plan` (matrix of the regions with most work, `europe:6,world:4`) → `build` (one
   job per region, 5 h budget counted from its start) → `report` → `gaps` → `triage` (an agent writes the digest, in Italian,
   on issue #1 "Pipeline runs", and opens an issue when a run needs a look).
 
@@ -157,7 +161,9 @@ gh issue view 1 --json comments --jq '.comments[-1].body'      # the latest dige
 - Backfill: `light`, `built` and the past decades of heat reach six regions a night.
 - Versioned module paths (an import map stamped in `pages.yml`), to end mixed deploys.
 - The Azores heat one-off (`pipeline/oneoff_azores.py`) waits on USGS M2M access.
-- Later: railways and aircraft in the noise model; the Americas and Japan.
+- The world: the United States and Japan build nightly without noise. Air there needs the CAMS global
+  reanalysis (EAC4) and a street model fitted on their stations. Later: Canada, Mexico, Brazil (importers exist).
+- Later: railways and aircraft in the noise model.
 
 ## graphify
 

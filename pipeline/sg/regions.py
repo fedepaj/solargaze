@@ -35,7 +35,33 @@ EUROPE = [f"europe/{c}" for c in (
     "slovenia", "bosnia-herzegovina", "lithuania", "latvia", "estonia", "albania", "macedonia", "moldova",
     "luxembourg", "montenegro", "malta", "cyprus", "iceland",
 )]
-SCOPES = {"europe": EUROPE, "italy": ["europe/italy"]}
+# The United States and Japan, by people, the two interleaved: Geofabrik cuts
+# the United States by state and Japan into eight regions. Alaska waits: its
+# boundary crosses the date line, which tiles_of does not handle.
+WORLD = [{"us": "north-america/us/", "jp": "asia/japan/"}[k] + r for k, r in (
+    ("jp", "kanto"), ("us", "california"), ("us", "texas"), ("jp", "kansai"), ("us", "florida"), ("jp", "chubu"),
+    ("us", "new-york"), ("jp", "kyushu"), ("us", "pennsylvania"), ("us", "illinois"), ("us", "ohio"),
+    ("us", "georgia"), ("us", "north-carolina"), ("us", "michigan"), ("us", "new-jersey"), ("jp", "tohoku"),
+    ("us", "virginia"), ("us", "washington"), ("jp", "chugoku"), ("us", "arizona"), ("us", "tennessee"),
+    ("us", "massachusetts"), ("us", "indiana"), ("us", "maryland"), ("us", "missouri"), ("us", "wisconsin"),
+    ("us", "colorado"), ("us", "minnesota"), ("jp", "hokkaido"), ("us", "south-carolina"), ("us", "alabama"),
+    ("us", "louisiana"), ("us", "kentucky"), ("us", "oregon"), ("us", "oklahoma"), ("jp", "shikoku"),
+    ("us", "connecticut"), ("us", "puerto-rico"), ("us", "utah"), ("us", "iowa"), ("us", "nevada"),
+    ("us", "arkansas"), ("us", "mississippi"), ("us", "kansas"), ("us", "new-mexico"), ("us", "nebraska"),
+    ("us", "idaho"), ("us", "west-virginia"), ("us", "hawaii"), ("us", "new-hampshire"), ("us", "maine"),
+    ("us", "montana"), ("us", "rhode-island"), ("us", "delaware"), ("us", "south-dakota"), ("us", "north-dakota"),
+    ("us", "district-of-columbia"), ("us", "vermont"), ("us", "wyoming"),
+)]
+SCOPES = {"europe": EUROPE, "italy": ["europe/italy"], "world": WORLD}
+
+# Products a scope does without. Noise is calibrated on Berlin and Hamburg's
+# official maps and already reads loud in Italy: elsewhere it would be a
+# number nobody has checked.
+SCOPE_WITHOUT = {"world": {"noise"}}
+
+
+def products_for(scope: str, products: list[str]) -> list[str]:
+    return [p for p in products if p not in SCOPE_WITHOUT.get(scope, set())]
 
 # Regions outside a scope whose land reaches into its border tiles. They run
 # with --pieces-only: index, leave their pieces of those tiles, build nothing.
@@ -45,10 +71,20 @@ NEIGHBOURS = {
     "europe": ["russia/northwestern-fed-district", "europe/ukraine", "europe/belarus", "europe/turkey",
                "russia/kaliningrad", "europe/kosovo", "africa/morocco", "europe/andorra", "europe/liechtenstein",
                "europe/isle-of-man", "europe/guernsey-jersey"],
+    # The United States' neighbours: the provinces along the border and Mexico.
+    "world": [f"north-america/canada/{p}" for p in (
+        "british-columbia", "alberta", "saskatchewan", "manitoba", "ontario", "quebec", "new-brunswick")]
+             + ["north-america/mexico"],
 }
 
 
 def name_of(path: str) -> str:
+    """The region's name on the bucket and in the cache. Europe's are bare
+    (as they have always been); a state or a Japanese region carries its
+    country, so that Georgia the state is not Georgia the country."""
+    for prefix, tag in (("north-america/us/", "us-"), ("asia/japan/", "japan-")):
+        if path.startswith(prefix):
+            return tag + path[len(prefix):]
     return path.rsplit("/", 1)[-1]
 
 
