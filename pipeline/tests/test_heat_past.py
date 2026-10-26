@@ -80,6 +80,22 @@ class CloudCheck(unittest.TestCase):
             build([scene(0, 1, 0.0, 5.0), scene(1, 1, 0.0, 5.0)], max_per_month=4)
 
 
+class BrokenFile(unittest.TestCase):
+    def test_a_broken_file_is_a_missing_scene_not_a_failure(self):
+        def broken(item, tile, shape):
+            raise RuntimeError("'/vsicurl/https://x/ST_B10.TIF' not recognized as being in a supported file format.")
+
+        def offline(item, tile, shape):
+            raise RuntimeError("HTTPSConnectionPool: Max retries exceeded")
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(hl, "CACHE", Path(tmp)):
+            with mock.patch.object(hl, "read_scene", broken):
+                arr = hl.cached_scene(scene(0, 1, 0.0, 5.0), TILE, (4, 4))
+                self.assertTrue(arr is not None and np.isnan(arr).all())
+            with mock.patch.object(hl, "read_scene", offline):
+                self.assertIsNone(hl.cached_scene(scene(1, 1, 0.0, 5.0), TILE, (4, 4)))
+
+
 class Rescale(unittest.TestCase):
     def test_a_clipped_tile_is_rebuilt_once_and_no_other(self):
         from sg.products.heat import Heat, clipped

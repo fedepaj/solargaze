@@ -325,7 +325,32 @@ jobs:
                 -e "s/ALERT_LINE/$alert_line/" -e "s/GAP_LINE/$gap_line/" .github/claude/pipeline-digest.md
             echo 'PROMPT_END'
           } >> "$GITHUB_OUTPUT"
-      - uses: anthropics/claude-code-action@v1
+      - id: digest
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          claude_args: >-
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,Edit,Write,Bash(gh issue:*),Bash(gh pr:*),Bash(gh run view:*),Bash(git:*),Bash(python:*),Bash(cd:*),Bash(grep:*),Bash(tail:*)"
+
+      # The service can end the agent before its first turn (2026-10-20: half
+      # a second, no turn, no digest that night). Only then is a second try
+      # safe: after a turn it may already have posted.
+      - name: Try again if it never started
+        id: again
+        if: steps.digest.outcome == 'failure'
+        env:
+          EXEC: ${{ steps.digest.outputs.execution_file }}
+        run: |
+          turns=$(jq -r '[.[] | select(.type == "result")][-1].num_turns // 0' "$EXEC" 2>/dev/null || echo 0)
+          if [ "${turns:-0}" -le 1 ]; then echo "retry=true" >> "$GITHUB_OUTPUT"; else echo "failed after $turns turns"; exit 1; fi
+      - if: steps.again.outputs.retry == 'true'
+        uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:

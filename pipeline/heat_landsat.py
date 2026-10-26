@@ -113,6 +113,12 @@ def cached_scene(item, tile: Tile, shape) -> np.ndarray | None:
         arr = read_scene(item, tile, shape)
     except Exception as e:  # a scene that will not read is a scene we do without
         print(f"    skip {item.id}: {e}", file=sys.stderr)
+        # A file the archive holds broken (LC08_L2SP_187027_20220606 since
+        # 2026-10) fails alike every night, on every tile it covers: a scene
+        # missing, not the network failing, so it must not count towards the
+        # failures that send a tile back as transient.
+        if "not recognized as being in a supported file format" in str(e):
+            return np.full(shape, np.nan, np.float16)
         return None
     np.save(p, arr.astype(np.float16))
     return arr.astype(np.float16)
