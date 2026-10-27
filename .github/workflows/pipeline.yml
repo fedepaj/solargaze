@@ -142,6 +142,10 @@ jobs:
       - name: Build ${{ matrix.region }}
         working-directory: pipeline
         run: |
+          if [ "${{ matrix.stations }}" = "true" ]; then
+            # A country's monitoring stations, through its importer (sg/stations.py).
+            exec python -m sg stations --country "${{ matrix.country }}" --name "gha-${{ github.run_id }}-${{ matrix.name }}"
+          fi
           python -m sg run --region "${{ matrix.region }}" --products "${{ matrix.products || env.PRODUCTS }}" \
             --hours "$HOURS" --min-free-gb 4 --name "gha-${{ github.run_id }}-${{ matrix.name }}" \
             ${{ matrix.support && '--pieces-only' || '' }} ${{ matrix.air && '--skip-extract' || '' }}
@@ -230,6 +234,33 @@ jobs:
               | gh issue create --title "Pipeline: run ${{ github.run_id }} needs a look" --label pipeline-alert --body-file -)
             echo "issue=${new##*/}" >> "$GITHUB_OUTPUT"
           fi
+
+  # The street air's models: one a country, fitted on its stations, the
+  # predictors round them and CAMS at them, as the builds left them on the
+  # ops bucket (pipeline/sg/stations.py). A country whose stations have not
+  # changed is left as it is.
+  air-models:
+    needs: [plan, report]
+    if: always() && needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: solargaze-tiles
+      R2_OPS_BUCKET: solargaze-ops
+      R2_CANARY_BUCKET: solargaze-canary
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13', cache: pip, cache-dependency-path: pipeline/requirements.txt }
+      - run: pip install -r pipeline/requirements.txt
+      - name: Fit the countries whose stations are ready
+        working-directory: pipeline
+        run: python -m sg fit-air --name "gha-${{ github.run_id }}-fit-air" || echo "fitting failed; the models stay as they were"
 
   # The agent and the gaps. The agent runs here rather than on the issues it
   # is given because issues made with the workflow's own token start no other

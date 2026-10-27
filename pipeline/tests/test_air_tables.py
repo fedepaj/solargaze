@@ -49,20 +49,31 @@ class LocalHours(unittest.TestCase):
 
 
 class Sources(unittest.TestCase):
-    def test_the_canaries_are_spain_and_outside_the_european_reanalysis(self):
-        from sg.products.air import Air
-        madrid, canaries = "N40.25E-3.75", "N28.00E-15.50"
-        self.assertTrue(acb.in_europe(Tile.parse(madrid).bounds))
-        self.assertFalse(acb.in_europe(Tile.parse(canaries).bounds))
-        seen = []
-        with mock.patch.object(acb, "fold_region_cached",
-                               lambda bbox, years, ts: seen.append((bbox, [t.id for t in ts])) or ("fold", "note")):
-            ctx = SimpleNamespace(shared={})
-            Air().prepare([madrid, canaries], ctx)
-        self.assertEqual(sorted(ids for _, ids in seen), [[canaries], [madrid]])
-        europe_box = next(b for b, ids in seen if ids == [madrid])
-        self.assertTrue(acb.in_europe(europe_box))      # its ring stays inside the domain too
-        self.assertEqual(set(ctx.shared["air"]), {True, False})
+    def test_the_canaries_are_spain_and_outside_the_european_reanalysis_stations_too(self):
+        from sg.products.air import fold_for
+        madrid, canaries = Tile.parse("N40.25E-3.75"), Tile.parse("N28.00E-15.50")
+        self.assertTrue(acb.in_europe(madrid.bounds))
+        self.assertFalse(acb.in_europe(canaries.bounds))
+        points = pd.DataFrame({"station": ["ES_MAD", "ES_LPA"], "lat": [40.42, 28.11], "lon": [-3.70, -15.42]})
+        seen = {}
+
+        def fake(bbox, years, nodes):
+            fold = acb.Fold(sorted(nodes))
+            hours = pd.date_range("2023-01-01", periods=24, freq="1h", tz="UTC")
+            for v in acb.VARS:          # 30 µg/m³ in Europe's fold, 10 outside it
+                fold.add(v, hours, np.full((24, len(fold.wanted)), 30.0 if acb.in_europe(bbox) else 10.0))
+            seen[acb.in_europe(bbox)] = bbox
+            return fold, "note"
+
+        with mock.patch.object(acb, "fold_nodes", fake):
+            folds, at = fold_for([madrid, canaries], points)
+        self.assertEqual(set(folds), {True, False})
+        self.assertTrue(acb.in_europe(seen[True]))      # its ring stays inside the domain
+        no2 = at[at["var"] == "nitrogen_dioxide"].set_index("station").cams
+        self.assertEqual((no2["ES_MAD"], no2["ES_LPA"]), (30.0, 10.0))
+        # Without points, no CAMS at points.
+        with mock.patch.object(acb, "fold_nodes", fake):
+            self.assertIsNone(fold_for([madrid], None)[1])
 
 
 if __name__ == "__main__":

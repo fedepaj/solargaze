@@ -286,7 +286,12 @@ def fold_eac4(bbox, years, fold: Fold) -> None:
 
 def fold_region(bbox, years, tiles) -> tuple[Fold, str]:
     """The tables for every 0.1° node the tiles want, and a note on their source."""
-    fold = Fold(sorted({node for t in tiles for node in nodes_for(t)}))
+    return fold_nodes(bbox, years, {node for t in tiles for node in nodes_for(t)})
+
+
+def fold_nodes(bbox, years, nodes) -> tuple[Fold, str]:
+    """The tables at these 0.1° nodes, from the source whose domain holds the box."""
+    fold = Fold(sorted(nodes))
     if in_europe(bbox):
         fold_europe(bbox, years, fold)
         kinds = "validated" if years[-1] <= VALIDATED_UNTIL else f"validated to {VALIDATED_UNTIL}, interim after"

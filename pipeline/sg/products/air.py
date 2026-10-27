@@ -16,6 +16,38 @@ from ..product import Context, Product
 YEARS = list(range(2020, 2025))
 
 
+def fold_for(tiles, points=None):
+    """The folds for the tiles — one for those inside the European
+    reanalysis's domain, one for the rest (the Canaries are Spain, and outside
+    it) — with the nodes round the points (stations) added; and CAMS at the
+    points, or None without points. {in Europe: (fold, note)}, at."""
+    import air_cams_bulk as acb
+    from air_cams import nodes_for
+    from .. import stations
+    groups: dict[bool, tuple[list, list]] = {}
+    for t in tiles:
+        groups.setdefault(acb.in_europe(t.bounds), ([], []))[0].append(t)
+    pts = [] if points is None else list(points.itertuples())
+    for p in pts:
+        groups.setdefault(acb.in_europe((p.lon, p.lat, p.lon, p.lat)), ([], []))[1].append(p)
+    folds, at = {}, []
+    for europe, (ts, ps) in groups.items():
+        nodes = {n for t in ts for n in nodes_for(t)} | {n for p in ps for n in stations.corners(p.lat, p.lon)}
+        lats, lons = [n[0] for n in nodes], [n[1] for n in nodes]
+        bbox = (min(lons) - 0.2, min(lats) - 0.2, max(lons) + 0.2, max(lats) + 0.2)
+        if europe:   # the ring round the nodes must not leave the domain either
+            bbox = (max(bbox[0], acb.EUROPE[0]), max(bbox[1], acb.EUROPE[1]),
+                    min(bbox[2], acb.EUROPE[2]), min(bbox[3], acb.EUROPE[3]))
+        folds[europe] = acb.fold_nodes(bbox, YEARS, nodes)
+        if ps:
+            import pandas as pd
+            at.append(stations.cams_at(folds[europe][0], pd.DataFrame([p._asdict() for p in ps])))
+    if points is None:
+        return folds, None
+    import pandas as pd
+    return folds, (pd.concat(at, ignore_index=True) if at else pd.DataFrame(columns=["station", "var", "cams"]))
+
+
 class Air(Product):
     name, version, subdir = "air", 1, "air"
     card = {
@@ -39,23 +71,11 @@ class Air(Product):
         return "no Atmosphere Data Store key (CDSAPI_KEY or ~/.cdsapirc)"
 
     def prepare(self, tiles: list[str], ctx: Context) -> None:
-        """One fold for the tiles inside the European reanalysis's domain and
-        one for the rest (the Canaries are Spain, and outside it)."""
-        import air_cams_bulk as acb
         from tiles import Tile
-        groups: dict[bool, list] = {}
-        for t in tiles:
-            tile = Tile.parse(t)
-            groups.setdefault(acb.in_europe(tile.bounds), []).append(tile)
-        folds = {}
-        for europe, ts in groups.items():
-            bbox = (min(t.bounds[0] for t in ts) - 0.2, min(t.bounds[1] for t in ts) - 0.2,
-                    max(t.bounds[2] for t in ts) + 0.2, max(t.bounds[3] for t in ts) + 0.2)
-            if europe:   # the ring around the tiles must not leave the domain either
-                bbox = (max(bbox[0], acb.EUROPE[0]), max(bbox[1], acb.EUROPE[1]),
-                        min(bbox[2], acb.EUROPE[2]), min(bbox[3], acb.EUROPE[3]))
-            folds[europe] = acb.fold_region_cached(bbox, YEARS, ts)
+        folds, at = fold_for([Tile.parse(t) for t in tiles], ctx.shared.get("air_points"))
         ctx.shared["air"] = folds
+        if at is not None:
+            ctx.shared["air_at_points"] = at
 
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:
         import air_cams_bulk as acb
