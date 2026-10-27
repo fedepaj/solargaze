@@ -338,7 +338,8 @@ def _window(cat, tile: Tile, years: str, platforms, wanted: set[int]):
 
 def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, ...] = PLATFORMS,
           max_per_month: int | None = None, subdir: str = "heat",
-          reference_c: dict[int, float] | None = None, levels: bool = False) -> dict:
+          reference_c: dict[int, float] | None = None, levels: bool = False,
+          cell: int = DOWNSAMPLE) -> dict:
     """The packed months into out_dir; returns the meta entry, writes nothing
     else. NoData where no scene covers the tile or none carries surface
     temperature; Transient when too many scenes would not read (the network,
@@ -440,7 +441,7 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
         count = np.isfinite(cube).sum(axis=0)
         # One clear look is not a climatology; ask for at least three.
         median[count < 3] = np.nan
-        median = downsample(median)
+        median = downsample(median, cell)
         medians[m] = median
         tile_median = float(np.nanmedian(median)) if np.isfinite(median).any() else None
         months[f"{m:02d}"] = {
@@ -470,12 +471,12 @@ def build(tile: Tile, out_dir: Path, years: str = YEARS, platforms: tuple[str, .
         "years": years, "platforms": list(platforms), "max_per_month": max_per_month,
         "max_cloud_percent": MAX_CLOUD,
         "overpass_local_time": "~10:30",
-        "rows": shape[0] // DOWNSAMPLE, "cols": shape[1] // DOWNSAMPLE,
-        "degrees_per_pixel": DEG_PER_PX * DOWNSAMPLE,
+        "rows": shape[0] // cell, "cols": shape[1] // cell,
+        "degrees_per_pixel": DEG_PER_PX * cell,
         "native_degrees_per_pixel": DEG_PER_PX,
         "encoding": {"version": ENCODING, "channel": "L", "nodata_byte": 0, "lossy": stored.LOSSY,
                      "byte1_c": SCALE[0], "step_c": SCALE[1],
-                     "note": "median at 30 m, then a 3 x 3 mean; byte 0 = fewer than 3 clear scenes"},
+                     "note": f"median at 30 m, then a {cell} x {cell} mean; byte 0 = fewer than 3 clear scenes"},
         "files": files,
         **({"levels": {"window_deg": round(tile.bounds[2] - tile.bounds[0] + 2 * LEVEL_MARGIN, 4),
                        "read_deg": LEVEL_DEG, "sigma_px": LEVEL_SIGMA_PX,

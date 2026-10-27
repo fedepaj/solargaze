@@ -111,7 +111,10 @@ function fillRaster(raster, ctx, lut, [lo, hi], alpha, px, W, x0, y0, P) {
   const dec = raster.decLut ??= Float32Array.from({ length: 256 }, (_, k) => (k ? raster.decode(k) : NaN));
   const span = hi - lo || 1;
   const seams = !!ctx.coarse && P >= SEAM_PX * raster.cols;
-  const block = ctx.blocky && !seams && raster.level === 1 ? 2 : 1;   // an overview is coarse already
+  // An overview is coarse already, and so is a tile stored at 180 m (the
+  // earlier decades of heat since their version 3): blocks are for 90 m.
+  const stored = raster.meta?.degrees_per_pixel;
+  const block = ctx.blocky && !seams && raster.level === 1 && !(stored > 0.0012) ? 2 : 1;
   const rows = pick(raster.rows, P).map(r => r - (r % block));
   const cols = pick(raster.cols, P).map(c => c - (c % block));
   // Coarse data: the first pixel row and column of each source cell is a

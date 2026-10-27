@@ -11,7 +11,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).res
 import osm_extract  # noqa: E402
 from sg import border  # noqa: E402
 from sg.product import Product  # noqa: E402
-from sg.state import FAILED, Record  # noqa: E402
+from sg.state import DONE, EMPTY, FAILED, Record, State  # noqa: E402
 
 TILE = "N45.00E7.00"   # the Alps west of Turin: land everywhere
 
@@ -37,8 +37,21 @@ class FakeS3:
             raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
-    def list_objects_v2(self, Bucket, Prefix):
-        return {"Contents": [{"Key": k} for b, k in sorted(self.objects) if b == Bucket and k.startswith(Prefix)]}
+    def list_objects_v2(self, Bucket, Prefix=""):
+        return {"Contents": [{"Key": k, "Size": len(self.objects[(b, k)])}
+                             for b, k in sorted(self.objects) if b == Bucket and k.startswith(Prefix)]}
+
+    def get_paginator(self, _):
+        fake = self
+
+        class Pages:
+            def paginate(self, Bucket, Prefix=""):
+                return [fake.list_objects_v2(Bucket, Prefix)]
+        return Pages()
+
+    def delete_objects(self, Bucket, Delete):
+        for o in Delete["Objects"]:
+            self.objects.pop((Bucket, o["Key"]), None)
 
 
 class FakeRemote:
@@ -55,6 +68,25 @@ class FakeRemote:
             return json.loads(self.s3.get_object(Bucket=bucket, Key=key)["Body"].read())
         except ClientError:
             return None
+
+
+class Prune(unittest.TestCase):
+    def test_the_pieces_of_finished_tiles_go_and_the_rest_stay(self):
+        remote = FakeRemote()
+        for tile in ("N45.00E7.00", "N45.25E7.00", "N45.50E7.00"):
+            for region in ("france", "italy"):
+                remote.s3.put_object(Bucket="ops", Key=f"border/tiles/{tile}/{region}.jsonl.gz", Body=b"x" * 10)
+        with tempfile.TemporaryDirectory() as d:
+            state = State(Path(d))
+            state.record("N45.00E7.00", "wind", DONE, version=1)
+            state.record("N45.00E7.00", "noise", EMPTY, version=1)       # finished
+            state.record("N45.25E7.00", "wind", DONE, version=1)         # noise still to come
+            state.record("N45.50E7.00", "wind", FAILED, version=1, sig="NotCovered: waiting")
+            self.assertEqual(border.prune(remote, state, dry_run=True), (2, 20))
+            self.assertEqual(len(remote.s3.objects), 6)                    # a dry run deletes nothing
+            self.assertEqual(border.prune(remote, state), (2, 20))
+        left = sorted(k for _, k in remote.s3.objects)
+        self.assertEqual([k.split("/")[2] for k in left], ["N45.25E7.00"] * 2 + ["N45.50E7.00"] * 2)
 
 
 class Border(unittest.TestCase):

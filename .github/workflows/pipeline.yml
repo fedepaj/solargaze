@@ -185,6 +185,9 @@ jobs:
       - name: Fold the night's state into the base (its only writer)
         working-directory: pipeline
         run: python -m sg sync --compact || echo "compaction failed; the deltas stay and are read as they are"
+      - name: Drop the border pieces of finished tiles (they were 1.5 GB of the 10 GB allowance)
+        working-directory: pipeline
+        run: python -m sg prune-pieces || echo "pruning failed; the pieces stay until the next run"
       - name: Post to the run log (GitHub emails the mention)
         id: log
         env:

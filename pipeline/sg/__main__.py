@@ -319,6 +319,19 @@ def cmd_sync(args) -> int:
     return 0
 
 
+def cmd_prune_pieces(args) -> int:
+    """Delete the border pieces of finished tiles (border.prune)."""
+    from . import border
+    from .remote import Remote
+    r = Remote.maybe(DATA_DIR, STATE)
+    if not r:
+        print("no R2 credentials")
+        return 1
+    n, size = border.prune(r, State(STATE), dry_run=args.dry_run)
+    print(f"{'would delete' if args.dry_run else 'deleted'} {n} pieces, {size / 1e9:.2f} GB")
+    return 0
+
+
 def cmd_matrix(args) -> int:
     """The regions with the most work, as a GitHub Actions matrix."""
     from . import regions
@@ -661,6 +674,8 @@ def main(argv=None) -> int:
     sub.add_parser("adopt", help="record tiles built before the framework")
     p = sub.add_parser("sync", help="state both ways between this machine and the bucket")
     p.add_argument("--compact", action="store_true", help="then fold the bucket's deltas into its base")
+    p = sub.add_parser("prune-pieces", help="delete the border pieces of tiles that are finished")
+    p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("matrix", help="the regions with most work, as a GitHub Actions matrix")
     p.add_argument("--scope", default="europe")
     p.add_argument("--max", type=int, default=8)
@@ -676,7 +691,7 @@ def main(argv=None) -> int:
     p.add_argument("--scope-only", action="store_true", help="only check that the R2 token reaches its buckets and no other")
     args = ap.parse_args(argv)
     return {"plan": cmd_plan, "run": cmd_run, "status": cmd_status, "adopt": cmd_adopt, "sync": cmd_sync,
-            "matrix": cmd_matrix, "report": cmd_report, "gaps": cmd_gaps, "doctor": cmd_doctor}[args.cmd](args)
+            "matrix": cmd_matrix, "prune-pieces": cmd_prune_pieces, "report": cmd_report, "gaps": cmd_gaps, "doctor": cmd_doctor}[args.cmd](args)
 
 
 if __name__ == "__main__":
