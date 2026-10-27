@@ -15,6 +15,10 @@ DECADES = ((1984, 1993, ("landsat-5",)),
            (1994, 2003, ("landsat-5", "landsat-7")),
            (2004, 2013, ("landsat-5", "landsat-7")))
 MAX_PER_MONTH = 8   # the clearest scenes of each calendar month in the decade: enough for a median
+# Stored at 180 m: Landsat 5's thermal band is 120 m, and the app draws these
+# decades in blocks of two 90 m cells anyway. At 90 m they were a third of
+# the bucket (2.4 GB) for detail nobody was shown.
+CELL = 6
 
 
 def reference_months(meta: dict) -> dict[int, float]:
@@ -39,7 +43,8 @@ def reference_months(meta: dict) -> dict[int, float]:
 class HeatPast(Heat):
     # 2: scenes of cloud taken for ground are dropped against the present
     # heat (heat_landsat.COLDER_C); version 1 had them in a tile in two.
-    version = 2
+    # 3: stored at 180 m (CELL).
+    version = 3
     depends = ("wind", "heat")
     rebuild_order = -1   # half a minute a tile, and what a rebuild fixes are errors
 
@@ -66,7 +71,7 @@ class HeatPast(Heat):
         t = Tile.parse(tile)
         return heat_landsat.build(t, stage, years=f"{self.start}-01-01/{self.end}-12-31",
                                   platforms=self.platforms, max_per_month=MAX_PER_MONTH, subdir=self.subdir,
-                                  reference_c=reference_months(read_meta(t)))
+                                  reference_c=reference_months(read_meta(t)), cell=CELL)
 
 
 PAST = [HeatPast(*d) for d in reversed(DECADES)]   # the nearest decade first

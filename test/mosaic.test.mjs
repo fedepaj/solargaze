@@ -76,6 +76,9 @@ test('a fine grid marked coarse is read in 2 × 2 blocks', () => {
   // An overview is coarse already and is left as it is.
   const overview = paint({ ...set, tiles: [{ ...fine, level: 3 }] }, { monthFrac: 0, blocky: true }, [10, 42]);
   assert.deepEqual(overview.at(1, 1), sharp.at(1, 1));
+  // So is a tile stored at 180 m.
+  const stored = paint({ ...set, tiles: [{ ...fine, meta: { degrees_per_pixel: 0.00162 } }] }, { monthFrac: 0, blocky: true }, [10, 42]);
+  assert.deepEqual(stored.at(1, 1), sharp.at(1, 1));
 });
 
 test('coarse cells are drawn eight pixels a side with a seam on their first row and column, across tiles too', () => {

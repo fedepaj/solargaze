@@ -36,7 +36,10 @@ REFRESH_DAYS = 30   # pieces older than this are left again; OSM changes slowly 
 # What the pieces hold. A region whose pieces are of an older format leaves
 # them again at once, whatever their age. 2: roads carry their OSM highway
 # value (h) and the tunnel flag, which the noise model reads.
+# Bump it too when wind or noise get a new version: the pieces of the tiles
+# they had finished are gone (prune), and a rebuild of those tiles needs them.
 FORMAT = 2
+READERS = ("wind", "noise")   # the products built from the pieces
 
 
 def _region_key(name: str) -> str:
@@ -188,3 +191,36 @@ def ripe(name: str, neighbours: list[str], left: dict, gathered: dict) -> bool:
     close any of them."""
     since = gathered.get(name, "")
     return any(left.get(n, "") > since for n in neighbours)
+
+
+def prune(remote, state, dry_run: bool = False) -> tuple[int, int]:
+    """Delete the pieces of the tiles that every product built from them has
+    finished — done or empty — in the scope of the regions that left them.
+    Left on the bucket they were a gigabyte and a half of a ten-gigabyte
+    allowance, waiting only for the monthly refresh to write them again.
+    Returns (pieces deleted, bytes)."""
+    from . import regions
+    from .state import DONE, EMPTY
+    scope_of = {}
+    for scope, paths in regions.SCOPES.items():
+        for p in paths + regions.NEIGHBOURS.get(scope, []):
+            scope_of.setdefault(regions.name_of(p), scope)
+    by_tile: dict[str, list[tuple[str, int]]] = {}
+    for page in remote.s3.get_paginator("list_objects_v2").paginate(Bucket=remote.ops, Prefix=f"{PREFIX}tiles/"):
+        for o in page.get("Contents", []):
+            tile = o["Key"][len(PREFIX) + len("tiles/"):].split("/", 1)[0]
+            by_tile.setdefault(tile, []).append((o["Key"], o["Size"]))
+    gone = []
+    for tile, objs in by_tile.items():
+        names = {k.rsplit("/", 1)[-1].removesuffix(".jsonl.gz") for k, _ in objs}
+        without = set.intersection(*(regions.SCOPE_WITHOUT.get(scope_of.get(n, ""), set()) for n in names)) \
+            if hasattr(regions, "SCOPE_WITHOUT") else set()
+        needed = [r for r in READERS if r not in without]
+        if all(state.get(r, tile).status in (DONE, EMPTY) for r in needed):
+            gone += objs
+    if not dry_run:
+        for k in range(0, len(gone), 1000):
+            batch = gone[k:k + 1000]
+            remote._call(lambda: remote.s3.delete_objects(
+                Bucket=remote.ops, Delete={"Objects": [{"Key": key} for key, _ in batch], "Quiet": True}))
+    return len(gone), sum(size for _, size in gone)
