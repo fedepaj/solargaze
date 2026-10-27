@@ -210,16 +210,21 @@ def _run_body(args, run, state, box) -> int:
         jobs = jobs[:args.limit]
     run.info("selected", tiles=len(tiles), jobs=len(jobs), shard=args.shard or "all")
     ctx = Context(DATA_DIR, CACHE, run=run, before_tile=remote.pull_meta if remote else None)
+    if args.region:
+        from . import regions
+        ctx.shared["country"] = regions.country_of(args.region)
     budget = Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb, started=started)
     if remote and args.region and not getattr(args, "skip_extract", False):
-        _station_work(args, run, remote, tiles, budget, air_job=False)
+        _station_features(args, run, remote, tiles, budget)
+    if remote and args.region and getattr(args, "skip_extract", False):
+        _station_points(args, run, remote, tiles, ctx)
     try:
         counts = execute(jobs, ctx, state, run, budget=budget,
                          publish=remote.publish if remote else None,
                          checkpoint=(lambda: remote.push_delta(run.id, state)) if remote else None)
         run.info("counts", **counts)
-        if remote and args.region and getattr(args, "skip_extract", False):
-            _station_work(args, run, remote, tiles, budget, air_job=True)
+        if remote and "air_points" in ctx.shared:
+            _station_cams(args, run, remote, ctx)
         return 0
     except Systemic as exc:
         run.error("systemic", msg=str(exc))
@@ -228,32 +233,104 @@ def _run_body(args, run, state, box) -> int:
 
 
 STATION_MINUTES = 15   # of a build job's night, at most, for the predictors at its region's stations
-STATION_TABLE_HOURS = 2.5   # left in an air job's budget before it fetches a country's stations
 
 
-def _station_work(args, run, remote, tiles, budget, air_job: bool) -> None:
-    """The stations of the region's country (sg/stations.py): an air job,
-    which reads no extract, fetches the country's table if there is none and
-    there is an hour to spare; a build job, which has the extract indexed,
-    computes the predictors at its region's stations for a few minutes. Never
-    the run's failure: the tiles come first."""
+def _station_features(args, run, remote, tiles, budget) -> None:
+    """A build job has the extract indexed: the predictors at its region's
+    stations (sg/stations.py), a few minutes a night. Never the run's
+    failure: the tiles come first."""
+    from . import regions, stations
+    country = regions.country_of(args.region)
+    if not country:
+        return
+    seconds = min(STATION_MINUTES * 60, max(0.0, budget.left() - 3600))
+    if seconds <= 0:
+        return
+    try:
+        with run.step("stations.features", country=country):
+            stations.features_for_region(remote, country, regions.name_of(args.region), tiles, seconds, run)
+    except Exception as exc:  # noqa: BLE001 — classified and logged; the stations wait for another night
+        run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
+
+
+def _station_points(args, run, remote, tiles, ctx) -> None:
+    """An air job: the region's stations, if their CAMS is not on the bucket
+    yet, for the fold to take in with the tiles' nodes."""
     from . import regions, stations
     country = regions.country_of(args.region)
     if not country:
         return
     try:
-        if air_job:
-            # A big country's series take hours (Germany's, the United States'): only with hours to spare.
-            if budget.left() > STATION_TABLE_HOURS * 3600 and stations.table(remote, country) is None:
-                with run.step("stations.table", country=country):
-                    stations.fetch_table(remote, country, run)
-        else:
-            seconds = min(STATION_MINUTES * 60, max(0.0, budget.left() - 3600))
-            if seconds > 0:
-                with run.step("stations.features", country=country):
-                    stations.features_for_region(remote, country, regions.name_of(args.region), tiles, seconds, run)
-    except Exception as exc:  # noqa: BLE001 — classified and logged; the stations wait for another night
+        if stations.cams_key(country, regions.name_of(args.region)) in stations.keys(remote, "cams"):
+            return
+        table = stations.table(remote, country)
+        if table is not None:
+            ctx.shared["air_points"] = stations.points_in(table, tiles)
+            run.info("stations.points", country=country, stations=len(ctx.shared["air_points"]))
+    except Exception as exc:  # noqa: BLE001
         run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
+
+
+def _station_cams(args, run, remote, ctx) -> None:
+    """After an air job's tiles: CAMS at the region's stations, from the fold
+    the tiles made, or from one of its own when they made none."""
+    from . import regions, stations
+    from .products.air import fold_for
+    country, region = regions.country_of(args.region), regions.name_of(args.region)
+    try:
+        at = ctx.shared.get("air_at_points")
+        if at is None:
+            with run.step("stations.cams", country=country):
+                at = fold_for([], ctx.shared["air_points"])[1]
+        stations.save_cams(remote, country, region, at)
+        run.info("stations.cams", country=country, region=region, rows=len(at))
+    except Exception as exc:  # noqa: BLE001 — the tiles are built; the stations' CAMS waits for another night
+        run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
+
+
+def cmd_fit_air(args) -> int:
+    """Fit the street-air model of every country whose stations are ready."""
+    from . import regions, stations
+    from .remote import Remote
+    with start_run(args.name or "fit-air", LOGS) as run:
+        remote = Remote.maybe(DATA_DIR, STATE, run)
+        if not remote:
+            print("no R2 credentials")
+            return 1
+        scopes = {scope: sorted({regions.country_of(p) for p in paths if regions.country_of(p)})
+                  for scope, paths in regions.SCOPES.items() if scope != "italy"}
+        with run.step("air.fit"):
+            done = stations.fit_all(remote, scopes, run)
+        for c, what in sorted(done.items()):
+            print(f"{c}: {what}")
+    remote.push_logs(run.id, LOGS)
+    return 0
+
+
+def cmd_stations(args) -> int:
+    """Fetch a country's stations through its importer onto the bucket."""
+    from . import stations
+    from .remote import Remote
+    with start_run(args.name or f"stations-{args.country}", LOGS) as run:
+        remote = Remote.maybe(DATA_DIR, STATE, run)
+        if not remote:
+            print("no R2 credentials")
+            return 1
+        try:
+            with run.step("stations.table", country=args.country):
+                df = stations.fetch_table(remote, args.country.upper(), run)
+        except Exception as exc:  # noqa: BLE001 — classified, logged, and the job fails for the report
+            run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
+            run.systemic = f"stations of {args.country}: {errors.signature(exc)}"
+            code = 1
+        else:
+            code = 0 if df is not None else 1
+    if remote:
+        try:
+            remote.push_logs(run.id, LOGS)
+        except Exception as exc:  # noqa: BLE001
+            print(f"could not upload the logs: {exc}", file=sys.stderr)
+    return code
 
 
 def others_shape(path: str):
@@ -382,9 +459,15 @@ def cmd_matrix(args) -> int:
     # regions not building tonight (two jobs writing one tile's meta would
     # race).
     if getattr(args, "air", 0):
+        from . import stations
+        from .remote import Remote
         busy = {r["region"] for r in chosen}
+        remote = Remote.maybe(DATA_DIR, STATE)
+        ops = {"tables": stations.keys(remote, "stations"), "cams": stations.keys(remote, "cams"),
+               "importable": stations.importable()} if remote else None
         for spec in args.scope.split(","):
-            a = _air_rows(spec.partition(":")[0], args.air, state, busy)
+            scope = spec.partition(":")[0]
+            a = _air_rows(scope, args.air, state, busy, ops) + (_station_rows(scope, ops) if ops else [])
             chosen += a
             rows += a
     out = json.dumps({"include": chosen})
@@ -394,8 +477,9 @@ def cmd_matrix(args) -> int:
         with open(gh, "a") as f:
             f.write(f"matrix={out}\nany={'true' if chosen else 'false'}\n")
     for r in rows:
-        what = "pieces only" if r["support"] else (f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting, "
-                                                  f"{r['real'] - r.get('new', r['real'])} of them rebuilds)")
+        what = ("pieces only" if r["support"] else f"stations of {r['country']}" if r.get("stations") else
+                (f"{r['tiles']:5} tiles {r['jobs']:6} jobs ({r['real']} not waiting, "
+                 f"{r['real'] - r.get('new', r['real'])} of them rebuilds)"))
         print(f"  {r['region']:38} {what}", file=sys.stderr)
     return 0
 
@@ -403,10 +487,13 @@ def cmd_matrix(args) -> int:
 AIR = "air"
 
 
-def _air_rows(scope: str, most: int, state, busy: set[str]) -> list[dict]:
+def _air_rows(scope: str, most: int, state, busy: set[str], ops: dict | None = None) -> list[dict]:
     """Up to `most` regions of the scope with tiles whose air can be built
-    now (their wind done), in the catalogue's order."""
-    from . import regions
+    now (their wind done), or whose stations still want CAMS, in the
+    catalogue's order. A country an importer covers waits for its stations'
+    table, so that its fold — six hundred requests' worth of queue in
+    Europe — takes in the stations' nodes the first time."""
+    from . import regions, stations
     from .log import git_sha
     from .state import DONE
     air = PRODUCTS[AIR]
@@ -418,16 +505,54 @@ def _air_rows(scope: str, most: int, state, busy: set[str]) -> list[dict]:
             break
         if path in busy:
             continue
+        country = regions.country_of(path)
+        has_table = ops is not None and stations.table_key(country) in ops["tables"]
+        if ops is not None and country in ops["importable"] and not has_table:
+            continue
         try:
             tiles = regions.tiles_of(region_poly(path))
         except Exception as exc:  # noqa: BLE001 — one region's boundary is one region
             print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
             continue
         ready = [j for j in plan([air], tiles, state, git_sha()) if state.get("wind", j.tile).status == DONE]
-        if ready:
+        wants_cams = has_table and stations.cams_key(country, regions.name_of(path)) not in ops["cams"]
+        if ready or wants_cams:
             name = regions.name_of(path)
             out.append({"region": path, "name": f"air-{name}", "tiles": len(tiles), "jobs": len(ready),
                         "real": len(ready), "new": len(ready), "support": False, "air": True, "products": AIR})
+    return out
+
+
+_MODELLED = None
+
+
+def _modelled_countries() -> set[str]:
+    """The countries with a street-air model on the bucket (asked once)."""
+    global _MODELLED
+    if _MODELLED is None:
+        from . import stations
+        from .remote import Remote
+        remote = Remote.maybe(DATA_DIR, STATE)
+        _MODELLED = {k.rsplit("/", 1)[-1].removesuffix(".json") for k in stations.keys(remote, "models")} if remote else set()
+    return _MODELLED
+
+
+def _station_rows(scope: str, ops: dict, most: int = 1) -> list[dict]:
+    """The first countries of the scope, in the catalogue's order, that an
+    importer covers and whose stations are not on the bucket: a job each,
+    to fetch them (`sg stations`)."""
+    from . import regions, stations
+    out, seen = [], set()
+    for path in regions.SCOPES[scope]:
+        country = regions.country_of(path)
+        if len(out) == most:
+            break
+        if not country or country in seen:
+            continue
+        seen.add(country)
+        if country in ops["importable"] and stations.table_key(country) not in ops["tables"]:
+            out.append({"region": path, "name": f"stations-{country.lower()}", "country": country, "stations": True,
+                        "tiles": 0, "jobs": 0, "real": 0, "new": 0, "support": False, "products": ""})
     return out
 
 
@@ -437,6 +562,8 @@ def _matrix_scope(scope: str, most: int, args, state, waiting) -> tuple[list[dic
     from .log import git_sha
     products = [p for p in products_of(args) if p.name in regions.products_for(scope, [p.name for p in products_of(args)])]
     names = ",".join(p.name for p in products)
+    # The street air, where the region's country has a model (sg/stations.py).
+    modelled = _modelled_countries()
     rows, again, idle, tiles_by = [], [], [], {}
     for path in regions.SCOPES[scope]:
         try:
@@ -445,10 +572,14 @@ def _matrix_scope(scope: str, most: int, args, state, waiting) -> tuple[list[dic
             print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
             continue
         tiles_by[path] = set(tiles)
-        jobs = plan(products, tiles, state, git_sha())
+        street = regions.country_of(path) in modelled
+        jobs = plan(products + ([PRODUCTS["air_street"]] if street else []), tiles, state, git_sha())
+        # Air comes from jobs of its own: a street job still waiting for it is no work tonight.
+        jobs = [j for j in jobs if j.product.name != "air_street" or state.get("air", j.tile).status == DONE]
         row = {"region": path, "name": regions.name_of(path), "tiles": len(tiles), "jobs": len(jobs),
                "support": False, "real": sum(j.tile not in waiting for j in jobs),
-               "new": sum(j.tile not in waiting and not j.rebuild for j in jobs), "products": names}
+               "new": sum(j.tile not in waiting and not j.rebuild for j in jobs),
+               "products": names + (",air_street" if street else "")}
         if row["new"]:
             rows.append(row)
         elif row["real"]:
@@ -764,6 +895,11 @@ def main(argv=None) -> int:
     sub.add_parser("adopt", help="record tiles built before the framework")
     p = sub.add_parser("sync", help="state both ways between this machine and the bucket")
     p.add_argument("--compact", action="store_true", help="then fold the bucket's deltas into its base")
+    p = sub.add_parser("fit-air", help="fit the street-air model of every country whose stations are ready")
+    p.add_argument("--name", help="a name for the run, in its id")
+    p = sub.add_parser("stations", help="fetch a country's monitoring stations onto the bucket")
+    p.add_argument("--country", required=True, help="ISO 3166-1 alpha-2")
+    p.add_argument("--name", help="a name for the run, in its id")
     p = sub.add_parser("prune-pieces", help="delete the border pieces of tiles that are finished")
     p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("matrix", help="the regions with most work, as a GitHub Actions matrix")
@@ -782,7 +918,7 @@ def main(argv=None) -> int:
     p.add_argument("--scope-only", action="store_true", help="only check that the R2 token reaches its buckets and no other")
     args = ap.parse_args(argv)
     return {"plan": cmd_plan, "run": cmd_run, "status": cmd_status, "adopt": cmd_adopt, "sync": cmd_sync,
-            "matrix": cmd_matrix, "prune-pieces": cmd_prune_pieces, "report": cmd_report, "gaps": cmd_gaps, "doctor": cmd_doctor}[args.cmd](args)
+            "matrix": cmd_matrix, "prune-pieces": cmd_prune_pieces, "stations": cmd_stations, "fit-air": cmd_fit_air, "report": cmd_report, "gaps": cmd_gaps, "doctor": cmd_doctor}[args.cmd](args)
 
 
 if __name__ == "__main__":

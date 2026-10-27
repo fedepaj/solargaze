@@ -291,8 +291,9 @@ def street_tile(tile: Tile, models: dict) -> None:
     write_meta(tile, "air_street", build_street(tile, tile.path / "air_street", models))
 
 
-def build_street(tile: Tile, out: Path, models: dict) -> dict:
-    """The 50 m ratios into out/; returns the meta entry, writes nothing else."""
+def build_street(tile: Tile, out: Path, models: dict, stations_note: str | None = None) -> dict:
+    """The 50 m ratios into out/, for the pollutants `models` holds (of
+    STREET_VARS); returns the meta entry, writes nothing else."""
     import air_features as af
     from PIL import Image
     from datetime import datetime, timezone
@@ -306,7 +307,7 @@ def build_street(tile: Tile, out: Path, models: dict) -> dict:
     f = af.features(win, x, y)
     out.mkdir(parents=True, exist_ok=True)
     files = {}
-    for var in STREET_VARS:
+    for var in (v for v in STREET_VARS if v in models):
         lr = apply_model(models[var], f).reshape(CELLS, CELLS)
         byte = np.clip(np.round((lr - LR_MIN) / LR_STEP) + 1, 1, 255).astype(np.uint8)
         stored.exact(byte, out / f"{var}.webp")
@@ -320,9 +321,9 @@ def build_street(tile: Tile, out: Path, models: dict) -> dict:
         "encoding": {"channel": "L", "nodata_byte": 0, "byte1_ln_ratio": LR_MIN, "step_ln_ratio": LR_STEP},
         "files": files,
         "models": {v: {k: models[v][k] for k in ("terms", "coefficients", "ln_ratio_range", "stations", "validation")}
-                   for v in STREET_VARS},
+                   for v in STREET_VARS if v in models},
         "predictors": "OpenStreetMap roads and buildings (Geofabrik), ESA WorldCover 2021, Copernicus DEM GLO-30",
-        "stations": f"EEA verified (E1a) hourly and daily data, {YEARS}",
+        "stations": stations_note or f"EEA verified (E1a) hourly and daily data, {YEARS}",
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "caveat": "A statistical model of annual means fitted to monitoring stations, applied as one ratio to every month and hour, "
                   "and held to the range of ratios the stations show; it knows the roads, not the traffic on them. "
