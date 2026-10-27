@@ -583,13 +583,26 @@ async function loadStreet(tileId, info, product) {
  * multiply. `centre` is the tile under the point. Null when that tile has
  * no street product.
  */
+/** A street tile with no ratio anywhere: what sampleStreet and the mosaic read as CAMS alone. */
+async function camsOnly(tileId, product, clim) {
+  const { bounds } = await tileMeta(tileId);
+  return {
+    kind: 'street', bounds, rows: 64, cols: 64, bytes: {}, ratioOf: new Float32Array(256).fill(NaN),
+    clim, camsOnly: true, meta: clim.meta, key: `${product}|${tileId}`,
+  };
+}
+
 export async function streetSetAround(lat, lon, product = 'air_street') {
   const base = cardOf(product)?.base || 'air';
   let failure = null;
   const pair = id => Promise.all([attempt(tileProduct(id, product)), attempt(tileProduct(id, base))])
-    .then(([street, clim]) => {
+    .then(async ([street, clim]) => {
       failure ||= street.error || clim.error || null;
-      return street.value && clim.value ? { ...street.value, clim: clim.value } : null;
+      if (street.value && clim.value) return { ...street.value, clim: clim.value };
+      // CAMS's tables without a street model yet (not built there, or not
+      // yet): the tables alone, drawn as they are.
+      if (clim.value && !street.value && !street.error) return camsOnly(id, product, clim.value);
+      return null;
     });
   const centreId = tileIdFor(lat, lon);
   const all = await Promise.all(tileIdsAround(lat, lon).map(pair));

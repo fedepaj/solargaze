@@ -4,10 +4,19 @@ Data Store — the way to do many tiles at once.
 
 The Open-Meteo route (air_cams.py) asks for every node of every tile
 separately and is throttled by the free tier to a few tiles a day. The ADS
-hands over whole months of the European reanalysis for a bounding box as
-one NetCDF each: 0.1°, hourly, every pollutant, the same ensemble model
-Open-Meteo serves. One request per (year, month, variable) covers a whole
-region; the folding into month × hour tables is then local and instant.
+hands over whole months for a bounding box as one NetCDF each, and the
+folding into month × hour tables is then local:
+
+- inside Europe, the CAMS European reanalysis: 0.1°, hourly, the same
+  ensemble model Open-Meteo serves; one request per (year, month, variable);
+- elsewhere, the CAMS global reanalysis (EAC4): 0.75°, every three hours,
+  read at the same 0.1° nodes by bilinear interpolation and between its
+  hours linearly; one request per year for every variable. Coarser by far —
+  a region's background — and said so in each tile's meta.
+
+The tables are by local time at each node — the wall clock the app reads,
+summer time included — so a tile in Lisbon, one in Bucharest and one in Los
+Angeles each read their own hours.
 
 Output is identical to air_cams.py's — ``data/tiles/<id>/air/climatology.json``
 and the ``air`` product entry — so the app cannot tell which script ran.
@@ -15,11 +24,10 @@ and the ``air`` product entry — so the app cannot tell which script ran.
     pipeline/.venv/bin/python pipeline/air_cams_bulk.py --region italy
     pipeline/.venv/bin/python pipeline/air_cams_bulk.py --bbox 6.5,36.5,18.6,47.2 --years 2020-2024
 
-Needs ``~/.cdsapirc`` with the ADS url and your personal key (never in the
-repo). Requests queue on their side — a month of one variable over Italy
-came back in about a minute in testing; a five-year region is a few hours of
-mostly waiting, resumable: every downloaded month is kept under
-``pipeline/cache/cams_bulk/`` and never asked for twice.
+Needs the ADS key: ``~/.cdsapirc`` on a machine, ``CDSAPI_URL`` and
+``CDSAPI_KEY`` on a runner (never in the repo). Requests queue on their side —
+a month of one variable over Italy comes back in about a minute — so several
+are asked at once. Every downloaded file is folded and thrown away.
 
 Validated reanalysis lags about two years; for later years the interim
 reanalysis is used and said so in the meta.
@@ -33,20 +41,22 @@ import logging
 import sys
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tiles import STEP, Tile, write_meta  # noqa: E402
+from tiles import Tile, write_meta  # noqa: E402
 import netdns  # noqa: E402,F401  (falls back to DNS over HTTPS when the system resolver drops a name)
 from air_cams import VARS, WHO_DAILY, nodes_for  # noqa: E402
-from run_region import REGIONS, tiles_in_bbox  # noqa: E402
 
 log = logging.getLogger("cams-bulk")
 
 DATASET = "cams-europe-air-quality-reanalyses"
+EAC4 = "cams-global-reanalysis-eac4"
 CACHE = Path(__file__).resolve().parent / "cache" / "cams_bulk"
 # Open-Meteo's names → ADS names → the variable inside the NetCDF.
 ADS_VARS = {
@@ -55,9 +65,110 @@ ADS_VARS = {
     "nitrogen_dioxide": ("nitrogen_dioxide", "no2"),
     "ozone": ("ozone", "o3"),
 }
+# EAC4: surface particulate matter as delivered (kg/m³); NO₂ and ozone from
+# the lowest model level's mass mixing ratio times a standard air density.
+EAC4_VARS = {"pm2_5": ("pm2p5", False), "pm10": ("pm10", False),
+             "nitrogen_dioxide": ("no2", True), "ozone": ("go3", True)}
+AIR_DENSITY = 1.2       # kg/m³
+EAC4_STEP = 0.75
 # The validated reanalysis stops about two years back; interim fills the rest.
 VALIDATED_UNTIL = datetime.now().year - 2
+# The European reanalysis's domain: west, south, east, north.
+EUROPE = (-25.0, 30.0, 45.0, 72.0)
+WORKERS = 6             # requests in the Data Store's queue at once
 
+
+def in_europe(bbox) -> bool:
+    w, s, e, n = bbox
+    return w >= EUROPE[0] and s >= EUROPE[1] and e <= EUROPE[2] and n <= EUROPE[3]
+
+
+# ---------------------------------------------------------------- time zones
+
+@lru_cache(maxsize=1)
+def _finder():
+    from timezonefinder import TimezoneFinder
+    return TimezoneFinder(in_memory=True)
+
+
+def zone_at(lat: float, lon: float) -> str:
+    """The IANA zone of a place; at sea, the nautical zone of its longitude."""
+    z = _finder().timezone_at(lat=lat, lng=lon)
+    if z:
+        return z
+    off = int(round(lon / 15))
+    return "Etc/GMT" + (f"{-off:+d}" if off else "")
+
+
+# ---------------------------------------------------------------- folding
+
+class Fold:
+    """Hourly values at a set of nodes, folded into means by local calendar
+    month × local hour, and the share of local days whose mean is over the
+    WHO daily guideline."""
+
+    def __init__(self, wanted: list[tuple[float, float]]):
+        self.wanted = list(wanted)
+        k = len(self.wanted)
+        zones = [zone_at(a, o) for a, o in self.wanted]
+        self.groups = {z: np.array([i for i, x in enumerate(zones) if x == z]) for z in sorted(set(zones))}
+        self.zones = zones
+        self.sum = {v: np.zeros((k, 12, 24)) for v in VARS}
+        self.n = {v: np.zeros((k, 12, 24)) for v in VARS}
+        self.over = {v: np.zeros(k) for v in VARS}
+        self.days = {v: np.zeros(k) for v in VARS}
+
+    def add(self, var: str, times, vals: np.ndarray) -> None:
+        """times: a tz-aware hourly pandas DatetimeIndex (UTC); vals: (time, node)."""
+        import pandas as pd
+        vals = np.asarray(vals, dtype=np.float64)
+        ok = np.isfinite(vals)
+        v0 = np.where(ok, vals, 0.0)
+        for zone, idx in self.groups.items():
+            local = times.tz_convert(zone)
+            cell = (local.month.to_numpy() - 1) * 24 + local.hour.to_numpy()
+            onehot = np.zeros((len(cell), 288))
+            onehot[np.arange(len(cell)), cell] = 1
+            self.sum[var][idx] += (onehot.T @ v0[:, idx]).T.reshape(len(idx), 12, 24)
+            self.n[var][idx] += (onehot.T @ ok[:, idx]).T.reshape(len(idx), 12, 24)
+            day = pd.factorize(local.normalize())[0]
+            dh = np.zeros((len(day), day.max() + 1))
+            dh[np.arange(len(day)), day] = 1
+            dsum, dn = dh.T @ v0[:, idx], dh.T @ ok[:, idx]
+            seen = dn > 0
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mean = dsum / dn
+            self.over[var][idx] += ((mean > WHO_DAILY[var]) & seen).sum(axis=0)
+            self.days[var][idx] += seen.sum(axis=0)
+
+    def node(self, k: int) -> dict:
+        out = {}
+        for var in VARS:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mean = np.where(self.n[var][k] > 0, self.sum[var][k] / self.n[var][k], np.nan)
+            out[var] = {
+                "by_month_hour": [[None if np.isnan(x) else round(float(x), 1) for x in row] for row in mean],
+                "annual_mean": round(float(np.nanmean(mean)), 1) if np.isfinite(mean).any() else None,
+                "days_over_who": round(float(self.over[var][k] / self.days[var][k]), 3) if self.days[var][k] else None,
+            }
+        return out
+
+    def save(self, path: Path) -> None:
+        np.savez_compressed(path, wanted=np.array(self.wanted), **{
+            f"{v}_{k}": getattr(self, k)[v] for v in VARS for k in ("sum", "n", "over", "days")})
+
+    @classmethod
+    def load(cls, path: Path) -> "Fold":
+        z = np.load(path, allow_pickle=True)
+        f = cls([tuple(x) for x in z["wanted"]])
+        for v in VARS:
+            for k in ("sum", "n", "over", "days"):
+                if f"{v}_{k}" in z:
+                    getattr(f, k)[v] = z[f"{v}_{k}"]
+        return f
+
+
+# ---------------------------------------------------------------- the European reanalysis
 
 def fetch_month(bbox, year: int, month: int, var: str) -> Path:
     """One NetCDF of one variable for one month over the bbox, cached."""
@@ -78,117 +189,173 @@ def fetch_month(bbox, year: int, month: int, var: str) -> Path:
     }, str(zpath))
     with zipfile.ZipFile(zpath) as z:
         name = next(n for n in z.namelist() if n.endswith(".nc"))
-        z.extract(name, CACHE)
-        (CACHE / name).rename(out)
+        z.extract(name, CACHE / tag)
+        (CACHE / tag / name).rename(out)
+        (CACHE / tag).rmdir()
     zpath.unlink()
     log.info("  %s in %.0f s", out.name, time.time() - t0)
     return out
 
 
-def fold_region(bbox, years, tiles):
-    """month × hour means per pollutant at every 0.1° node any tile wants, local time."""
+def fold_europe(bbox, years, fold: Fold) -> None:
+    """The European reanalysis over bbox into fold, every file read once and deleted."""
+    import pandas as pd
     import xarray as xr
-    from zoneinfo import ZoneInfo
-    wanted = sorted({node for t in tiles for node in nodes_for(t)})
-    lat_w = np.array([n[0] for n in wanted]); lon_w = np.array([n[1] for n in wanted])
-    # A single zone for a region is a simplification the tables can afford:
-    # the whole of Italy is one hour of the clock, and the tables are means.
-    tz = ZoneInfo("Europe/Rome")
-    result = {v: {"sum": np.zeros((len(wanted), 12, 24)), "n": np.zeros((len(wanted), 12, 24)), "daily": []} for v in VARS}
-
-    for var in VARS:
-        ncname = ADS_VARS[var][1]
-        for year in years:
-            for month in range(1, 13):
-                ds = xr.open_dataset(fetch_month(bbox, year, month, var))
+    lat_w = xr.DataArray([n[0] for n in fold.wanted], dims="node")
+    lon_w = xr.DataArray([n[1] for n in fold.wanted], dims="node")
+    asks = [(year, month, var) for var in VARS for year in years for month in range(1, 13)]
+    with ThreadPoolExecutor(WORKERS) as pool:
+        futures = {pool.submit(fetch_month, bbox, *a): a for a in asks}
+        for k, done in enumerate(as_completed(futures), 1):
+            year, month, var = futures[done]
+            path = done.result()
+            with xr.open_dataset(path) as ds:
                 # One variable per file; its name has changed before (pm2p5,
                 # pm2p5_conc), so fall back to whatever the file holds.
+                ncname = ADS_VARS[var][1]
                 da = ds[ncname] if ncname in ds else ds[list(ds.data_vars)[0]]
-                # nearest model cell for every wanted node: the grid is 0.1° at .05 offsets
-                sel = da.sel(lat=xr.DataArray(lat_w, dims="node"), lon=xr.DataArray(lon_w, dims="node"), method="nearest")
-                times = [t.astimezone(tz) for t in sel.time.to_index().tz_localize("UTC").to_pydatetime()]
-                months = np.array([t.month - 1 for t in times]); hours = np.array([t.hour for t in times])
-                vals = sel.values  # (time, node)
-                ok = np.isfinite(vals)
-                for k in range(len(wanted)):
-                    np.add.at(result[var]["sum"][k], (months[ok[:, k]], hours[ok[:, k]]), vals[ok[:, k], k])
-                    np.add.at(result[var]["n"][k], (months[ok[:, k]], hours[ok[:, k]]), 1)
-                n = vals.shape[0] // 24 * 24
-                result[var]["daily"].append(np.nanmean(vals[:n].reshape(-1, 24, len(wanted)), axis=1))
-                ds.close()
-                log.info("folded %s %d-%02d", var, year, month)
-    return wanted, result
+                sel = da.sel(lat=lat_w, lon=lon_w, method="nearest")   # the grid is 0.1° at .05 offsets
+                times = pd.DatetimeIndex(sel.time.values).tz_localize("UTC")
+                fold.add(var, times, sel.values)
+            path.unlink()
+            if k % 24 == 0:
+                log.info("folded %d of %d months", k, len(asks))
 
 
-def fold_region_cached(bbox, years, tiles):
-    """The folded tables for a box, kept as one small file so that the
-    NetCDFs — three and a half gigabytes for a region — can be thrown away
-    once they have been read, and tiles built later still get their air."""
+# ---------------------------------------------------------------- the global reanalysis
+
+def fetch_eac4_year(bbox, year: int) -> list[Path]:
+    """A year of EAC4 every three hours over bbox, every variable: the surface
+    file and the model-level one."""
+    import cdsapi
+    west, south, east, north = bbox
+    where = CACHE / f"eac4_{year}_{north}_{west}_{south}_{east}"
+    done = sorted(where.glob("*.nc"))
+    if len(done) == 2:
+        return done
+    where.mkdir(parents=True, exist_ok=True)
+    zpath = where.with_suffix(".zip")
+    log.info("requesting EAC4 %d", year)
+    cdsapi.Client(quiet=True, timeout=600).retrieve(EAC4, {
+        "variable": [ADS_VARS[v][0] for v in VARS], "model_level": ["60"],
+        "date": [f"{year}-01-01/{year}-12-31"], "time": [f"{h:02d}:00" for h in range(0, 24, 3)],
+        "area": [north, west, south, east], "data_format": "netcdf_zip",
+    }, str(zpath))
+    with zipfile.ZipFile(zpath) as z:
+        z.extractall(where)
+    zpath.unlink()
+    return sorted(where.glob("*.nc"))
+
+
+def fold_eac4(bbox, years, fold: Fold) -> None:
+    """EAC4 over bbox into fold: bilinear at the 0.1° nodes, linear between its
+    three-hourly fields."""
+    import math
+    import pandas as pd
+    import xarray as xr
+    lat_w = xr.DataArray([n[0] for n in fold.wanted], dims="node")
+    lon_w = xr.DataArray([n[1] for n in fold.wanted], dims="node")
+    # On EAC4's own 0.75° grid, a cell beyond the box each way: a smaller box
+    # may hold no grid point at all, and the interpolation wants them round.
+    g = EAC4_STEP
+    bbox = (math.floor(bbox[0] / g) * g - g, math.floor(bbox[1] / g) * g - g,
+            math.ceil(bbox[2] / g) * g + g, math.ceil(bbox[3] / g) * g + g)
+    with ThreadPoolExecutor(min(WORKERS, len(years))) as pool:
+        futures = {pool.submit(fetch_eac4_year, bbox, y): y for y in years}
+        for done in as_completed(futures):
+            files = [xr.open_dataset(p) for p in done.result()]
+            for var, (nc, level) in EAC4_VARS.items():
+                ds = next(f for f in files if nc in f)
+                da = ds[nc]
+                if level:
+                    da = da.isel(model_level=0) * AIR_DENSITY
+                # West of Greenwich the reanalysis counts longitude to 360.
+                da = da.assign_coords(longitude=(da.longitude + 180) % 360 - 180).sortby("longitude").sortby("latitude")
+                at = da.interp(latitude=lat_w, longitude=lon_w) * 1e9                    # kg/m³ → µg/m³
+                tname = "valid_time" if "valid_time" in at.dims else "time"
+                series = pd.DataFrame(at.transpose(tname, "node").values,
+                                      index=pd.DatetimeIndex(at[tname].values).tz_localize("UTC")).sort_index()
+                hourly = series.resample("1h").asfreq().interpolate(limit=2, limit_area="inside")
+                fold.add(var, hourly.index, hourly.to_numpy())
+            for f in files:
+                f.close()
+            for p in done.result():
+                p.unlink()
+            log.info("folded EAC4 %d", futures[done])
+
+
+def fold_region(bbox, years, tiles) -> tuple[Fold, str]:
+    """The tables for every 0.1° node the tiles want, and a note on their source."""
+    fold = Fold(sorted({node for t in tiles for node in nodes_for(t)}))
+    if in_europe(bbox):
+        fold_europe(bbox, years, fold)
+        kinds = "validated" if years[-1] <= VALIDATED_UNTIL else f"validated to {VALIDATED_UNTIL}, interim after"
+        note = f"Copernicus Atmosphere Data Store, {DATASET} ({kinds})"
+    else:
+        fold_eac4(bbox, years, fold)
+        note = f"Copernicus Atmosphere Data Store, {EAC4} (0.75°, every 3 h, read at 0.1° nodes)"
+    return fold, note
+
+
+def fold_region_cached(bbox, years, tiles) -> tuple[Fold, str]:
+    """The folded tables for a box, kept as one small file, so that tiles
+    built later still get their air; any earlier fold over the same years
+    that holds every node will do."""
     tag = f"folded_{'_'.join(f'{v:.2f}' for v in bbox)}_{years[0]}-{years[-1]}.npz"
     path = CACHE / tag
-    wanted = sorted({node for t in tiles for node in nodes_for(t)})
-    # Any earlier fold over the same years that holds every node will do: a
-    # region inside a box already folded costs nothing to write again.
+    wanted = {node for t in tiles for node in nodes_for(t)}
     for p in sorted(CACHE.glob(f"folded_*_{years[0]}-{years[-1]}.npz"), key=lambda p: p != path):
-        z = np.load(p, allow_pickle=True)
-        have = [tuple(x) for x in z["wanted"]]
-        if set(wanted) <= set(have):
+        f = Fold.load(p)
+        if wanted <= set(f.wanted) and next(iter(f.days.values())).any():
             log.info("folded tables from %s", p.name)
-            result = {v: {"sum": z[f"{v}_sum"], "n": z[f"{v}_n"], "daily": [z[f"{v}_daily"]]} for v in VARS}
-            return have, result
-    wanted, result = fold_region(bbox, years, tiles)
-    np.savez_compressed(path, wanted=np.array(wanted), **{
-        f"{v}_{k}": (np.concatenate(result[v]["daily"]) if k == "daily" else result[v][k])
-        for v in VARS for k in ("sum", "n", "daily")})
-    for nc in CACHE.glob("*.nc"):
-        nc.unlink()
-    log.info("folded tables saved to %s; NetCDFs removed", path.name)
-    return wanted, result
+            return f, json.loads(p.with_suffix(".json").read_text())["note"] if p.with_suffix(".json").exists() else ""
+    fold, note = fold_region(bbox, years, tiles)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    fold.save(path)
+    path.with_suffix(".json").write_text(json.dumps({"note": note}))
+    log.info("folded tables saved to %s", path.name)
+    return fold, note
 
 
-def build_tile(tile, out_dir: Path, years, wanted, result, source_note) -> dict:
+# ---------------------------------------------------------------- tiles
+
+def build_tile(tile, out_dir: Path, years, fold: Fold, source_note: str) -> dict:
     """One tile's month × hour tables into out_dir/climatology.json; returns
     the meta entry. Writes nothing else."""
-    index = {node: k for k, node in enumerate(wanted)}
+    index = {node: k for k, node in enumerate(fold.wanted)}
+    zone = zone_at(*tile.centre)
     nodes = []
     for (lat, lon) in nodes_for(tile):
-        k = index[(lat, lon)]
-        entry = {"lat": lat, "lon": lon, "requested": [lat, lon]}
-        for var in VARS:
-            r = result[var]
-            with np.errstate(invalid="ignore"):
-                mean = np.where(r["n"][k] > 0, r["sum"][k] / r["n"][k], np.nan)
-            daily = np.concatenate([d[:, k] for d in r["daily"]])
-            daily = daily[np.isfinite(daily)]
-            entry[var] = {
-                "by_month_hour": [[None if np.isnan(x) else round(float(x), 1) for x in row] for row in mean],
-                "annual_mean": round(float(np.nanmean(mean)), 1),
-                "days_over_who": round(float((daily > WHO_DAILY[var]).mean()), 3) if len(daily) else None,
-            }
-        nodes.append(entry)
+        nodes.append({"lat": lat, "lon": lon, "requested": [lat, lon], **fold.node(index[(lat, lon)])})
     out_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"step": 0.1, "timezone": "Europe/Rome", "years": years, "vars": VARS,
+    payload = {"step": 0.1, "timezone": zone, "years": years, "vars": VARS,
                "lats": sorted({n["requested"][0] for n in nodes}), "lons": sorted({n["requested"][1] for n in nodes}),
                "nodes": nodes}
     (out_dir / "climatology.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
+    europe = DATASET in source_note
     return {
-        "product": "CAMS European air quality reanalysis (ensemble, surface): hourly means by calendar month, local time",
-        "years": years, "timezone": "Europe/Rome", "step_degrees": 0.1, "nodes": len(nodes), "vars": VARS,
+        "product": ("CAMS European air quality reanalysis (ensemble, surface)" if europe else
+                    "CAMS global reanalysis (EAC4, surface and lowest model level)")
+                   + ": hourly means by calendar month, local time",
+        "years": years, "timezone": zone, "step_degrees": 0.1, "nodes": len(nodes), "vars": VARS,
         "who_daily_guideline": WHO_DAILY, "file": "air/climatology.json",
         "source": source_note,
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "caveat": "A ~11 km model grid: regional background, not the street. Means over the years listed, not any particular day.",
+        "caveat": ("A ~11 km model grid: regional background, not the street." if europe else
+                   "An ~80 km model grid read at 0.1°: a region's background, far from the street; NO₂ is diluted well "
+                   "below what a road sees.") + " Means over the years listed, not any particular day.",
     }
 
 
-def write_tiles(tiles, years, wanted, result, source_note):
+def write_tiles(tiles, years, fold, source_note):
     """The old command line: build straight into each tile's folder."""
     for tile in tiles:
-        write_meta(tile, "air", build_tile(tile, tile.path / "air", years, wanted, result, source_note))
+        write_meta(tile, "air", build_tile(tile, tile.path / "air", years, fold, source_note))
         log.info("wrote %s", tile.id)
 
 
 def main():
+    from run_region import REGIONS, tiles_in_bbox
     ap = argparse.ArgumentParser()
     ap.add_argument("--region", choices=sorted(REGIONS))
     ap.add_argument("--bbox", help="west,south,east,north")
@@ -203,17 +370,13 @@ def main():
     tiles = [Tile.parse(t) for t in args.tiles.split(",")] if args.tiles else list(tiles_in_bbox(*bbox))
     # One 0.1° ring outside the box, for the tiles on its edge.
     fetch_box = (bbox[0] - 0.2, bbox[1] - 0.2, bbox[2] + 0.2, bbox[3] + 0.2)
-    wanted, result = fold_region_cached(fetch_box, years, tiles)
+    fold, note = fold_region_cached(fetch_box, years, tiles)
     if args.only_built and not args.tiles:
-        # A 200 KB table for every square of sea and mountain is a repo nobody
-        # wants; the mask run says where the buildings are. Decided now, after
-        # the hours of downloading, so a mask run going on in parallel counts.
         from tiles import read_meta
         tiles = [t for t in tiles
                  if read_meta(t).get("products", {}).get("wind", {}).get("osm_buildings", 0) >= args.only_built]
         log.info("%d built tiles to write", len(tiles))
-    kinds = "validated" if years[-1] <= VALIDATED_UNTIL else "validated to %d, interim after" % VALIDATED_UNTIL
-    write_tiles(tiles, years, wanted, result, f"Copernicus Atmosphere Data Store, cams-europe-air-quality-reanalyses ({kinds})")
+    write_tiles(tiles, years, fold, note)
 
 
 if __name__ == "__main__":

@@ -188,7 +188,7 @@ def _run_body(args, run, state, box) -> int:
     if remote and not args.no_pull:
         with run.step("state.pull"):
             run.info("state.pulled", records=remote.pull_state(state))
-    if args.region:
+    if args.region and not getattr(args, "skip_extract", False):
         from . import regions
         import osm_extract
         with run.step("extract", region=args.region):
@@ -344,6 +344,15 @@ def cmd_matrix(args) -> int:
         c, r = _matrix_scope(scope, int(n) if n else args.max, args, state, waiting)
         chosen += c
         rows += r
+    # The air of each scope: its own runners, with the Data Store's key, on
+    # regions not building tonight (two jobs writing one tile's meta would
+    # race).
+    if getattr(args, "air", 0):
+        busy = {r["region"] for r in chosen}
+        for spec in args.scope.split(","):
+            a = _air_rows(spec.partition(":")[0], args.air, state, busy)
+            chosen += a
+            rows += a
     out = json.dumps({"include": chosen})
     print(out)
     gh = os.environ.get("GITHUB_OUTPUT")
@@ -355,6 +364,37 @@ def cmd_matrix(args) -> int:
                                                   f"{r['real'] - r.get('new', r['real'])} of them rebuilds)")
         print(f"  {r['region']:38} {what}", file=sys.stderr)
     return 0
+
+
+AIR = "air"
+
+
+def _air_rows(scope: str, most: int, state, busy: set[str]) -> list[dict]:
+    """Up to `most` regions of the scope with tiles whose air can be built
+    now (their wind done), in the catalogue's order."""
+    from . import regions
+    from .log import git_sha
+    from .state import DONE
+    air = PRODUCTS[AIR]
+    if air.unavailable():
+        return []
+    out = []
+    for path in regions.SCOPES[scope]:
+        if len(out) == most:
+            break
+        if path in busy:
+            continue
+        try:
+            tiles = regions.tiles_of(region_poly(path))
+        except Exception as exc:  # noqa: BLE001 — one region's boundary is one region
+            print(f"{path}: {errors.signature(exc)}", file=sys.stderr)
+            continue
+        ready = [j for j in plan([air], tiles, state, git_sha()) if state.get("wind", j.tile).status == DONE]
+        if ready:
+            name = regions.name_of(path)
+            out.append({"region": path, "name": f"air-{name}", "tiles": len(tiles), "jobs": len(ready),
+                        "real": len(ready), "new": len(ready), "support": False, "air": True, "products": AIR})
+    return out
 
 
 def _matrix_scope(scope: str, most: int, args, state, waiting) -> tuple[list[dict], list[dict]]:
@@ -683,6 +723,8 @@ def main(argv=None) -> int:
     p.add_argument("--reindex", action="store_true", help="index the region's extract even if the index holds it")
     p.add_argument("--pieces-only", action="store_true",
                    help="with --region: leave its pieces of the scope's border tiles on the bucket, build nothing")
+    p.add_argument("--skip-extract", action="store_true",
+                   help="with --region: its tiles, but no extract and no border pieces (for air, which reads neither)")
     p = sub.add_parser("status", help="where things stand")
     p.add_argument("--products")
     sub.add_parser("adopt", help="record tiles built before the framework")
@@ -693,6 +735,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("matrix", help="the regions with most work, as a GitHub Actions matrix")
     p.add_argument("--scope", default="europe", help="a scope, or several with their slots: europe:6,world:4")
     p.add_argument("--max", type=int, default=8, help="slots for a scope that does not give its own")
+    p.add_argument("--air", type=int, default=0, help="slots a scope gives its air (built by runners of their own)")
     p.add_argument("--products")
     p = sub.add_parser("gaps", help="what the pipeline cannot do yet; --sync makes them GitHub issues")
     p.add_argument("--scope", default="test", help="a gap scope (test, americas, next) or ISO codes, comma-separated")
