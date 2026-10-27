@@ -24,7 +24,8 @@ so an interrupted run carries on. The result is one table,
 ``cache/stations/IT_2020-2024.parquet``, a row per sampling point.
 
 Honesty notes. Station times are reported in UTC+01 all year and are moved
-to Europe/Rome here, as CAMS's are. Only values flagged valid count. A
+to the station's own civil time, summer time included (Lisbon's, Helsinki's,
+the Canaries'), as CAMS's are. Only values flagged valid count. A
 point with less than a quarter of the period's hours is left out; the
 capture of the others is in the table, for the fit to weigh. Annual means
 are the mean of the 288 month × hour cells, as for CAMS, so a station that
@@ -58,13 +59,15 @@ CACHE = Path(__file__).resolve().parent / "cache" / "stations"
 CODES = {"pm2_5": 6001, "pm10": 5, "nitrogen_dioxide": 8, "ozone": 7}
 MIN_CAPTURE = 0.25
 STATION_TZ = "Etc/GMT-1"  # "UTC+01" in the EEA metadata; POSIX names have the sign the other way
+# Who is asking: the EEA's servers turn away a client that does not say.
+HEADERS = {"User-Agent": "solargaze-pipeline/1 (+https://github.com/fedepaj/solargaze)"}
 
 
 def get(url: str, method: str = "GET", tries: int = 6, **kw) -> requests.Response:
     """A request that waits out a DNS or connection hiccup instead of failing."""
     for i in range(tries):
         try:
-            r = requests.request(method, url, timeout=(20, 300), **kw)
+            r = requests.request(method, url, timeout=(20, 300), headers={**HEADERS, **kw.pop("headers", {})}, **kw)
             if r.status_code in (429, 500, 502, 503, 504):
                 raise requests.ConnectionError(f"HTTP {r.status_code}")
             r.raise_for_status()
@@ -107,24 +110,26 @@ def series_urls(country: str, code: int, years: list[int]) -> list[str]:
     return sorted(urls)
 
 
-def _values(df: pd.DataFrame, agg: str, years: list[int]):
+def _values(df: pd.DataFrame, agg: str, years: list[int], zone: str):
     d = df[df.AggType == agg]
-    t = d.Start.dt.tz_localize(STATION_TZ).dt.tz_convert("Europe/Rome")
+    t = d.Start.dt.tz_localize(STATION_TZ).dt.tz_convert(zone)
     v = pd.to_numeric(d.Value, errors="coerce").to_numpy(dtype=float)
     keep = t.dt.year.isin(years).to_numpy() & np.isfinite(v) & (v > -5)
     return t[keep], np.clip(v[keep], 0, None)
 
 
-def fold(raw: Path, years: list[int], var: str) -> dict | None:
+def fold(raw: Path, years: list[int], var: str, zones: dict | None = None, default: str = "Europe/Rome") -> dict | None:
     """One sampling point's series → monthly means, and month × local-hour
-    means when the series is hourly. Hours are used when they cover the
-    period well enough; otherwise daily values, if there are any."""
+    means when the series is hourly, in the point's own time zone. Hours are
+    used when they cover the period well enough; otherwise daily values, if
+    there are any."""
     df = pd.read_parquet(raw, columns=["Samplingpoint", "Start", "Value", "Validity", "AggType"])
     df = df[df.Validity > 0]
     if df.empty:
         return None
+    zone = (zones or {}).get(df.Samplingpoint.iloc[0].split("/", 1)[-1], default)
     hours_in = sum(8784 if y % 4 == 0 else 8760 for y in years)
-    t, v = _values(df, "hour", years)
+    t, v = _values(df, "hour", years, zone)
     if len(v) / hours_in >= MIN_CAPTURE:
         resolution, capture = "hour", len(v) / hours_in
         m, h = t.dt.month.to_numpy() - 1, t.dt.hour.to_numpy()
@@ -136,7 +141,7 @@ def fold(raw: Path, years: list[int], var: str) -> dict | None:
         daily = pd.Series(v, index=t.dt.tz_localize(None)).resample("D")
         dm = daily.mean()[daily.count() >= 18]
     else:
-        t, v = _values(df, "day", years)
+        t, v = _values(df, "day", years, zone)
         if len(v) / (hours_in / 24) < MIN_CAPTURE:
             return None
         resolution, capture, mh = "day", len(v) / (hours_in / 24), None
@@ -158,7 +163,7 @@ def fold(raw: Path, years: list[int], var: str) -> dict | None:
     }
 
 
-def one(url: str, years: list[int], var: str) -> dict | None:
+def one(url: str, years: list[int], var: str, zones: dict | None = None, default: str = "Europe/Rome") -> dict | None:
     name = url.rsplit("/", 1)[-1]
     done = CACHE / "points" / var / (name + ".json")
     if done.exists():
@@ -168,7 +173,7 @@ def one(url: str, years: list[int], var: str) -> dict | None:
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_bytes(get(url).content)
     try:
-        out = fold(raw, years, var)
+        out = fold(raw, years, var, zones, default)
     finally:
         raw.unlink(missing_ok=True)
     done.parent.mkdir(parents=True, exist_ok=True)
@@ -180,13 +185,17 @@ def build_table(country: str, years: list[int], variables: list[str], workers: i
     """Every sampling point of the country with data in the years, folded,
     joined to its metadata; one row per point and pollutant."""
     meta = station_meta(country)
+    from air_cams_bulk import zone_at
+    zones = {p: zone_at(a, o) for p, a, o in zip(meta.SamplingPoint, meta.Latitude, meta.Longitude)
+             if pd.notna(a) and pd.notna(o)}
+    default = pd.Series(list(zones.values())).mode().iat[0] if zones else "Europe/Rome"
     rows = []
     for var in variables:
         urls = series_urls(country, CODES[var], years)
         log.info("%s: %d sampling points to look at", var, len(urls))
         t0 = time.time()
         with ThreadPoolExecutor(workers) as pool:
-            futures = {pool.submit(one, u, years, var): u for u in urls}
+            futures = {pool.submit(one, u, years, var, zones, default): u for u in urls}
             for i, f in enumerate(as_completed(futures), 1):
                 try:
                     r = f.result()

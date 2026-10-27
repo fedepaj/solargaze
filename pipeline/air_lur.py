@@ -301,8 +301,7 @@ def build_street(tile: Tile, out: Path, models: dict) -> dict:
     lats = n - (np.arange(CELLS) + 0.5) * step  # row 0 north, as the other rasters
     lons = w + (np.arange(CELLS) + 0.5) * step
     LON, LAT = np.meshgrid(lons, lats)
-    x, y = af.TO_LAEA.transform(LON.ravel(), LAT.ravel())
-    win = af.Window.around(x.min(), y.min(), x.max(), y.max())
+    win, x, y = af.Window.around(LON.ravel(), LAT.ravel())
     t0 = time.time()
     f = af.features(win, x, y)
     out.mkdir(parents=True, exist_ok=True)

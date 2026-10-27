@@ -8,9 +8,10 @@ air_lur.py learns from these numbers, at every station, and then applies at
 every 50 m cell of a tile. They have to be computed the same way in both
 places, so they are computed here only.
 
-Everything happens on a 10 m grid in EPSG:3035 (the European equal-area
-projection the EEA's own air-quality maps use), so a buffer of 300 m is 300 m
-anywhere in Italy:
+Everything happens on a 10 m grid in an equal-area projection centred on
+the place itself (Lambert azimuthal, like the EEA's EPSG:3035 but with its
+centre wherever the window is), so a buffer of 300 m is 300 m in Rome,
+Dallas or Osaka:
 
 - roads, from the Geofabrik extracts (osm_extract.py): metres of major,
   secondary and local carriageway within 50, 100, 300, 500 and 1000 m, and
@@ -37,6 +38,7 @@ from __future__ import annotations
 import functools
 import logging
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -62,13 +64,15 @@ from buildings import building_height  # noqa: E402
 
 log = logging.getLogger("air.features")
 
-CRS = "EPSG:3035"
 PX = 10.0
 RADII = (50, 100, 300, 500, 1000)
 COVER_RADII = (300, 1000)
 PAD = 1100.0  # metres of context around what is asked for, for the widest buffer
-TO_LAEA = Transformer.from_crs("EPSG:4326", CRS, always_xy=True)
-TO_LL = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+
+
+def local_crs(lat: float, lon: float) -> str:
+    """Equal-area, true distances near (lat, lon): Lambert azimuthal on WGS84."""
+    return f"+proj=laea +lat_0={lat:.5f} +lon_0={lon:.5f} +datum=WGS84 +units=m +no_defs"
 ROAD_CLASSES = ("major", "secondary", "local")
 WORLDCOVER = {"green": (10, 20, 30), "builtup": (50,), "water": (80,)}
 
@@ -83,24 +87,39 @@ class MissingData(Upstream):
 
 
 class Window:
-    """A north-up grid of PX-metre cells in EPSG:3035."""
+    """A north-up grid of PX-metre cells in a projection of its own."""
 
-    def __init__(self, x0: float, y1: float, nx: int, ny: int):
-        self.x0, self.y1, self.nx, self.ny = x0, y1, nx, ny
+    def __init__(self, x0: float, y1: float, nx: int, ny: int, crs: str):
+        self.x0, self.y1, self.nx, self.ny, self.crs = x0, y1, nx, ny, crs
         self.transform = from_origin(x0, y1, PX, PX)
+        self.to_xy = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+        self.to_ll = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
 
     @classmethod
-    def around(cls, xmin, ymin, xmax, ymax, pad: float = PAD) -> "Window":
-        x0 = math.floor((xmin - pad) / PX) * PX
-        y1 = math.ceil((ymax + pad) / PX) * PX
-        nx = int(math.ceil((xmax + pad - x0) / PX))
-        ny = int(math.ceil((y1 - (ymin - pad)) / PX))
-        return cls(x0, y1, nx, ny)
+    def around(cls, lons, lats, pad: float = PAD) -> "Window":
+        """The window holding these points with pad metres round them, in a
+        projection centred on them; (window, x, y) with the points projected."""
+        lons, lats = np.asarray(lons, float), np.asarray(lats, float)
+        crs = local_crs(float((lats.min() + lats.max()) / 2), float((lons.min() + lons.max()) / 2))
+        to_xy = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+        x, y = to_xy.transform(lons, lats)
+        x0 = math.floor((x.min() - pad) / PX) * PX
+        y1 = math.ceil((y.max() + pad) / PX) * PX
+        nx = int(math.ceil((x.max() + pad - x0) / PX))
+        ny = int(math.ceil((y1 - (y.min() - pad)) / PX))
+        return cls(x0, y1, nx, ny, crs), np.asarray(x), np.asarray(y)
+
+    def project(self, coords) -> list[tuple[float, float]]:
+        a = np.asarray(coords, dtype=float)
+        x, y = self.to_xy.transform(a[:, 0], a[:, 1])
+        return list(zip(x.tolist(), y.tolist()))
 
     def lonlat_bounds(self) -> tuple[float, float, float, float]:
-        xs = np.array([self.x0, self.x0 + self.nx * PX] * 2 + [self.x0 + self.nx * PX / 2] * 2)
-        ys = np.array([self.y1, self.y1, self.y1 - self.ny * PX, self.y1 - self.ny * PX, self.y1, self.y1 - self.ny * PX])
-        lon, lat = TO_LL.transform(xs, ys)
+        # The edges' middles too: a projected rectangle bulges in lon/lat.
+        xs = np.array([self.x0, self.x0 + self.nx * PX] * 2 + [self.x0 + self.nx * PX / 2] * 2 + [self.x0, self.x0 + self.nx * PX])
+        ys = np.array([self.y1, self.y1, self.y1 - self.ny * PX, self.y1 - self.ny * PX, self.y1, self.y1 - self.ny * PX]
+                      + [self.y1 - self.ny * PX / 2] * 2)
+        lon, lat = self.to_ll.transform(xs, ys)
         return float(lon.min()), float(lat.min()), float(lon.max()), float(lat.max())
 
     def cells(self, x, y):
@@ -125,12 +144,6 @@ def _tiles(bounds):
             yield Tile(lat * STEP, lon * STEP).id
 
 
-def _laea(coords):
-    a = np.asarray(coords, dtype=float)
-    x, y = TO_LAEA.transform(a[:, 0], a[:, 1])
-    return list(zip(x.tolist(), y.tolist()))
-
-
 def osm_layers(win: Window) -> dict[str, np.ndarray]:
     """Road metres per cell by class, and the tallest building per cell (0 = none)."""
     roads, blds, seen_r, seen_b = [], [], set(), set()
@@ -148,13 +161,13 @@ def osm_layers(win: Window) -> dict[str, np.ndarray]:
     shape = (win.ny, win.nx)
     out = {}
     for cls in ROAD_CLASSES:
-        shapes = [({"type": "LineString", "coordinates": _laea(e["coordinates"])}, 1) for e in roads if e["c"] == cls]
+        shapes = [({"type": "LineString", "coordinates": win.project(e["coordinates"])}, 1) for e in roads if e["c"] == cls]
         out[f"road_{cls}"] = (rasterize(shapes, out_shape=shape, transform=win.transform, all_touched=True,
                                         dtype="uint8") * PX if shapes else np.zeros(shape)).astype(np.float32)
     shapes = []
     for e in blds:
         if e.get("type") == "polygon":
-            rings = [_laea(r) for r in e["coordinates"]]
+            rings = [win.project(r) for r in e["coordinates"]]
         else:  # an Overpass way, should one ever reach here
             continue
         shapes.append(({"type": "Polygon", "coordinates": rings}, building_height(e.get("tags") or {})[0]))
@@ -230,17 +243,47 @@ def _local(collection: str, la: int, lo: int) -> Path | None:
     return path
 
 
+_SIGNED: dict = {}
+SIGNED_FOR = 1800   # seconds a signed address is used; Planetary Computer's last about an hour
+
+
+def _remote(collection: str, la: int, lo: int) -> str | None:
+    """The cell's file where it lies, signed, to be read a window at a time;
+    None where the collection has none."""
+    hit = _SIGNED.get((collection, la, lo))
+    if hit and time.time() - hit[1] < SIGNED_FOR:
+        return hit[0]
+    href = _find(collection, la, lo)
+    _SIGNED[(collection, la, lo)] = (href, time.time())
+    return href
+
+
+def _find(collection: str, la: int, lo: int) -> str | None:
+    step, asset, name = GRIDS[collection]
+    c = (lo + step / 2, la + step / 2)
+    items = _patiently(lambda: list(_catalog().search(
+        collections=[collection], bbox=[c[0] - .01, c[1] - .01, c[0] + .01, c[1] + .01]).items()))
+    match = [it for it in items if it.assets[asset].href.split("?")[0].endswith(name(la, lo))]
+    return match[0].assets[asset].href if match else None
+
+
+# On a runner, which starts empty every night and needs a few windows of a
+# file, the files are read where they lie; on a machine that keeps a cache
+# (and a network that drops), they are fetched whole once.
+REMOTE_READS = os.environ.get("GITHUB_ACTIONS") == "true"
+
+
 def _mosaic(collection: str, win: Window, resampling, nodata) -> np.ndarray:
     step = GRIDS[collection][0]
     w, s, e, n = win.lonlat_bounds()
     out = np.full((win.ny, win.nx), np.nan, np.float32)
     for la in range(math.floor(s / step) * step, math.floor(n / step) * step + 1, step):
         for lo in range(math.floor(w / step) * step, math.floor(e / step) * step + 1, step):
-            path = _local(collection, la, lo)
+            path = _remote(collection, la, lo) if REMOTE_READS else _local(collection, la, lo)
             if path is None:
                 continue
             with rasterio.open(path) as src:
-                with WarpedVRT(src, crs=CRS, transform=win.transform, width=win.nx, height=win.ny,
+                with WarpedVRT(src, crs=win.crs, transform=win.transform, width=win.nx, height=win.ny,
                                resampling=resampling, nodata=nodata) as vrt:
                     a = vrt.read(1).astype(np.float32)
             a[a == nodata] = np.nan
@@ -273,8 +316,8 @@ def _within(a: np.ndarray, radius_m: float) -> np.ndarray:
 
 
 def features(win: Window, x, y) -> dict[str, np.ndarray]:
-    """Every predictor at the LAEA points (x, y), which must lie at least
-    PAD inside the window for the buffers to be whole."""
+    """Every predictor at the window's projected points (x, y), which must lie
+    at least PAD inside it for the buffers to be whole."""
     row, col = win.cells(x, y)
     at = lambda a: np.asarray(a[row, col], dtype=np.float32)  # noqa: E731
     osm = osm_layers(win)
@@ -303,6 +346,5 @@ def features(win: Window, x, y) -> dict[str, np.ndarray]:
 
 def features_at(lat: float, lon: float) -> dict[str, float]:
     """The predictors at one point, on a window just big enough for it."""
-    x, y = TO_LAEA.transform(lon, lat)
-    win = Window.around(x, y, x, y)
-    return {k: float(v[0]) for k, v in features(win, np.array([x]), np.array([y])).items()}
+    win, x, y = Window.around([lon], [lat])
+    return {k: float(v[0]) for k, v in features(win, x, y).items()}

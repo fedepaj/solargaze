@@ -78,6 +78,27 @@ NEIGHBOURS = {
 }
 
 
+# The country of each region, as the station importers name it (ISO 3166-1
+# alpha-2): one table of stations and one model a country.
+COUNTRY = {
+    "italy": "IT", "germany": "DE", "france": "FR", "united-kingdom": "GB", "spain": "ES", "poland": "PL",
+    "netherlands": "NL", "belgium": "BE", "romania": "RO", "portugal": "PT", "czech-republic": "CZ", "greece": "GR",
+    "hungary": "HU", "austria": "AT", "switzerland": "CH", "sweden": "SE", "denmark": "DK",
+    "ireland-and-northern-ireland": "IE", "bulgaria": "BG", "serbia": "RS", "slovakia": "SK", "croatia": "HR",
+    "finland": "FI", "norway": "NO", "slovenia": "SI", "bosnia-herzegovina": "BA", "lithuania": "LT", "latvia": "LV",
+    "estonia": "EE", "albania": "AL", "macedonia": "MK", "moldova": "MD", "luxembourg": "LU", "montenegro": "ME",
+    "malta": "MT", "cyprus": "CY", "iceland": "IS",
+}
+
+
+def country_of(path: str) -> str | None:
+    if path.startswith("north-america/us/"):
+        return "US"
+    if path.startswith("asia/japan/"):
+        return "JP"
+    return COUNTRY.get(path.rsplit("/", 1)[-1])
+
+
 def name_of(path: str) -> str:
     """The region's name on the bucket and in the cache. Europe's are bare
     (as they have always been); a state or a Japanese region carries its
