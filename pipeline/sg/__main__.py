@@ -210,16 +210,50 @@ def _run_body(args, run, state, box) -> int:
         jobs = jobs[:args.limit]
     run.info("selected", tiles=len(tiles), jobs=len(jobs), shard=args.shard or "all")
     ctx = Context(DATA_DIR, CACHE, run=run, before_tile=remote.pull_meta if remote else None)
+    budget = Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb, started=started)
+    if remote and args.region and not getattr(args, "skip_extract", False):
+        _station_work(args, run, remote, tiles, budget, air_job=False)
     try:
-        counts = execute(jobs, ctx, state, run, budget=Budget(seconds=args.hours * 3600, min_free_gb=args.min_free_gb, started=started),
+        counts = execute(jobs, ctx, state, run, budget=budget,
                          publish=remote.publish if remote else None,
                          checkpoint=(lambda: remote.push_delta(run.id, state)) if remote else None)
         run.info("counts", **counts)
+        if remote and args.region and getattr(args, "skip_extract", False):
+            _station_work(args, run, remote, tiles, budget, air_job=True)
         return 0
     except Systemic as exc:
         run.error("systemic", msg=str(exc))
         run.systemic = str(exc)
         return 2
+
+
+STATION_MINUTES = 15   # of a build job's night, at most, for the predictors at its region's stations
+STATION_TABLE_HOURS = 2.5   # left in an air job's budget before it fetches a country's stations
+
+
+def _station_work(args, run, remote, tiles, budget, air_job: bool) -> None:
+    """The stations of the region's country (sg/stations.py): an air job,
+    which reads no extract, fetches the country's table if there is none and
+    there is an hour to spare; a build job, which has the extract indexed,
+    computes the predictors at its region's stations for a few minutes. Never
+    the run's failure: the tiles come first."""
+    from . import regions, stations
+    country = regions.country_of(args.region)
+    if not country:
+        return
+    try:
+        if air_job:
+            # A big country's series take hours (Germany's, the United States'): only with hours to spare.
+            if budget.left() > STATION_TABLE_HOURS * 3600 and stations.table(remote, country) is None:
+                with run.step("stations.table", country=country):
+                    stations.fetch_table(remote, country, run)
+        else:
+            seconds = min(STATION_MINUTES * 60, max(0.0, budget.left() - 3600))
+            if seconds > 0:
+                with run.step("stations.features", country=country):
+                    stations.features_for_region(remote, country, regions.name_of(args.region), tiles, seconds, run)
+    except Exception as exc:  # noqa: BLE001 — classified and logged; the stations wait for another night
+        run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
 
 
 def others_shape(path: str):
