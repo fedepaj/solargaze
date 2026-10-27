@@ -84,7 +84,8 @@ bucket** (public).
 | `built` | GHSL GHS-BUILT-S, epochs 1975–2020 | Stored as deltas between epochs. |
 | `heat`, `heat_night` | Landsat 8/9, ECOSTRESS | Twelve months per tile. Morning heat takes each scene's level out before the median, fitted over a coarse window of the tile and its neighbours (`LEVEL_DEG` in `heat_landsat.py`, #24). |
 | `heat_1984/1994/2004` | Landsat 5 and 7 | Last in `ORDER`: built with what time is left. A scene far colder than the present `heat` of the month is a cloud the old mask missed, and dropped (`COLDER_C`). |
-| `air`, `air_street` | CAMS + stations | Built locally, not nightly. |
+| `air` | CAMS | Month × local-hour tables at 0.1° nodes, nightly on runners of their own (`--air` slots per scope, `--skip-extract`, `ADS_KEY` as `CDSAPI_KEY`): the European reanalysis in its domain, EAC4 elsewhere (`air_cams_bulk.py`). Where a tile has it but no `air_street`, the app shows CAMS alone. |
+| `air_street` | CAMS + stations | The 50 m model (`air_lur.py`), fitted on Italy's stations and built on the owner's Mac; being ported to the runners and other countries. |
 | `air_past` | CAMS EAC4 2003–2024 | **Not a tile product and not built by the runner**: `pipeline/air_eac4.py --publish` on the owner's Mac (needs `~/.cdsapirc`; `SG_EAC4_CACHE` when the cache disk is out). One grid per area (Europe, North America, Japan); the app also shows its last year wherever no street air has been built. |
 
 - **A new product**: a module with `build(tile, out_dir, …) -> meta`, a class in `pipeline/sg/products/`

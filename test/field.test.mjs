@@ -399,3 +399,16 @@ test('the air by year: the area under the pin, or none', () => {
   assert.equal(gridAreaFor({ grid: grid(72, -25, 51, 94), files: {} }, 41.9, 12.5).name, 'europe');
   assert.equal(gridAreaFor({ grid: grid(72, -25, 51, 94), files: {} }, 35.68, 139.77), null);
 });
+
+test('street air without a street model: CAMS alone, said so', () => {
+  const air = LAYERS.find(l => l.id === 'air');
+  const nodes = 4;
+  const vars = { nitrogen_dioxide: new Float32Array(12 * 24 * nodes).fill(20), ozone: new Float32Array(12 * 24 * nodes).fill(60) };
+  const clim = { kind: 'climatology', grid: { rows: 2, cols: 2, step: 0.1, south: 41.9, west: 12.4, north: 42.0, east: 12.5 }, vars };
+  const tile = { kind: 'street', bounds: [12.4, 41.9, 12.5, 42.0], rows: 64, cols: 64, bytes: {},
+    ratioOf: new Float32Array(256).fill(NaN), clim, camsOnly: true, meta: { source: 'cams-global-reanalysis-eac4' } };
+  const set = { kind: 'street-set', rect: [12.4, 41.9, 12.5, 42.0], tiles: [tile], centre: tile };
+  const ctx = { mode: 'air_street', option: 'nitrogen_dioxide', monthFrac: 6, hourFrac: 8 };
+  assert.equal(air.field(set, 41.95, 12.45, 0, ctx), 20);
+  assert.match(air.reading(set, 41.95, 12.45, 0, ctx).sub, /CAMS global model alone, ~80 km: no street model here yet/);
+});

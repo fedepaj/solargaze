@@ -120,9 +120,9 @@ export const FALLBACK = {
     },
     air: {
       kind: 'climatology', title: 'CAMS air quality by month and hour', resolution_m: 10000,
-      source: 'Copernicus Atmosphere Monitoring Service (CAMS) European reanalysis 2020–2024',
+      source: 'Copernicus Atmosphere Monitoring Service (CAMS): the European reanalysis 2020–2024 in Europe, the global reanalysis (EAC4, ~80 km) elsewhere',
       licence: 'Copernicus licence',
-      note: "The five-year habit of the air for each month and hour, on CAMS's ~10 km grid; the street layer is built on it.",
+      note: "The five-year habit of the air for each month and local hour, on CAMS's ~10 km grid in Europe and its ~80 km global grid elsewhere; the street layer is built on it.",
     },
     air_street: {
       theme: 'air', variant: 'street', order: 10, kind: 'street-air', base: 'air',

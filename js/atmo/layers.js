@@ -295,14 +295,16 @@ export const KINDS = {
       if (Number.isNaN(value)) return null;
       const tile = streetTileAt(s, lat, lon);
       const cams = sampleClimatology(tile.clim, option, lat, lon, ctx.monthFrac, ctx.hourFrac);
-      const how = option === 'ozone' ? 'from NO₂ by titration'
-        : STREET_MODELLED.includes(option) ? `×${streetRatio(tile, option, lat, lon).toFixed(2)} on CAMS for the roads and buildings here`
-          : 'CAMS: no street-scale gain for this one';
+      const how = tile.camsOnly
+        ? `${String(tile.meta?.source || '').includes('eac4') ? 'CAMS global model alone, ~80 km' : 'CAMS alone, ~10 km'}: no street model here yet`
+        : option === 'ozone' ? 'from NO₂ by titration'
+          : STREET_MODELLED.includes(option) ? `×${streetRatio(tile, option, lat, lon).toFixed(2)} on CAMS for the roads and buildings here`
+            : 'CAMS: no street-scale gain for this one';
       return {
         value,
         text: `${value.toFixed(0)} ${m.unit}`,
         sub: `${monthName(ctx.monthFrac)}, ${String(Math.floor(ctx.hourFrac)).padStart(2, '0')}:00 typical · ${how}` +
-          (Number.isNaN(cams) ? '' : ` · CAMS alone ${cams.toFixed(0)}`),
+          (Number.isNaN(cams) || tile.camsOnly ? '' : ` · CAMS alone ${cams.toFixed(0)}`),
         band: bandOf(option, value),
       };
     },

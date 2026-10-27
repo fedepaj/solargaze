@@ -34,6 +34,7 @@ on:
       max: { description: 'slots for a scope that names none', default: '6' }
       products: { description: 'products', default: 'wind,noise,light,built,heat,heat_night,heat_2004,heat_1994,heat_1984' }
       hours: { description: 'budget per region, hours, extract included', default: '5' }
+      air_slots: { description: 'regions a night per scope whose air is built', default: '2' }
       gap_scope: { description: 'countries whose gaps to track (pipeline/sg/gaps.py)', default: 'next' }
       gaps_only: { description: 'skip the build: only scan the gaps and let the agent work on one', type: boolean, default: false }
 
@@ -52,6 +53,7 @@ env:
   MAX: ${{ inputs.max || '6' }}
   PRODUCTS: ${{ inputs.products || 'wind,noise,light,built,heat,heat_night,heat_2004,heat_1994,heat_1984' }}
   HOURS: ${{ inputs.hours || '5' }}   # + the longest tile + publishing, inside the 350 min below
+  AIR_SLOTS: ${{ inputs.air_slots || '2' }}   # per scope: regions a night whose air (CAMS) is built
   GAP_SCOPE: ${{ inputs.gap_scope || 'next' }}
 
 jobs:
@@ -70,6 +72,8 @@ jobs:
       OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
       # Whether night heat can run, without handing the plan job the credentials.
       EARTHDATA_CONFIGURED: ${{ secrets.EARTHDATA_TOKEN != '' || secrets.EARTHDATA_PASSWORD != '' }}
+      # Whether air can run, likewise: the key itself only reaches the builds.
+      ADS_CONFIGURED: ${{ secrets.ADS_KEY != '' }}
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       any: ${{ steps.matrix.outputs.any }}
@@ -95,7 +99,7 @@ jobs:
           if [ "${{ inputs.gaps_only }}" = "true" ]; then
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"; echo "any=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          python -m sg matrix --scope "$SCOPE" --max "$MAX" --products "$PRODUCTS"
+          python -m sg matrix --scope "$SCOPE" --max "$MAX" --products "$PRODUCTS" --air "$AIR_SLOTS"
 
   build:
     needs: plan
@@ -116,6 +120,9 @@ jobs:
       EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
       EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
       EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+      # Air (CAMS): the Atmosphere Data Store.
+      CDSAPI_URL: https://ads.atmosphere.copernicus.eu/api
+      CDSAPI_KEY: ${{ secrets.ADS_KEY }}
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -137,7 +144,7 @@ jobs:
         run: |
           python -m sg run --region "${{ matrix.region }}" --products "${{ matrix.products || env.PRODUCTS }}" \
             --hours "$HOURS" --min-free-gb 4 --name "gha-${{ github.run_id }}-${{ matrix.name }}" \
-            ${{ matrix.support && '--pieces-only' || '' }}
+            ${{ matrix.support && '--pieces-only' || '' }} ${{ matrix.air && '--skip-extract' || '' }}
       - name: Keep the log with the run as well
         if: always()
         uses: actions/upload-artifact@v7
