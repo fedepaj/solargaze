@@ -60,7 +60,7 @@ class Invalid(PipelineError):
 _NETWORK = re.compile(
     r"resolve|Resolution|nodename nor servname|timed? ?out|Timeout|Connection (?:reset|refused|aborted|broken)|"
     r"Max retries exceeded|RemoteDisconnected|IncompleteRead|ChunkedEncodingError|SSLError|EOF occurred|"
-    r"CURL error|response_code=0|Temporary failure|Network is unreachable|overpass busy",
+    r"CURL error|response_code=0|Temporary failure|Network is unreachable|overpass busy|rate limited",
     re.I,
 )
 _HTTP = re.compile(r"\b(?:HTTP(?: response code)?|status)[: ]+(\d{3})\b|\b(\d{3}) (?:Client|Server) Error", re.I)
