@@ -63,6 +63,10 @@ _NETWORK = re.compile(
     r"CURL error|response_code=0|Temporary failure|Network is unreachable|overpass busy",
     re.I,
 )
+# A server that is full says so with a 4xx (the Copernicus ADS: "400 … The job
+# has been rejected: Maximum number queued requests for this dataset has been
+# reached"). Like a 429, it is the queue and not the request.
+_BUSY = re.compile(r"Maximum number (?:of )?queued requests", re.I)
 _HTTP = re.compile(r"\b(?:HTTP(?: response code)?|status)[: ]+(\d{3})\b|\b(\d{3}) (?:Client|Server) Error", re.I)
 
 
@@ -79,6 +83,8 @@ def classify(exc: BaseException) -> str:
     if isinstance(exc, PipelineError):
         return exc.kind
     if isinstance(exc, (socket.gaierror, TimeoutError, ConnectionError)):
+        return TRANSIENT
+    if _BUSY.search(str(exc)):
         return TRANSIENT
     code = http_status(exc)
     if code is not None:

@@ -25,6 +25,9 @@ class Classify(unittest.TestCase):
             "overpass busy: 504": errors.TRANSIENT,
             "HTTP response code: 403": errors.UPSTREAM,
             "Request for 1856559-1890912 failed with response_code=0": errors.TRANSIENT,
+            "400 Client Error: Bad Request for url: https://ads.atmosphere.copernicus.eu/api/retrieve/v1/jobs/x/results\n"
+            "The job has been rejected\nMaximum number queued requests for this dataset has been reached.": errors.TRANSIENT,
+            "400 Client Error: Bad Request for url: https://example.org/x": errors.UPSTREAM,
             "division by zero": errors.BUG,
         }
         for msg, kind in cases.items():
