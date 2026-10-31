@@ -72,5 +72,17 @@ class LocalProjection(unittest.TestCase):
             self.assertTrue(w < lon and e > lon + 0.01 and s < lat and n > lat + 0.01)
 
 
+class NoSamplingPointTest(unittest.TestCase):
+    def test_a_country_with_no_data_is_nodata_not_a_keyerror(self):
+        # GB: the EEA lists its points but none has data in the years (#34: KeyError 'point')
+        from unittest import mock
+        import air_stations
+        meta = pd.DataFrame(dict(SamplingPoint=["GB1"], Latitude=[51.5], Longitude=[-0.1]))
+        with mock.patch.object(air_stations, "station_meta", return_value=meta), \
+             mock.patch.object(air_stations, "series_urls", return_value=[]):
+            with self.assertRaises(errors.NoData):
+                air_stations.build_table("GB", [2023, 2024], ["pm10"])
+
+
 if __name__ == "__main__":
     unittest.main()
