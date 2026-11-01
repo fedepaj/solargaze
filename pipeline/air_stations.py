@@ -207,6 +207,14 @@ def build_table(country: str, years: list[int], variables: list[str], workers: i
                 if i % 100 == 0:
                     log.info("  %s %d/%d in %.0f s", var, i, len(urls), time.time() - t0)
         log.info("%s: %d points with data in %d–%d", var, sum(r["var"] == var for r in rows), years[0], years[-1])
+    return join_meta(rows, meta)
+
+
+def join_meta(rows: list[dict], meta: pd.DataFrame) -> pd.DataFrame:
+    """The folded points joined to their metadata. A country with no point
+    in the years (GB after 2019) gives an empty table, not a missing column."""
+    if not rows:
+        return meta.iloc[0:0].assign(point=pd.Series(dtype=object)).drop(columns=["SamplingPoint", "code"])
     table = pd.DataFrame(rows).merge(meta, left_on="point", right_on="SamplingPoint", how="left")
     lost = table.Latitude.isna().sum()
     if lost:
