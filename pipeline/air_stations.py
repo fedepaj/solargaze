@@ -207,6 +207,9 @@ def build_table(country: str, years: list[int], variables: list[str], workers: i
                 if i % 100 == 0:
                     log.info("  %s %d/%d in %.0f s", var, i, len(urls), time.time() - t0)
         log.info("%s: %d points with data in %d–%d", var, sum(r["var"] == var for r in rows), years[0], years[-1])
+    if not rows:  # no point with data in the years (GB after 2020): an empty table, not a KeyError on "point"
+        cols = ["point", "var", "resolution", "values", "capture", "annual_mean", "days_over_who", "by_month", "by_month_hour"]
+        rows = pd.DataFrame(columns=cols)
     table = pd.DataFrame(rows).merge(meta, left_on="point", right_on="SamplingPoint", how="left")
     lost = table.Latitude.isna().sum()
     if lost:

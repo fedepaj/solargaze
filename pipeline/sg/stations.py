@@ -71,7 +71,12 @@ def fetch_table(remote, country: str, log=None):
             log.warn("stations.none", country=country, msg="no importer covers this country")
         return None
     t0 = time.time()
-    df = validate(imp.stations(country, YEARS), imp.name)
+    raw = imp.stations(country, YEARS)
+    if raw is None or raw.empty:
+        if log:
+            log.warn("stations.none", country=country, msg=f"{imp.name} has no station with data in {YEARS[0]}-{YEARS[-1]}")
+        return None
+    df = validate(raw, imp.name)
     _put(remote, table_key(country), df)
     if log:
         log.info("stations.fetched", country=country, importer=imp.name, rows=len(df),

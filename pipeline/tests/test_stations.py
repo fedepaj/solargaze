@@ -72,5 +72,29 @@ class LocalProjection(unittest.TestCase):
             self.assertTrue(w < lon and e > lon + 0.01 and s < lat and n > lat + 0.01)
 
 
+class NoStationData(unittest.TestCase):
+    def test_no_point_with_data_in_the_years_is_an_empty_table_not_a_keyerror(self):
+        from unittest import mock
+        import air_stations
+        meta = pd.DataFrame({"SamplingPoint": ["GB/1"], "AirQualityStation": ["S"], "AirQualityStationEoICode": ["S"],
+                             "code": [8], "Longitude": [0.0], "Latitude": [51.0], "Altitude": [1],
+                             "AirQualityStationType": ["traffic"], "AirQualityStationArea": ["urban"],
+                             "KerbDistance": [1], "BuildingDistance": [1]})
+        with mock.patch.object(air_stations, "station_meta", return_value=meta), \
+                mock.patch.object(air_stations, "series_urls", return_value=[]), \
+                mock.patch("air_cams_bulk.zone_at", return_value="Europe/London"):
+            t = air_stations.build_table("GB", [2020, 2021], ["nitrogen_dioxide"])
+        self.assertTrue(t.empty)
+
+    def test_fetch_table_gives_none_when_the_importer_has_no_rows(self):
+        from unittest import mock
+        import importers
+        imp = mock.Mock()
+        imp.name = "eea"
+        imp.stations.return_value = pd.DataFrame()
+        with mock.patch.object(importers, "importer_for", return_value=imp):
+            self.assertIsNone(stations.fetch_table(FakeRemote(), "GB"))
+
+
 if __name__ == "__main__":
     unittest.main()
