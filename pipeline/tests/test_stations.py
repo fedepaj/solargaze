@@ -72,5 +72,17 @@ class LocalProjection(unittest.TestCase):
             self.assertTrue(w < lon and e > lon + 0.01 and s < lat and n > lat + 0.01)
 
 
+class NoStationsTable(unittest.TestCase):
+    def test_a_country_with_no_series_is_no_data_not_a_keyerror(self):
+        import air_stations
+        from unittest import mock
+        with mock.patch.object(air_stations, "station_meta", return_value=pd.DataFrame(
+                {"SamplingPoint": [], "Latitude": [], "Longitude": []})), \
+                mock.patch.object(air_stations, "series_urls", return_value=[]), \
+                mock.patch.dict(sys.modules, {"air_cams_bulk": mock.Mock(zone_at=lambda a, o: "UTC")}):
+            with self.assertRaises(errors.NoData):
+                air_stations.build_table("GB", [2020], ["pm10"])
+
+
 if __name__ == "__main__":
     unittest.main()
