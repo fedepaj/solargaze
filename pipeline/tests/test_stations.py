@@ -59,6 +59,20 @@ class Stations(unittest.TestCase):
         self.assertEqual(stations.features_for_region(remote, "IT", "lazio", [ROME], 0, compute=lambda a, o: {}), (0, 0, 3))
 
 
+class NoStationInYears(unittest.TestCase):
+    def test_a_country_with_no_point_with_data_is_nodata_not_a_keyerror(self):
+        import air_stations
+        meta = pd.DataFrame({"SamplingPoint": ["GB/x"], "Latitude": [51.5], "Longitude": [-0.1], "code": [1]})
+        orig = (air_stations.station_meta, air_stations.series_urls)
+        air_stations.station_meta = lambda c: meta
+        air_stations.series_urls = lambda c, code, years: []
+        try:
+            with self.assertRaises(errors.NoData):
+                air_stations.build_table("GB", [2020, 2021], ["pm10"])
+        finally:
+            air_stations.station_meta, air_stations.series_urls = orig
+
+
 class LocalProjection(unittest.TestCase):
     def test_a_window_measures_true_metres_wherever_it_is(self):
         import air_features as af
