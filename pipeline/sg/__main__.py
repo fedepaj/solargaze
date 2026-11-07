@@ -319,6 +319,9 @@ def cmd_stations(args) -> int:
         try:
             with run.step("stations.table", country=args.country):
                 df = stations.fetch_table(remote, args.country.upper(), run)
+        except errors.NoData as exc:  # a country with no station in the years is an answer, not a failure
+            run.warn("stations.none", country=args.country, msg=str(exc)[:300])
+            code = 0
         except Exception as exc:  # noqa: BLE001 — classified, logged, and the job fails for the report
             run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
             run.systemic = f"stations of {args.country}: {errors.signature(exc)}"
