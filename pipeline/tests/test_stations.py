@@ -72,5 +72,18 @@ class LocalProjection(unittest.TestCase):
             self.assertTrue(w < lon and e > lon + 0.01 and s < lat and n > lat + 0.01)
 
 
+class NoSeries(unittest.TestCase):
+    def test_a_country_with_no_series_is_no_data_not_a_key_error(self):
+        # GB stopped reporting to the EEA: no point has data, `rows` is empty and
+        # the merge on "point" used to die with KeyError: 'point' (a Bug, systemic).
+        from unittest import mock
+        import air_stations
+        meta = pd.DataFrame({"SamplingPoint": ["GB/1"], "Latitude": [51.5], "Longitude": [-0.1]})
+        with mock.patch.object(air_stations, "station_meta", return_value=meta), \
+                mock.patch.object(air_stations, "series_urls", return_value=[]):
+            with self.assertRaises(errors.NoData):
+                air_stations.build_table("GB", [2020, 2021], ["pm10"])
+
+
 if __name__ == "__main__":
     unittest.main()
