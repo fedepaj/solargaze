@@ -321,7 +321,8 @@ def cmd_stations(args) -> int:
                 df = stations.fetch_table(remote, args.country.upper(), run)
         except Exception as exc:  # noqa: BLE001 — classified, logged, and the job fails for the report
             run.error("stations.failed", kind=errors.classify(exc), sig=errors.signature(exc), msg=str(exc)[:300])
-            run.systemic = f"stations of {args.country}: {errors.signature(exc)}"
+            if errors.classify(exc) != errors.NODATA:   # a country with no data is no broken run
+                run.systemic = f"stations of {args.country}: {errors.signature(exc)}"
             code = 1
         else:
             code = 0 if df is not None else 1

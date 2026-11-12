@@ -59,6 +59,18 @@ class Stations(unittest.TestCase):
         self.assertEqual(stations.features_for_region(remote, "IT", "lazio", [ROME], 0, compute=lambda a, o: {}), (0, 0, 3))
 
 
+class EmptyCountry(unittest.TestCase):
+    def test_no_point_with_data_is_nodata_not_a_keyerror(self):
+        import air_stations
+        from unittest import mock
+        meta = pd.DataFrame({"SamplingPoint": ["GB/x"], "Latitude": [51.5], "Longitude": [-0.1]})
+        with mock.patch.object(air_stations, "station_meta", return_value=meta), \
+                mock.patch.object(air_stations, "series_urls", return_value=[]), \
+                mock.patch("air_cams_bulk.zone_at", return_value="Europe/London"):
+            with self.assertRaises(errors.NoData):
+                air_stations.build_table("GB", [2020, 2021], ["nitrogen_dioxide"])
+
+
 class LocalProjection(unittest.TestCase):
     def test_a_window_measures_true_metres_wherever_it_is(self):
         import air_features as af

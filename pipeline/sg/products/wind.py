@@ -27,6 +27,8 @@ class Wind(Product):
         info = wind_run.build(Tile.parse(tile), stage)
         if not info.get("osm_buildings"):
             raise NoData("no OSM building in the tile")
+        if info.get("mask_cells") == 0:
+            raise NoData(f"{info['osm_buildings']} OSM buildings, none big enough to fill a cell of the mask")
         return info
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
