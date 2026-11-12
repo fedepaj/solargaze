@@ -313,6 +313,7 @@ def build(tile: Tile, n: int, out_dir: Path) -> tuple[np.ndarray, dict]:
     _cache_path(tile.bounds).unlink(missing_ok=True)
     info = {
         "osm_buildings": len(polys),
+        "mask_cells": int((heights > 0).sum()),   # a lone hut covers under half a cell: buildings, but no mask
         "height_source_counts": sources,
         "height_rule": HEIGHT_RULE,
         "heights_png": {"file": HEIGHTS_FILE, "metres_per_lsb": METRES_PER_LSB, "rounding": "up",
