@@ -75,9 +75,15 @@ def http_status(exc: BaseException) -> int | None:
     return int(m.group(1) or m.group(2)) if m else None
 
 
+# The Copernicus data stores answer 400 when their queue is full: busy, not our request.
+_QUEUE_FULL = re.compile(r"Maximum number (?:of )?queued requests", re.I)
+
+
 def classify(exc: BaseException) -> str:
     if isinstance(exc, PipelineError):
         return exc.kind
+    if _QUEUE_FULL.search(str(exc)):
+        return TRANSIENT
     if isinstance(exc, (socket.gaierror, TimeoutError, ConnectionError)):
         return TRANSIENT
     code = http_status(exc)

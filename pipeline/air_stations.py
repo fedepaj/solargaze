@@ -190,6 +190,7 @@ def build_table(country: str, years: list[int], variables: list[str], workers: i
              if pd.notna(a) and pd.notna(o)}
     default = pd.Series(list(zones.values())).mode().iat[0] if zones else "Europe/Rome"
     rows = []
+    broken = 0
     for var in variables:
         urls = series_urls(country, CODES[var], years)
         log.info("%s: %d sampling points to look at", var, len(urls))
@@ -201,12 +202,18 @@ def build_table(country: str, years: list[int], variables: list[str], workers: i
                     r = f.result()
                 except Exception as e:  # one bad file is one station fewer, not a dead run
                     log.error("%s: %s", futures[f].rsplit("/", 1)[-1], e)
+                    broken += 1
                     continue
                 if r:
                     rows.append(r)
                 if i % 100 == 0:
                     log.info("  %s %d/%d in %.0f s", var, i, len(urls), time.time() - t0)
         log.info("%s: %d points with data in %d–%d", var, sum(r["var"] == var for r in rows), years[0], years[-1])
+    if not rows:
+        from sg.errors import NoData, Upstream
+        if broken:  # every file we tried failed: the source, not the country
+            raise Upstream(f"{country}: all {broken} series files failed to read")
+        raise NoData(f"{country}: no sampling point has data in {years[0]}–{years[-1]}")
     table = pd.DataFrame(rows).merge(meta, left_on="point", right_on="SamplingPoint", how="left")
     lost = table.Latitude.isna().sum()
     if lost:

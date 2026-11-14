@@ -18,6 +18,12 @@ class FakeHTTPError(Exception):
 
 
 class Classify(unittest.TestCase):
+    def test_a_full_copernicus_queue_is_transient(self):
+        msg = ("400 Client Error: Bad Request for url: https://ads.atmosphere.copernicus.eu/api/retrieve/v1/jobs/x/results\n"
+               "The job has been rejected\nMaximum number queued requests for this dataset has been reached.")
+        self.assertEqual(errors.classify(RuntimeError(msg)), errors.TRANSIENT)
+        self.assertEqual(errors.classify(RuntimeError("400 Client Error: Bad Request for url: https://x")), errors.UPSTREAM)
+
     def test_messages_seen_on_this_network(self):
         cases = {
             "HTTPSConnectionPool(host='planetarycomputer.microsoft.com', port=443): Max retries exceeded": errors.TRANSIENT,
