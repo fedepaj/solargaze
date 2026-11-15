@@ -74,3 +74,20 @@ class LocalProjection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoStationsInACountry(unittest.TestCase):
+    def test_a_country_with_no_sampling_point_is_nodata_not_a_keyerror(self):
+        """The EEA lists no sampling point for GB: build_table used to die on
+        `t.point` of an empty frame and stopped the stations job as systemic."""
+        import air_stations
+        meta = pd.DataFrame({"SamplingPoint": ["X"], "Latitude": [51.0], "Longitude": [0.0]})
+        orig = (air_stations.station_meta, air_stations.series_urls)
+        air_stations.station_meta = lambda c: meta
+        air_stations.series_urls = lambda c, code, years: []
+        try:
+            import air_cams_bulk  # noqa: F401
+            with self.assertRaises(errors.NoData):
+                air_stations.build_table("GB", [2022, 2023], ["nitrogen_dioxide"])
+        finally:
+            air_stations.station_meta, air_stations.series_urls = orig
