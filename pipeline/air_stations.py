@@ -48,6 +48,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from air_cams import VARS, WHO_DAILY  # noqa: E402
+from sg.errors import NoData  # noqa: E402
 import netdns  # noqa: E402,F401  (falls back to DNS over HTTPS when the system resolver drops a name)
 
 log = logging.getLogger("stations")
@@ -207,6 +208,8 @@ def build_table(country: str, years: list[int], variables: list[str], workers: i
                 if i % 100 == 0:
                     log.info("  %s %d/%d in %.0f s", var, i, len(urls), time.time() - t0)
         log.info("%s: %d points with data in %d–%d", var, sum(r["var"] == var for r in rows), years[0], years[-1])
+    if not rows:
+        raise NoData(f"{country}: no sampling point with data in {years[0]}–{years[-1]}")
     table = pd.DataFrame(rows).merge(meta, left_on="point", right_on="SamplingPoint", how="left")
     lost = table.Latitude.isna().sum()
     if lost:
