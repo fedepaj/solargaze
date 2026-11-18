@@ -26,6 +26,9 @@ class Classify(unittest.TestCase):
             "HTTP response code: 403": errors.UPSTREAM,
             "Request for 1856559-1890912 failed with response_code=0": errors.TRANSIENT,
             "division by zero": errors.BUG,
+            # Planetary Computer's own words for a 429, with no status code the classifier could read
+            "Request rate limited or blocked. Slow down, or contact planetarycomputer@microsoft.com": errors.TRANSIENT,
+            '{"error":"Backend returned 429."}': errors.TRANSIENT,
         }
         for msg, kind in cases.items():
             self.assertEqual(errors.classify(RuntimeError(msg)), kind, msg)
