@@ -25,6 +25,8 @@ class Classify(unittest.TestCase):
             "overpass busy: 504": errors.TRANSIENT,
             "HTTP response code: 403": errors.UPSTREAM,
             "Request for 1856559-1890912 failed with response_code=0": errors.TRANSIENT,
+            # Planetary Computer's proxy (Envoy) shedding load: a 503 with no status code in the text
+            "upstream connect error or disconnect/reset before headers. reset reason: overflow": errors.TRANSIENT,
             "division by zero": errors.BUG,
         }
         for msg, kind in cases.items():
