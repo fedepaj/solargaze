@@ -114,3 +114,13 @@ class Rescale(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlausibleWinter(unittest.TestCase):
+    def test_finnish_january_is_plausible(self):
+        # Landsat read -23.11 °C as the January median of N60.75E24.50: real, not a bad scene (#34).
+        from sg.products.heat import Heat
+        from sg.products.heat_past import HeatPast
+        for cls in (Heat, HeatPast):
+            lo, hi = cls.plausible_c
+            self.assertTrue(lo < -23.11 < hi, cls)
