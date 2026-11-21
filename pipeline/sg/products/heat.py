@@ -34,7 +34,7 @@ class Heat(Product):
     }
     depends = ("wind",)
     min_buildings = 2000
-    plausible_c = (-20, 75)      # a month's median surface temperature, °C, on a clear morning
+    plausible_c = (-35, 75)      # a month's median surface temperature, °C, on a clear morning (Finland's January reads -23)
 
     def build(self, tile: str, stage: Path, ctx: Context) -> dict:
         import heat_landsat
