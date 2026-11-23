@@ -9,7 +9,7 @@ import pandas as pd
 sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parents[1] / "wind")]
 import importers  # noqa: E402
 from importers import validate  # noqa: E402
-from sg import gaps  # noqa: E402
+from sg import errors, gaps  # noqa: E402
 from sg.errors import Invalid  # noqa: E402
 
 
@@ -118,3 +118,44 @@ class MirrorChecksum(unittest.TestCase):
                 mock.patch.object(regions.requests, "head", return_value=head):
             self.assertEqual(regions._checksum_for("https://geofabrik/europe/germany-latest.osm.pbf"),
                              "0123456789abcdef0123456789abcdef")
+
+
+class ExtractSwap(unittest.TestCase):
+    """Nov 2026: five regions at once got 404 on their -latest.osm.pbf, in the
+    minutes Geofabrik swaps it. A file we know exists is asked for again."""
+
+    def _resp(self, status):
+        from unittest import mock
+        r = mock.MagicMock(status_code=status, headers={"content-length": "3"})
+        r.__enter__.return_value = r
+        r.iter_content.return_value = [b"abc"]
+        r.raise_for_status = mock.Mock()
+        return r
+
+    def test_a_404_on_a_known_extract_is_retried(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from sg import regions
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(regions.requests, "get", side_effect=[self._resp(404), self._resp(200)]), \
+                mock.patch("time.sleep"):
+            dest = Path(d) / "x.pbf"
+            regions._get("https://g/europe/france-latest.osm.pbf", dest, exists=True)
+            self.assertEqual(dest.read_bytes(), b"abc")
+
+    def test_a_404_on_anything_else_stays_upstream(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from sg import regions
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(regions.requests, "get", return_value=self._resp(404)), \
+                self.assertRaises(errors.Upstream):
+            regions._get("https://g/x.poly", Path(d) / "x.poly")
+
+
+class HeatColdMonths(unittest.TestCase):
+    def test_finlands_january_is_plausible(self):
+        from sg.products.heat import Heat as H
+        self.assertLess(H.plausible_c[0], -22.3)
