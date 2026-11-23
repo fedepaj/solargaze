@@ -109,14 +109,17 @@ def name_of(path: str) -> str:
     return path.rsplit("/", 1)[-1]
 
 
-def _get(url: str, dest: Path, log=None) -> None:
+def _get(url: str, dest: Path, log=None, *, exists: bool = False) -> None:
+    """`exists`: the file is one Geofabrik is known to publish (a region of
+    ours). A 404 on it is the extract being swapped for the day's, gone for
+    a moment: transient, asked again."""
     def once():
         tmp = dest.with_suffix(dest.suffix + ".part")
         with requests.get(url, stream=True, timeout=(30, 600)) as r:
             if r.status_code in (429, 500, 502, 503, 504):
                 raise errors.Transient(f"{url}: HTTP {r.status_code}")
             if r.status_code == 404:
-                raise errors.Upstream(f"{url}: not found")
+                raise (errors.Transient if exists else errors.Upstream)(f"{url}: not found")
             r.raise_for_status()
             want = r.headers.get("content-length")
             n = 0
@@ -185,7 +188,7 @@ def fetch(path: str, geofabrik_dir: Path, log=None) -> tuple[Path, Path]:
     want = _checksum_for(f"{GEOFABRIK}/{path}-latest.osm.pbf", log)
     for attempt in (1, 2):
         if not pbf.exists():
-            _get(f"{GEOFABRIK}/{path}-latest.osm.pbf", pbf, log)
+            _get(f"{GEOFABRIK}/{path}-latest.osm.pbf", pbf, log, exists=True)
         h = hashlib.md5()
         with open(pbf, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 24), b""):
