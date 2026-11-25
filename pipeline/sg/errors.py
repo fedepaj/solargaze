@@ -71,6 +71,11 @@ def http_status(exc: BaseException) -> int | None:
     code = getattr(resp, "status_code", None)
     if isinstance(code, int):
         return code
+    # pystac_client's APIError carries the status on itself and, as its
+    # message, the body of the answer ({"error":"Backend returned 429."}).
+    code = getattr(exc, "status_code", None)
+    if isinstance(code, int):
+        return code
     m = _HTTP.search(str(exc))
     return int(m.group(1) or m.group(2)) if m else None
 
