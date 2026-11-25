@@ -35,6 +35,12 @@ class Classify(unittest.TestCase):
         self.assertEqual(errors.classify(TimeoutError()), errors.TRANSIENT)
         self.assertEqual(errors.classify(FakeHTTPError(503)), errors.TRANSIENT)
         self.assertEqual(errors.classify(FakeHTTPError(429)), errors.TRANSIENT)
+        # pystac_client's APIError: the status is on the exception, the message is the body.
+        for code, body in ((429, '{"error":"Backend returned 429."}'), (503, '{"error":"Service is unavailable."}'),
+                           (502, "<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Transitional//EN'>")):
+            e = RuntimeError(body)
+            e.status_code = code
+            self.assertEqual(errors.classify(e), errors.TRANSIENT, body)
         self.assertEqual(errors.classify(FakeHTTPError(404)), errors.UPSTREAM)
         self.assertEqual(errors.classify(errors.NoData("open sea")), errors.NODATA)
         self.assertEqual(errors.classify(errors.Invalid("no month")), errors.BUG)
