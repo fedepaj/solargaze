@@ -25,6 +25,7 @@ class Classify(unittest.TestCase):
             "overpass busy: 504": errors.TRANSIENT,
             "HTTP response code: 403": errors.UPSTREAM,
             "Request for 1856559-1890912 failed with response_code=0": errors.TRANSIENT,
+            "Request rate limited or blocked. Slow down, or contact planetarycomputer@microsoft.com": errors.TRANSIENT,
             "division by zero": errors.BUG,
         }
         for msg, kind in cases.items():

@@ -27,6 +27,10 @@ class Wind(Product):
         info = wind_run.build(Tile.parse(tile), stage)
         if not info.get("osm_buildings"):
             raise NoData("no OSM building in the tile")
+        import stored
+        if not (stored.read(stage / info["heights_png"]["file"]) > 0).any():
+            # A few sheds, none covering half a 10 m cell: nothing the wind can be threaded between.
+            raise NoData(f"{info['osm_buildings']} OSM buildings, none large enough to fill a cell")
         return info
 
     def validate(self, tile: str, stage: Path, info: dict) -> None:
